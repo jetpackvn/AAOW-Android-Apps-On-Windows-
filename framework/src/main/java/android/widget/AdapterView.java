@@ -17,8 +17,15 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id);
     }
 
+    public interface OnItemSelectedListener {
+        void onItemSelected(AdapterView<?> parent, View view, int position, long id);
+
+        void onNothingSelected(AdapterView<?> parent);
+    }
+
     protected OnItemClickListener onItemClickListener;
     protected OnItemLongClickListener onItemLongClickListener;
+    protected OnItemSelectedListener onItemSelectedListener;
 
     public AdapterView(Context context) {
         super(context);
@@ -41,6 +48,14 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
     public final OnItemClickListener getOnItemClickListener() {
         return onItemClickListener;
+    }
+
+    public void setOnItemSelectedListener(OnItemSelectedListener listener) {
+        this.onItemSelectedListener = listener;
+    }
+
+    public final OnItemSelectedListener getOnItemSelectedListener() {
+        return onItemSelectedListener;
     }
 
     public void setOnItemLongClickListener(OnItemLongClickListener listener) {

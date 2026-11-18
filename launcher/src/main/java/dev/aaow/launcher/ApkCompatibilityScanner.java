@@ -284,7 +284,7 @@ public final class ApkCompatibilityScanner {
                                 @Override
                                 public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
                                     if ("dev/aaow/rt/NativeBridge".equals(owner)) {
-                                        if ("onNativeCall".equals(name)) {
+                                        if ("invokeNative".equals(name) || "onNativeCall".equals(name)) {
                                             nativeMethodCount[0]++;
                                         } else if ("loadLibrary".equals(name) || "load".equals(name)) {
                                             loadLibCount[0]++;

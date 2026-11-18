@@ -1,10 +1,8 @@
-package dev.aaow.rt;
+package android.graphics.drawable;
 
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.drawable.Drawable;
 
 import java.awt.BasicStroke;
 import java.awt.Graphics2D;
@@ -14,9 +12,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Vẽ <vector> drawable của Android (SVG pathData) bằng Java2D.
+ * Cài đặt android.graphics.drawable.VectorDrawable vẽ &lt;vector&gt; drawable của Android
+ * (SVG pathData) bằng Java2D.
  */
-public final class VectorDrawable extends Drawable {
+public class VectorDrawable extends Drawable {
     public record PathSpec(Path2D.Float path, int fillColor, int strokeColor, float strokeWidth) {
     }
 
@@ -26,6 +25,10 @@ public final class VectorDrawable extends Drawable {
     private final int intrinsicHeight;
     private final int tintColor;
     private final List<PathSpec> paths = new ArrayList<>();
+
+    public VectorDrawable() {
+        this(24f, 24f, 24, 24, 0);
+    }
 
     public VectorDrawable(float viewportWidth, float viewportHeight, int intrinsicWidth, int intrinsicHeight, int tintColor) {
         this.viewportWidth = viewportWidth > 0 ? viewportWidth : 24f;
@@ -106,7 +109,6 @@ public final class VectorDrawable extends Drawable {
             };
             if (needed == 0) break;
             if (needed == 7) {
-                // Với cung tròn A: đọc 7 tham số và nối thẳng tới điểm đích để giữ hình dáng tổng quát.
                 float[] a = new float[7];
                 for (int k = 0; k < 7; k++) {
                     int[] next = {i};

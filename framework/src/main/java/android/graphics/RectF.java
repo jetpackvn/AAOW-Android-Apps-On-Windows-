@@ -64,6 +64,24 @@ public class RectF implements Parcelable {
         this.bottom = bottom;
     }
 
+    public void set(Rect src) {
+        if (src != null) {
+            this.left = src.left;
+            this.top = src.top;
+            this.right = src.right;
+            this.bottom = src.bottom;
+        }
+    }
+
+    public void set(RectF src) {
+        if (src != null) {
+            this.left = src.left;
+            this.top = src.top;
+            this.right = src.right;
+            this.bottom = src.bottom;
+        }
+    }
+
     public void offset(float dx, float dy) {
         left += dx;
         top += dy;

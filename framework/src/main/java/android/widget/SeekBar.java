@@ -24,7 +24,11 @@ public class SeekBar extends AbsSeekBar {
     }
 
     public SeekBar(Context context, AttributeSet attrs) {
-        super(context, attrs);
+        this(context, attrs, 0);
+    }
+
+    public SeekBar(Context context, AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
         setClickable(true);
         setMinimumHeight(34);
         if (paddingLeft == 0 && paddingRight == 0) {

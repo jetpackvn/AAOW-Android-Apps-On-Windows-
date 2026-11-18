@@ -1,6 +1,8 @@
 package android.widget;
 
 import android.content.Context;
+import android.view.Gravity;
+import android.view.View;
 
 import java.util.function.BiConsumer;
 
@@ -13,12 +15,41 @@ public class Toast {
 
     private static BiConsumer<String, Integer> hostToastBridge;
 
+    private final Context context;
     private final CharSequence text;
     private int duration;
+    private View view;
+    private int gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+
+    public Toast(Context context) {
+        this(context, "", LENGTH_SHORT);
+    }
 
     public Toast(Context context, CharSequence text, int duration) {
+        this.context = context;
         this.text = text;
         this.duration = duration;
+    }
+
+    public void setView(View view) {
+        this.view = view;
+    }
+
+    public View getView() {
+        if (view == null && context != null) {
+            TextView tv = new TextView(context);
+            tv.setText(text);
+            view = tv;
+        }
+        return view;
+    }
+
+    public void setGravity(int gravity, int xOffset, int yOffset) {
+        this.gravity = gravity;
+    }
+
+    public int getGravity() {
+        return gravity;
     }
 
     public static void setHostToastBridge(BiConsumer<String, Integer> bridge) {

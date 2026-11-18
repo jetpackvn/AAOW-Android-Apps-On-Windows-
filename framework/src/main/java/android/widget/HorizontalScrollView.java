@@ -67,6 +67,18 @@ public class HorizontalScrollView extends FrameLayout {
         scrollTo(Math.max(0, Math.min(maxScrollX(), x)), scrollY);
     }
 
+    public boolean fullScroll(int direction) {
+        if (direction == View.FOCUS_LEFT) {
+            scrollTo(0, scrollY);
+            return true;
+        }
+        if (direction == View.FOCUS_RIGHT) {
+            scrollTo(maxScrollX(), scrollY);
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
         int action = ev.getActionMasked();

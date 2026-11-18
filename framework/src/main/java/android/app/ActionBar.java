@@ -117,6 +117,25 @@ public class ActionBar {
         if (onInvalidate != null) onInvalidate.run();
     }
 
+    public void setHomeButtonEnabled(boolean enabled) {
+    }
+
+    public void setIcon(int resId) {
+    }
+
+    public void setIcon(Drawable icon) {
+    }
+
+    public void setLogo(int resId) {
+    }
+
+    public void setLogo(Drawable logo) {
+    }
+
+    public int getHeight() {
+        return showing ? 52 : 0;
+    }
+
     public void show() {
         this.showing = true;
         if (onInvalidate != null) onInvalidate.run();

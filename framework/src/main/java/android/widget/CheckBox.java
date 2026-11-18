@@ -16,7 +16,15 @@ public class CheckBox extends CompoundButton {
     }
 
     public CheckBox(Context context, AttributeSet attrs) {
-        super(context, attrs);
+        this(context, attrs, 0);
+    }
+
+    public CheckBox(Context context, AttributeSet attrs, int defStyleAttr) {
+        this(context, attrs, defStyleAttr, 0);
+    }
+
+    public CheckBox(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+        super(context, attrs, defStyleAttr);
         setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         setTypeface(Typeface.DEFAULT);
         setPadding(32, 8, 12, 8);

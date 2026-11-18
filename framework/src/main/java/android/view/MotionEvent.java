@@ -22,6 +22,8 @@ public final class MotionEvent extends InputEvent {
     private final float rawY;
     private final long downTime;
     private final long eventTime;
+    private float[] pointerXs;
+    private float[] pointerYs;
 
     public MotionEvent(int action, float x, float y, float rawX, float rawY, long downTime, long eventTime) {
         this.action = action;
@@ -37,8 +39,24 @@ public final class MotionEvent extends InputEvent {
         return new MotionEvent(action, x, y, x, y, downTime, eventTime);
     }
 
+    public static MotionEvent obtainMultiPointer(long downTime, long eventTime, int action,
+                                                 float[] xs, float[] ys) {
+        float x0 = xs != null && xs.length > 0 ? xs[0] : 0f;
+        float y0 = ys != null && ys.length > 0 ? ys[0] : 0f;
+        MotionEvent ev = new MotionEvent(action, x0, y0, x0, y0, downTime, eventTime);
+        if (xs != null && ys != null && xs.length == ys.length && xs.length > 1) {
+            ev.pointerXs = xs.clone();
+            ev.pointerYs = ys.clone();
+        }
+        return ev;
+    }
+
     public static MotionEvent obtain(MotionEvent other) {
-        return new MotionEvent(other.action, other.x, other.y, other.rawX, other.rawY, other.downTime, other.eventTime);
+        MotionEvent copy = new MotionEvent(other.action, other.x, other.y, other.rawX, other.rawY,
+                other.downTime, other.eventTime);
+        if (other.pointerXs != null) copy.pointerXs = other.pointerXs.clone();
+        if (other.pointerYs != null) copy.pointerYs = other.pointerYs.clone();
+        return copy;
     }
 
     public int getAction() {
@@ -66,10 +84,16 @@ public final class MotionEvent extends InputEvent {
     }
 
     public float getX(int pointerIndex) {
+        if (pointerXs != null && pointerIndex >= 0 && pointerIndex < pointerXs.length) {
+            return pointerXs[pointerIndex];
+        }
         return x;
     }
 
     public float getY(int pointerIndex) {
+        if (pointerYs != null && pointerIndex >= 0 && pointerIndex < pointerYs.length) {
+            return pointerYs[pointerIndex];
+        }
         return y;
     }
 
@@ -82,15 +106,15 @@ public final class MotionEvent extends InputEvent {
     }
 
     public int getPointerCount() {
-        return 1;
+        return pointerXs != null ? pointerXs.length : 1;
     }
 
     public int getPointerId(int pointerIndex) {
-        return 0;
+        return pointerIndex;
     }
 
     public int findPointerIndex(int pointerId) {
-        return pointerId == 0 ? 0 : -1;
+        return pointerId >= 0 && pointerId < getPointerCount() ? pointerId : -1;
     }
 
     public long getDownTime() {
@@ -105,11 +129,19 @@ public final class MotionEvent extends InputEvent {
     public void offsetLocation(float deltaX, float deltaY) {
         this.x += deltaX;
         this.y += deltaY;
+        if (pointerXs != null) {
+            for (int i = 0; i < pointerXs.length; i++) pointerXs[i] += deltaX;
+        }
+        if (pointerYs != null) {
+            for (int i = 0; i < pointerYs.length; i++) pointerYs[i] += deltaY;
+        }
     }
 
     public void setLocation(float x, float y) {
         this.x = x;
         this.y = y;
+        if (pointerXs != null && pointerXs.length > 0) pointerXs[0] = x;
+        if (pointerYs != null && pointerYs.length > 0) pointerYs[0] = y;
     }
 
     @Override

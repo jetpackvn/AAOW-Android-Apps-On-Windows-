@@ -6,6 +6,13 @@ import java.awt.geom.AffineTransform;
  * Cài đặt android.graphics.Matrix dựa trên AffineTransform của Java2D.
  */
 public class Matrix {
+    public enum ScaleToFit {
+        FILL,
+        START,
+        CENTER,
+        END
+    }
+
     public static final int MSCALE_X = 0;
     public static final int MSKEW_X = 1;
     public static final int MTRANS_X = 2;
@@ -193,5 +200,22 @@ public class Matrix {
         if (values == null || values.length < 9) return;
         tx.setTransform(values[MSCALE_X], values[MSKEW_Y], values[MSKEW_X],
                 values[MSCALE_Y], values[MTRANS_X], values[MTRANS_Y]);
+    }
+
+    public boolean setRectToRect(RectF src, RectF dst, ScaleToFit stf) {
+        if (src == null || dst == null || src.isEmpty()) {
+            reset();
+            return false;
+        }
+        float sx = dst.width() / src.width();
+        float sy = dst.height() / src.height();
+        if (stf != ScaleToFit.FILL) {
+            float s = Math.min(sx, sy);
+            sx = s;
+            sy = s;
+        }
+        tx.setToTranslation(dst.left - src.left * sx, dst.top - src.top * sy);
+        tx.scale(sx, sy);
+        return true;
     }
 }

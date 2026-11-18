@@ -28,6 +28,18 @@ public interface Editable extends CharSequence, GetChars, Spannable, Appendable 
 
     void clearSpans();
 
+    class Factory {
+        private static final Factory sInstance = new Factory();
+
+        public static Factory getInstance() {
+            return sInstance;
+        }
+
+        public Editable newEditable(CharSequence source) {
+            return new SpannableStringBuilder(source);
+        }
+    }
+
     final class SpanStore {
         private static final class Entry {
             final Object what;

@@ -1,24 +1,51 @@
 package android.os;
 
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Handler của Android chạy trên luồng giao diện Windows (Swing EDT),
- * hỗ trợ post, postDelayed, sendMessage, sendEmptyMessageDelayed, removeCallbacks.
+ * Handler của Android chạy đúng trên Looper tương ứng:
+ * - Nếu gắn với MAIN_LOOPER: điều phối về Swing Event Dispatch Thread (EDT).
+ * - Nếu gắn với Looper của HandlerThread: thực thi tuần tự trên luồng nền của HandlerThread đó.
  */
 public class Handler {
     public interface Callback {
         boolean handleMessage(Message msg);
     }
 
-    private final Looper looper;
-    private final Callback callback;
-    private final List<Scheduled> scheduled = new CopyOnWriteArrayList<>();
+    private static final ScheduledExecutorService MAIN_TIMER = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "AAOW-HandlerTimer");
+        t.setDaemon(true);
+        return t;
+    });
 
-    private record Scheduled(Runnable runnable, int what, Timer timer) {
+    private final Looper looper;
+    final Callback callback;
+    Callback mCallback;
+    private final List<ScheduledEntry> scheduled = new CopyOnWriteArrayList<>();
+
+    private static final class ScheduledEntry {
+        final Runnable runnable;
+        final int what;
+        final Object token;
+        final boolean hasMessage;
+        final AtomicBoolean cancelled = new AtomicBoolean(false);
+        volatile ScheduledFuture<?> future;
+        volatile Looper.QueuedTask bgTask;
+
+        ScheduledEntry(Runnable runnable, int what, Object token, boolean hasMessage) {
+            this.runnable = runnable;
+            this.what = what;
+            this.token = token;
+            this.hasMessage = hasMessage;
+        }
     }
 
     public Handler() {
@@ -36,6 +63,15 @@ public class Handler {
     public Handler(Looper looper, Callback callback) {
         this.looper = looper != null ? looper : Looper.getMainLooper();
         this.callback = callback;
+        this.mCallback = callback;
+    }
+
+    public static Handler createAsync(Looper looper) {
+        return new Handler(looper);
+    }
+
+    public static Handler createAsync(Looper looper, Callback callback) {
+        return new Handler(looper, callback);
     }
 
     public void handleMessage(Message msg) {
@@ -45,13 +81,20 @@ public class Handler {
         if (msg.callback != null) {
             msg.callback.run();
         } else {
-            if (callback != null && callback.handleMessage(msg)) return;
+            Callback cb = mCallback != null ? mCallback : callback;
+            if (cb != null && cb.handleMessage(msg)) return;
             handleMessage(msg);
         }
     }
 
     public final Looper getLooper() {
         return looper;
+    }
+
+    public String getMessageName(Message message) {
+        if (message == null) return "null";
+        if (message.callback != null) return message.callback.getClass().getName();
+        return "0x" + Integer.toHexString(message.what);
     }
 
     public final Message obtainMessage() {
@@ -70,48 +113,39 @@ public class Handler {
         return Message.obtain(this, what, arg1, arg2);
     }
 
+    public final Message obtainMessage(int what, int arg1, int arg2, Object obj) {
+        return Message.obtain(this, what, arg1, arg2, obj);
+    }
+
     public final boolean post(Runnable r) {
-        SwingUtilities.invokeLater(r);
-        return true;
+        return sendMessageDelayed(getPostMessage(r, null), 0);
+    }
+
+    public final boolean postAtFrontOfQueue(Runnable r) {
+        return sendMessageAtFrontOfQueue(getPostMessage(r, null));
+    }
+
+    public final boolean postAtTime(Runnable r, long uptimeMillis) {
+        return sendMessageAtTime(getPostMessage(r, null), uptimeMillis);
+    }
+
+    public final boolean postAtTime(Runnable r, Object token, long uptimeMillis) {
+        return sendMessageAtTime(getPostMessage(r, token), uptimeMillis);
     }
 
     public final boolean postDelayed(Runnable r, long delayMillis) {
-        int delay = (int) Math.max(0, delayMillis);
-        final Scheduled[] holder = new Scheduled[1];
-        Timer t = new Timer(delay, e -> {
-            if (holder[0] != null) scheduled.remove(holder[0]);
-            r.run();
-        });
-        t.setRepeats(false);
-        holder[0] = new Scheduled(r, -1, t);
-        scheduled.add(holder[0]);
-        t.start();
-        return true;
+        return sendMessageDelayed(getPostMessage(r, null), delayMillis);
     }
 
-    public final void removeCallbacks(Runnable r) {
-        for (Scheduled s : scheduled) {
-            if (s.runnable == r) {
-                s.timer.stop();
-                scheduled.remove(s);
-            }
-        }
+    public final boolean postDelayed(Runnable r, Object token, long delayMillis) {
+        return sendMessageDelayed(getPostMessage(r, token), delayMillis);
     }
 
-    public final void removeMessages(int what) {
-        for (Scheduled s : scheduled) {
-            if (s.what == what) {
-                s.timer.stop();
-                scheduled.remove(s);
-            }
-        }
-    }
-
-    public final void removeCallbacksAndMessages(Object token) {
-        for (Scheduled s : scheduled) {
-            s.timer.stop();
-        }
-        scheduled.clear();
+    private static Message getPostMessage(Runnable r, Object token) {
+        Message m = Message.obtain();
+        m.obj = token;
+        m.callback = r;
+        return m;
     }
 
     public final boolean sendMessage(Message msg) {
@@ -123,26 +157,137 @@ public class Handler {
     }
 
     public final boolean sendEmptyMessageDelayed(int what, long delayMillis) {
-        Message msg = Message.obtain(this, what);
-        return sendMessageDelayed(msg, delayMillis);
+        return sendMessageDelayed(Message.obtain(this, what), delayMillis);
+    }
+
+    public final boolean sendEmptyMessageAtTime(int what, long uptimeMillis) {
+        return sendMessageAtTime(Message.obtain(this, what), uptimeMillis);
     }
 
     public final boolean sendMessageDelayed(Message msg, long delayMillis) {
+        long safeDelay = Math.max(0L, delayMillis);
+        return sendMessageAtTime(msg, SystemClock.uptimeMillis() + safeDelay);
+    }
+
+    public final boolean sendMessageAtFrontOfQueue(Message msg) {
+        return enqueueMessage(msg, 0L, true);
+    }
+
+    public boolean sendMessageAtTime(Message msg, long uptimeMillis) {
+        return enqueueMessage(msg, uptimeMillis, false);
+    }
+
+    private boolean enqueueMessage(Message msg, long uptimeMillis, boolean front) {
+        if (msg == null) return false;
         msg.target = this;
-        if (delayMillis <= 0) {
-            SwingUtilities.invokeLater(() -> dispatchMessage(msg));
+        msg.when = uptimeMillis;
+        boolean hasMsg = msg.callback == null;
+        ScheduledEntry entry = new ScheduledEntry(msg.callback, msg.what, msg.obj, hasMsg);
+        scheduled.add(entry);
+
+        Runnable exec = () -> {
+            scheduled.remove(entry);
+            if (!entry.cancelled.get()) {
+                dispatchMessage(msg);
+            }
+        };
+
+        if (looper.isMain()) {
+            long delay = front ? 0L : Math.max(0L, uptimeMillis - SystemClock.uptimeMillis());
+            if (delay <= 0L) {
+                SwingUtilities.invokeLater(exec);
+            } else {
+                entry.future = MAIN_TIMER.schedule(() -> {
+                    if (!entry.cancelled.get()) {
+                        SwingUtilities.invokeLater(exec);
+                    } else {
+                        scheduled.remove(entry);
+                    }
+                }, delay, TimeUnit.MILLISECONDS);
+            }
             return true;
         }
-        int delay = (int) delayMillis;
-        final Scheduled[] holder = new Scheduled[1];
-        Timer t = new Timer(delay, e -> {
-            if (holder[0] != null) scheduled.remove(holder[0]);
-            dispatchMessage(msg);
-        });
-        t.setRepeats(false);
-        holder[0] = new Scheduled(msg.callback, msg.what, t);
-        scheduled.add(holder[0]);
-        t.start();
+
+        Looper.QueuedTask qt = looper.enqueue(exec, uptimeMillis, front);
+        if (qt == null) {
+            scheduled.remove(entry);
+            return false;
+        }
+        entry.bgTask = qt;
         return true;
+    }
+
+    private void cancelEntry(ScheduledEntry s) {
+        s.cancelled.set(true);
+        if (s.future != null) s.future.cancel(false);
+        if (s.bgTask != null) looper.removeTask(s.bgTask);
+        scheduled.remove(s);
+    }
+
+    public final void removeCallbacks(Runnable r) {
+        if (r == null) return;
+        for (ScheduledEntry s : scheduled) {
+            if (s.runnable == r) {
+                cancelEntry(s);
+            }
+        }
+    }
+
+    public final void removeCallbacks(Runnable r, Object token) {
+        if (r == null) return;
+        for (ScheduledEntry s : scheduled) {
+            if (s.runnable == r && (token == null || Objects.equals(token, s.token))) {
+                cancelEntry(s);
+            }
+        }
+    }
+
+    public final void removeMessages(int what) {
+        for (ScheduledEntry s : scheduled) {
+            if (s.hasMessage && s.what == what) {
+                cancelEntry(s);
+            }
+        }
+    }
+
+    public final void removeMessages(int what, Object object) {
+        for (ScheduledEntry s : scheduled) {
+            if (s.hasMessage && s.what == what && (object == null || Objects.equals(object, s.token))) {
+                cancelEntry(s);
+            }
+        }
+    }
+
+    public final void removeCallbacksAndMessages(Object token) {
+        for (ScheduledEntry s : scheduled) {
+            if (token == null || Objects.equals(token, s.token)) {
+                cancelEntry(s);
+            }
+        }
+    }
+
+    public final boolean hasMessages(int what) {
+        for (ScheduledEntry s : scheduled) {
+            if (!s.cancelled.get() && s.hasMessage && s.what == what) return true;
+        }
+        return false;
+    }
+
+    public final boolean hasMessages(int what, Object object) {
+        for (ScheduledEntry s : scheduled) {
+            if (!s.cancelled.get() && s.hasMessage && s.what == what
+                    && (object == null || Objects.equals(object, s.token))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public final boolean hasCallbacks(Runnable r) {
+        if (r == null) return false;
+        for (ScheduledEntry s : scheduled) {
+            if (!s.cancelled.get() && s.runnable == r) return true;
+        }
+        return false;
     }
 }

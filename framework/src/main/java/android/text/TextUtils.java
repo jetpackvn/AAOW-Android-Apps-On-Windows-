@@ -1,6 +1,13 @@
 package android.text;
 
 public class TextUtils {
+    public enum TruncateAt {
+        START,
+        MIDDLE,
+        END,
+        MARQUEE
+    }
+
     public static boolean isEmpty(CharSequence str) {
         return str == null || str.length() == 0;
     }
@@ -37,5 +44,54 @@ public class TextUtils {
             sb.append(token);
         }
         return sb.toString();
+    }
+
+    public static CharSequence ellipsize(CharSequence text, TextPaint p, float avail, TruncateAt where) {
+        if (text == null) return "";
+        String s = text.toString();
+        if (p == null || p.measureText(s) <= avail) return text;
+        String ellipsis = "…";
+        float ellW = p.measureText(ellipsis);
+        if (avail <= ellW) return "";
+        int len = s.length();
+        while (len > 0 && p.measureText(s, 0, len) + ellW > avail) {
+            len--;
+        }
+        return s.substring(0, len) + ellipsis;
+    }
+
+    public static String htmlEncode(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '<' -> sb.append("&lt;");
+                case '>' -> sb.append("&gt;");
+                case '&' -> sb.append("&amp;");
+                case '\'' -> sb.append("&#39;");
+                case '"' -> sb.append("&quot;");
+                default -> sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    public static CharSequence stringOrSpannedString(CharSequence source) {
+        return source;
+    }
+
+    public static String[] split(String text, String expression) {
+        if (text == null || text.isEmpty()) {
+            return new String[0];
+        }
+        return text.split(expression, -1);
+    }
+
+    public static String[] split(String text, java.util.regex.Pattern pattern) {
+        if (text == null || text.isEmpty()) {
+            return new String[0];
+        }
+        return pattern.split(text, -1);
     }
 }

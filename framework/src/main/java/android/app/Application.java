@@ -13,12 +13,60 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class Application extends ContextWrapper implements ComponentCallbacks2 {
     public interface ActivityLifecycleCallbacks {
         void onActivityCreated(Activity activity, Bundle savedInstanceState);
+
         void onActivityStarted(Activity activity);
+
         void onActivityResumed(Activity activity);
+
         void onActivityPaused(Activity activity);
+
         void onActivityStopped(Activity activity);
+
         void onActivitySaveInstanceState(Activity activity, Bundle outState);
+
         void onActivityDestroyed(Activity activity);
+
+        default void onActivityPreCreated(Activity activity, Bundle savedInstanceState) {
+        }
+
+        default void onActivityPostCreated(Activity activity, Bundle savedInstanceState) {
+        }
+
+        default void onActivityPreStarted(Activity activity) {
+        }
+
+        default void onActivityPostStarted(Activity activity) {
+        }
+
+        default void onActivityPreResumed(Activity activity) {
+        }
+
+        default void onActivityPostResumed(Activity activity) {
+        }
+
+        default void onActivityPrePaused(Activity activity) {
+        }
+
+        default void onActivityPostPaused(Activity activity) {
+        }
+
+        default void onActivityPreStopped(Activity activity) {
+        }
+
+        default void onActivityPostStopped(Activity activity) {
+        }
+
+        default void onActivityPreSaveInstanceState(Activity activity, Bundle outState) {
+        }
+
+        default void onActivityPostSaveInstanceState(Activity activity, Bundle outState) {
+        }
+
+        default void onActivityPreDestroyed(Activity activity) {
+        }
+
+        default void onActivityPostDestroyed(Activity activity) {
+        }
     }
 
     public interface OnProvideAssistDataListener {
@@ -33,7 +81,9 @@ public class Application extends ContextWrapper implements ComponentCallbacks2 {
     }
 
     public void attach(Context context) {
+        ActivityThread.setPackageName(context != null ? context.getPackageName() : null);
         attachBaseContext(context);
+        ActivityThread.setCurrentApplication(this);
     }
 
     public void onCreate() {
@@ -66,7 +116,8 @@ public class Application extends ContextWrapper implements ComponentCallbacks2 {
     }
 
     public void registerComponentCallbacks(ComponentCallbacks callback) {
-        if (callback != null) componentCallbacks.add(callback);
+        if (callback != null)
+            componentCallbacks.add(callback);
     }
 
     public void unregisterComponentCallbacks(ComponentCallbacks callback) {
@@ -74,7 +125,8 @@ public class Application extends ContextWrapper implements ComponentCallbacks2 {
     }
 
     public void registerActivityLifecycleCallbacks(ActivityLifecycleCallbacks callback) {
-        if (callback != null) lifecycleCallbacks.add(callback);
+        if (callback != null)
+            lifecycleCallbacks.add(callback);
     }
 
     public void unregisterActivityLifecycleCallbacks(ActivityLifecycleCallbacks callback) {
@@ -82,7 +134,7 @@ public class Application extends ContextWrapper implements ComponentCallbacks2 {
     }
 
     public static String getProcessName() {
-        return "dev.aaow.process";
+        return ActivityThread.currentProcessName();
     }
 
     public void dispatchActivityCreated(Activity activity, Bundle savedInstanceState) {

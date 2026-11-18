@@ -7,15 +7,24 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.text.Editable;
+import android.text.InputFilter;
+import android.text.Layout;
+import android.text.StaticLayout;
 import android.text.TextPaint;
+import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.text.method.KeyListener;
 import android.text.method.MovementMethod;
+import android.text.method.TransformationMethod;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
+import android.view.ActionMode;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import dev.aaow.apk.ResValue;
@@ -30,6 +39,10 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class TextView extends View implements ViewTreeObserver.OnPreDrawListener {
+    public interface OnEditorActionListener {
+        boolean onEditorAction(TextView v, int actionId, KeyEvent event);
+    }
+
     private static final Graphics2D METRICS_G =
             new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB).createGraphics();
 
@@ -44,9 +57,27 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     protected boolean singleLine;
     protected boolean allCaps;
     protected int inputType;
+    protected int imeOptions;
     protected Editable.SimpleEditable editableText;
     protected final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     protected final List<TextWatcher> watchers = new CopyOnWriteArrayList<>();
+    protected final Drawable[] compoundDrawables = new Drawable[4];
+    protected int compoundDrawablePadding;
+    protected boolean includeFontPadding = true;
+    protected TextUtils.TruncateAt ellipsize;
+    protected float lineSpacingAdd = 0f;
+    protected float lineSpacingMult = 1.0f;
+    protected int autoSizeTextType = 0;
+    private TransformationMethod transformationMethod;
+    private KeyListener keyListener;
+    private Editable.Factory editableFactory = Editable.Factory.getInstance();
+    private OnEditorActionListener onEditorActionListener;
+    private InputFilter[] filters = new InputFilter[0];
+    private ActionMode.Callback customSelectionActionModeCallback;
+    private Drawable textCursorDrawable;
+    private Layout cachedLayout;
+    private int cachedLayoutWidth = -1;
+    private CharSequence cachedLayoutText;
 
     public TextView(Context context) {
         this(context, null, 0);
@@ -104,6 +135,33 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                     ResValue rv = res.getTable().resolve(a.value);
                     if (rv != null) this.allCaps = rv.data() != 0;
                 }
+                case "inputType" -> {
+                    ResValue rv = res.getTable().resolve(a.value);
+                    if (rv != null) this.inputType = rv.data();
+                }
+                case "lines", "minLines" -> {
+                    ResValue rv = res.getTable().resolve(a.value);
+                    if (rv != null && rv.data() > 0 && "lines".equals(a.name)) {
+                        this.maxLines = rv.data();
+                    }
+                }
+                case "drawablePadding" -> this.compoundDrawablePadding = Math.round(res.resolveDimension(a.value, 0f));
+                case "drawableLeft", "drawableStart" -> {
+                    if (a.value.isReference()) compoundDrawables[0] = res.getDrawable(a.value.data());
+                }
+                case "drawableTop" -> {
+                    if (a.value.isReference()) compoundDrawables[1] = res.getDrawable(a.value.data());
+                }
+                case "drawableRight", "drawableEnd" -> {
+                    if (a.value.isReference()) compoundDrawables[2] = res.getDrawable(a.value.data());
+                }
+                case "drawableBottom" -> {
+                    if (a.value.isReference()) compoundDrawables[3] = res.getDrawable(a.value.data());
+                }
+                case "includeFontPadding" -> {
+                    ResValue rv = res.getTable().resolve(a.value);
+                    if (rv != null) this.includeFontPadding = rv.data() != 0;
+                }
             }
         }
         if (fontFamily != null || textStyle != Typeface.NORMAL) {
@@ -120,6 +178,12 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             editableText = text instanceof Editable.SimpleEditable se ? se : new Editable.SimpleEditable(text);
         }
         return editableText;
+    }
+
+    public final void setEditableFactory(Editable.Factory factory) {
+        if (factory != null) {
+            this.editableFactory = factory;
+        }
     }
 
     public void setText(CharSequence text) {
@@ -228,6 +292,14 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return maxLines;
     }
 
+    public void setSingleLine() {
+        setSingleLine(true);
+    }
+
+    public boolean isSingleLine() {
+        return singleLine;
+    }
+
     public void setSingleLine(boolean singleLine) {
         this.singleLine = singleLine;
         if (singleLine) this.maxLines = 1;
@@ -241,12 +313,32 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         invalidate();
     }
 
+    public final TransformationMethod getTransformationMethod() {
+        return transformationMethod;
+    }
+
+    public final void setTransformationMethod(TransformationMethod method) {
+        this.transformationMethod = method;
+        requestLayout();
+        invalidate();
+    }
+
     public void addTextChangedListener(TextWatcher watcher) {
         if (watcher != null) watchers.add(watcher);
     }
 
     public void removeTextChangedListener(TextWatcher watcher) {
         watchers.remove(watcher);
+    }
+
+    public void setOnEditorActionListener(OnEditorActionListener l) {
+        this.onEditorActionListener = l;
+    }
+
+    public void onEditorAction(int actionCode) {
+        if (onEditorActionListener != null) {
+            onEditorActionListener.onEditorAction(this, actionCode, null);
+        }
     }
 
     public int length() {
@@ -271,6 +363,31 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         this.inputType = type;
     }
 
+    public int getImeOptions() {
+        return imeOptions;
+    }
+
+    public void setImeOptions(int imeOptions) {
+        this.imeOptions = imeOptions;
+    }
+
+    public void setImeActionLabel(CharSequence label, int actionId) {
+    }
+
+    public void setPrivateImeOptions(String type) {
+    }
+
+    public final KeyListener getKeyListener() {
+        return keyListener;
+    }
+
+    public void setKeyListener(KeyListener input) {
+        this.keyListener = input;
+        if (input != null) {
+            this.inputType = input.getInputType();
+        }
+    }
+
     public void setTextAppearance(int resId) {
     }
 
@@ -278,10 +395,225 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     public void setTextAppearance(Context context, int resId) {
     }
 
+    public void setCompoundDrawables(Drawable left, Drawable top, Drawable right, Drawable bottom) {
+        compoundDrawables[0] = left;
+        compoundDrawables[1] = top;
+        compoundDrawables[2] = right;
+        compoundDrawables[3] = bottom;
+        requestLayout();
+        invalidate();
+    }
+
+    public void setCompoundDrawablesRelative(Drawable start, Drawable top, Drawable end, Drawable bottom) {
+        setCompoundDrawables(start, top, end, bottom);
+    }
+
     public void setCompoundDrawablesWithIntrinsicBounds(int left, int top, int right, int bottom) {
+        Resources r = getResources();
+        setCompoundDrawablesWithIntrinsicBounds(
+                left != 0 && r != null ? r.getDrawable(left) : null,
+                top != 0 && r != null ? r.getDrawable(top) : null,
+                right != 0 && r != null ? r.getDrawable(right) : null,
+                bottom != 0 && r != null ? r.getDrawable(bottom) : null);
     }
 
     public void setCompoundDrawablesWithIntrinsicBounds(Drawable left, Drawable top, Drawable right, Drawable bottom) {
+        setBoundsIntrinsic(left);
+        setBoundsIntrinsic(top);
+        setBoundsIntrinsic(right);
+        setBoundsIntrinsic(bottom);
+        setCompoundDrawables(left, top, right, bottom);
+    }
+
+    public void setCompoundDrawablesRelativeWithIntrinsicBounds(int start, int top, int end, int bottom) {
+        setCompoundDrawablesWithIntrinsicBounds(start, top, end, bottom);
+    }
+
+    public void setCompoundDrawablesRelativeWithIntrinsicBounds(Drawable start, Drawable top, Drawable end, Drawable bottom) {
+        setCompoundDrawablesWithIntrinsicBounds(start, top, end, bottom);
+    }
+
+    private static void setBoundsIntrinsic(Drawable d) {
+        if (d != null) {
+            int w = d.getIntrinsicWidth();
+            int h = d.getIntrinsicHeight();
+            d.setBounds(0, 0, w > 0 ? w : 24, h > 0 ? h : 24);
+        }
+    }
+
+    public Drawable[] getCompoundDrawables() {
+        return compoundDrawables.clone();
+    }
+
+    public Drawable[] getCompoundDrawablesRelative() {
+        return compoundDrawables.clone();
+    }
+
+    public void setCompoundDrawablePadding(int pad) {
+        this.compoundDrawablePadding = pad;
+        requestLayout();
+    }
+
+    public int getCompoundDrawablePadding() {
+        return compoundDrawablePadding;
+    }
+
+    public int getCompoundPaddingLeft() {
+        Drawable d = compoundDrawables[0];
+        return d == null ? paddingLeft : paddingLeft + compoundDrawablePadding + Math.max(0, d.getBounds().width());
+    }
+
+    public int getCompoundPaddingTop() {
+        Drawable d = compoundDrawables[1];
+        return d == null ? paddingTop : paddingTop + compoundDrawablePadding + Math.max(0, d.getBounds().height());
+    }
+
+    public int getCompoundPaddingRight() {
+        Drawable d = compoundDrawables[2];
+        return d == null ? paddingRight : paddingRight + compoundDrawablePadding + Math.max(0, d.getBounds().width());
+    }
+
+    public int getCompoundPaddingBottom() {
+        Drawable d = compoundDrawables[3];
+        return d == null ? paddingBottom : paddingBottom + compoundDrawablePadding + Math.max(0, d.getBounds().height());
+    }
+
+    public int getCompoundPaddingStart() {
+        return getCompoundPaddingLeft();
+    }
+
+    public int getCompoundPaddingEnd() {
+        return getCompoundPaddingRight();
+    }
+
+    public int getExtendedPaddingTop() {
+        return getCompoundPaddingTop();
+    }
+
+    public int getExtendedPaddingBottom() {
+        return getCompoundPaddingBottom();
+    }
+
+    public int getTotalPaddingLeft() {
+        return getCompoundPaddingLeft();
+    }
+
+    public int getTotalPaddingTop() {
+        return getCompoundPaddingTop();
+    }
+
+    public int getTotalPaddingRight() {
+        return getCompoundPaddingRight();
+    }
+
+    public int getTotalPaddingBottom() {
+        return getCompoundPaddingBottom();
+    }
+
+    public int getTotalPaddingStart() {
+        return getCompoundPaddingStart();
+    }
+
+    public int getTotalPaddingEnd() {
+        return getCompoundPaddingEnd();
+    }
+
+    public void setLines(int lines) {
+        this.maxLines = Math.max(1, lines);
+        this.singleLine = lines == 1;
+        requestLayout();
+    }
+
+    public void setMinLines(int minLines) {
+        requestLayout();
+    }
+
+    public void setEms(int ems) {
+        requestLayout();
+    }
+
+    public void setMinEms(int minEms) {
+        requestLayout();
+    }
+
+    public void setMaxEms(int maxEms) {
+        requestLayout();
+    }
+
+    public void setEllipsize(TextUtils.TruncateAt where) {
+        this.ellipsize = where;
+        invalidate();
+    }
+
+    public TextUtils.TruncateAt getEllipsize() {
+        return ellipsize;
+    }
+
+    public void setIncludeFontPadding(boolean includepad) {
+        this.includeFontPadding = includepad;
+    }
+
+    public boolean getIncludeFontPadding() {
+        return includeFontPadding;
+    }
+
+    public void setHighlightColor(int color) {
+    }
+
+    public void setLinkTextColor(int color) {
+    }
+
+    public void setLinkTextColor(ColorStateList colors) {
+    }
+
+    public void setLineSpacing(float add, float mult) {
+        this.lineSpacingAdd = add;
+        this.lineSpacingMult = mult;
+        cachedLayout = null;
+        requestLayout();
+    }
+
+    public int getAutoSizeTextType() {
+        return autoSizeTextType;
+    }
+
+    public void setAutoSizeTextTypeWithDefaults(int autoSizeTextType) {
+        this.autoSizeTextType = autoSizeTextType;
+    }
+
+    public void setAutoSizeTextTypeUniformWithConfiguration(int min, int max, int step, int unit) {
+        this.autoSizeTextType = 1;
+    }
+
+    public void setAutoSizeTextTypeUniformWithPresetSizes(int[] presetSizes, int unit) {
+        this.autoSizeTextType = 1;
+    }
+
+    public int getLineHeight() {
+        return Math.max(12, Math.round(textSizePx * 1.28f * lineSpacingMult + lineSpacingAdd));
+    }
+
+    public int getLineCount() {
+        Layout l = getLayout();
+        return l != null ? l.getLineCount() : 1;
+    }
+
+    public Layout getLayout() {
+        int contentW = Math.max(200, getWidth() - paddingLeft - paddingRight);
+        CharSequence cur = text != null ? text : "";
+        if (cachedLayout == null || cachedLayoutWidth != contentW || !cur.equals(cachedLayoutText)) {
+            cachedLayout = new StaticLayout(cur, getPaint(), contentW,
+                    Layout.Alignment.ALIGN_NORMAL, lineSpacingMult, lineSpacingAdd, includeFontPadding);
+            cachedLayoutWidth = contentW;
+            cachedLayoutText = cur.toString();
+        }
+        return cachedLayout;
+    }
+
+    @Override
+    public int getBaseline() {
+        Layout l = getLayout();
+        return l != null ? paddingTop + l.getLineBaseline(0) : -1;
     }
 
     public void setTextIsSelectable(boolean selectable) {
@@ -304,7 +636,12 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     protected String displayString() {
-        String s = (text != null && text.length() > 0) ? text.toString() : (hint != null ? hint.toString() : "");
+        CharSequence raw = (text != null && text.length() > 0) ? text : (hint != null ? hint : "");
+        if (transformationMethod != null && text != null && text.length() > 0) {
+            CharSequence transformed = transformationMethod.getTransformation(raw, this);
+            if (transformed != null) raw = transformed;
+        }
+        String s = raw.toString();
         return allCaps ? s.toUpperCase() : s;
     }
 
@@ -405,6 +742,106 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                 default -> paddingLeft;
             };
             g.drawString(line, drawX, startY + i * lineHeight);
+        }
+    }
+
+    private boolean showSoftInputOnFocus = true;
+    private float letterSpacing = 0f;
+    private int minWidthPx = -1;
+    private int maxWidthPx = Integer.MAX_VALUE;
+    private int minHeightPx = -1;
+    private int maxHeightPx = Integer.MAX_VALUE;
+
+    public void setMinWidth(int minPixels) {
+        this.minWidthPx = minPixels;
+        requestLayout();
+    }
+
+    public int getMinWidth() {
+        return minWidthPx;
+    }
+
+    public void setMaxWidth(int maxPixels) {
+        this.maxWidthPx = maxPixels;
+        requestLayout();
+    }
+
+    public int getMaxWidth() {
+        return maxWidthPx;
+    }
+
+    public void setMinHeight(int minPixels) {
+        this.minHeightPx = minPixels;
+        requestLayout();
+    }
+
+    public int getMinHeight() {
+        return minHeightPx;
+    }
+
+    public void setMaxHeight(int maxPixels) {
+        this.maxHeightPx = maxPixels;
+        requestLayout();
+    }
+
+    public int getMaxHeight() {
+        return maxHeightPx;
+    }
+
+    public float getLetterSpacing() {
+        return letterSpacing;
+    }
+
+    public void setLetterSpacing(float letterSpacing) {
+        this.letterSpacing = letterSpacing;
+        invalidate();
+    }
+
+    public void setShowSoftInputOnFocus(boolean show) {
+        this.showSoftInputOnFocus = show;
+    }
+
+    public final boolean getShowSoftInputOnFocus() {
+        return showSoftInputOnFocus;
+    }
+
+    public final ColorStateList getTextColors() {
+        return ColorStateList.valueOf(textColor);
+    }
+
+    public void setFilters(InputFilter[] filters) {
+        this.filters = filters != null ? filters : new InputFilter[0];
+    }
+
+    public InputFilter[] getFilters() {
+        return filters;
+    }
+
+    public void setCustomSelectionActionModeCallback(ActionMode.Callback actionModeCallback) {
+        this.customSelectionActionModeCallback = actionModeCallback;
+    }
+
+    public ActionMode.Callback getCustomSelectionActionModeCallback() {
+        return customSelectionActionModeCallback;
+    }
+
+    public Drawable getTextCursorDrawable() {
+        if (textCursorDrawable == null) {
+            textCursorDrawable = new ColorDrawable(0xFF4F5BD5);
+        }
+        return textCursorDrawable;
+    }
+
+    public void setTextCursorDrawable(Drawable textCursorDrawable) {
+        this.textCursorDrawable = textCursorDrawable;
+        invalidate();
+    }
+
+    public void setTextCursorDrawable(int resId) {
+        if (resId != 0 && getResources() != null) {
+            setTextCursorDrawable(getResources().getDrawable(resId));
+        } else {
+            setTextCursorDrawable((Drawable) null);
         }
     }
 }

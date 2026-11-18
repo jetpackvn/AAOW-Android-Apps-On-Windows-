@@ -105,4 +105,49 @@ public class BaseBundle {
         String s = getString(key);
         return s != null ? s : defaultValue;
     }
+
+    public void putBooleanArray(String key, boolean[] value) {
+        map.put(key, value);
+    }
+
+    public boolean[] getBooleanArray(String key) {
+        Object o = map.get(key);
+        return o instanceof boolean[] arr ? arr : null;
+    }
+
+    public void putIntArray(String key, int[] value) {
+        map.put(key, value);
+    }
+
+    public int[] getIntArray(String key) {
+        Object o = map.get(key);
+        return o instanceof int[] arr ? arr : null;
+    }
+
+    public void putLongArray(String key, long[] value) {
+        map.put(key, value);
+    }
+
+    public long[] getLongArray(String key) {
+        Object o = map.get(key);
+        return o instanceof long[] arr ? arr : null;
+    }
+
+    public void putDoubleArray(String key, double[] value) {
+        map.put(key, value);
+    }
+
+    public double[] getDoubleArray(String key) {
+        Object o = map.get(key);
+        return o instanceof double[] arr ? arr : null;
+    }
+
+    public void putStringArray(String key, String[] value) {
+        map.put(key, value);
+    }
+
+    public String[] getStringArray(String key) {
+        Object o = map.get(key);
+        return o instanceof String[] arr ? arr : null;
+    }
 }

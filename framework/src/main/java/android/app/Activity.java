@@ -1,24 +1,32 @@
 package android.app;
 
 import android.content.ComponentCallbacks2;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.util.AttributeSet;
+import android.view.ActionMode;
 import android.view.ContextMenu;
 import android.view.ContextThemeWrapper;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
+import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.window.OnBackInvokedDispatcher;
+import dev.aaow.rt.AndroidRuntimeContext;
+import dev.aaow.rt.SimpleMenu;
+import dev.aaow.rt.WindowsFilePickerBridge;
 
 import javax.swing.SwingUtilities;
 
@@ -44,6 +52,13 @@ public class Activity extends ContextThemeWrapper
     private Runnable onFinishCallback;
     private Runnable onHostRepaint;
     private android.widget.Toolbar systemActionBarToolbar;
+    private FragmentManager fragmentManager;
+    private SimpleMenu optionsMenu;
+    private boolean optionsMenuCreated;
+    private Runnable openOptionsMenuBridge;
+    private LayoutInflater cachedLayoutInflater;
+    private final java.util.List<Application.ActivityLifecycleCallbacks> lifecycleCallbacks =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
 
     public Activity() {
     }
@@ -65,6 +80,11 @@ public class Activity extends ContextThemeWrapper
             onContentChanged();
             if (this.onHostRepaint != null) this.onHostRepaint.run();
         });
+        this.fragmentManager = new FragmentManager.Impl(this, null);
+    }
+
+    public void setOpenOptionsMenuBridge(Runnable bridge) {
+        this.openOptionsMenuBridge = bridge;
     }
 
     public final Application getApplication() {
@@ -73,6 +93,46 @@ public class Activity extends ContextThemeWrapper
 
     public Intent getIntent() {
         return intent;
+    }
+
+    public ComponentName getComponentName() {
+        if (intent != null && intent.getComponent() != null) {
+            return intent.getComponent();
+        }
+        return new ComponentName(getPackageName() != null ? getPackageName() : "", getClass().getName());
+    }
+
+    public String getLocalClassName() {
+        String pkg = getPackageName();
+        String cls = getClass().getName();
+        if (pkg != null && !pkg.isEmpty() && cls.startsWith(pkg + ".")) {
+            return cls.substring(pkg.length() + 1);
+        }
+        return cls;
+    }
+
+    public ComponentName getCallingActivity() {
+        return null;
+    }
+
+    public String getCallingPackage() {
+        return null;
+    }
+
+    public final Activity getParent() {
+        return null;
+    }
+
+    public final boolean isChild() {
+        return false;
+    }
+
+    public int getTaskId() {
+        return 1;
+    }
+
+    public boolean isTaskRoot() {
+        return true;
     }
 
     public void setIntent(Intent newIntent) {
@@ -88,8 +148,95 @@ public class Activity extends ContextThemeWrapper
         return svc instanceof WindowManager wm ? wm : null;
     }
 
+    @Override
+    public Object getSystemService(String name) {
+        if (LAYOUT_INFLATER_SERVICE.equals(name)) {
+            if (cachedLayoutInflater == null) {
+                cachedLayoutInflater = new LayoutInflater(this);
+            }
+            return cachedLayoutInflater;
+        }
+        return super.getSystemService(name);
+    }
+
     public void invalidateOptionsMenu() {
+        optionsMenuCreated = false;
+        rebuildOptionsMenu();
         if (onHostRepaint != null) onHostRepaint.run();
+    }
+
+    public MenuInflater getMenuInflater() {
+        return new MenuInflater(this);
+    }
+
+    public SimpleMenu getOptionsMenu() {
+        if (!optionsMenuCreated) {
+            rebuildOptionsMenu();
+        }
+        return optionsMenu;
+    }
+
+    public void rebuildOptionsMenu() {
+        if (optionsMenu == null) {
+            optionsMenu = new SimpleMenu(this);
+        } else {
+            optionsMenu.clear();
+        }
+        try {
+            boolean show = onCreateOptionsMenu(optionsMenu);
+            if (fragmentManager != null) {
+                show |= fragmentManager.dispatchCreateOptionsMenu(optionsMenu, getMenuInflater());
+            }
+            if (show) {
+                onPrepareOptionsMenu(optionsMenu);
+                if (fragmentManager != null) {
+                    fragmentManager.dispatchPrepareOptionsMenu(optionsMenu);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        optionsMenuCreated = true;
+    }
+
+    public void openOptionsMenu() {
+        rebuildOptionsMenu();
+        if (openOptionsMenuBridge != null) {
+            openOptionsMenuBridge.run();
+        }
+    }
+
+    public void closeOptionsMenu() {
+    }
+
+    public boolean dispatchOptionsItemSelected(MenuItem item) {
+        if (item == null) return false;
+        if (item instanceof SimpleMenu.SimpleMenuItem smi && smi.invokeClick()) return true;
+        if (onOptionsItemSelected(item)) return true;
+        return fragmentManager != null && fragmentManager.dispatchOptionsItemSelected(item);
+    }
+
+    public FragmentManager getFragmentManager() {
+        if (fragmentManager == null) {
+            fragmentManager = new FragmentManager.Impl(this, null);
+        }
+        return fragmentManager;
+    }
+
+    public void onAttachFragment(Fragment fragment) {
+    }
+
+    public OnBackInvokedDispatcher getOnBackInvokedDispatcher() {
+        return window != null ? window.getOnBackInvokedDispatcher() : null;
+    }
+
+    public ActionMode startActionMode(ActionMode.Callback callback) {
+        return null;
+    }
+
+    public void onActionModeStarted(ActionMode mode) {
+    }
+
+    public void onActionModeFinished(ActionMode mode) {
     }
 
     public void requestPermissions(String[] permissions, int requestCode) {
@@ -198,7 +345,43 @@ public class Activity extends ContextThemeWrapper
     }
 
     public void startActivityForResult(Intent intent, int requestCode) {
-        startActivity(intent);
+        startActivityForResult(intent, requestCode, null);
+    }
+
+    public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
+        if (intent == null) return;
+        if (WindowsFilePickerBridge.isFilePickerIntent(intent)) {
+            Intent picked = WindowsFilePickerBridge.pickFiles(this, intent);
+            int code = picked != null ? RESULT_OK : RESULT_CANCELED;
+            onActivityResult(requestCode, code, picked);
+            if (onHostRepaint != null) onHostRepaint.run();
+            return;
+        }
+        Context c = getBaseContext();
+        while (c instanceof ContextWrapper cw) {
+            if (c instanceof AndroidRuntimeContext) break;
+            c = cw.getBaseContext();
+        }
+        if (c instanceof AndroidRuntimeContext arc) {
+            arc.dispatchStartActivityForResult(this, intent, requestCode);
+        } else {
+            startActivity(intent, options);
+        }
+    }
+
+    public final void dispatchActivityResult(int requestCode, int resultCode, Intent data) {
+        onActivityResult(requestCode, resultCode, data);
+        if (onHostRepaint != null) onHostRepaint.run();
+    }
+
+    public void overridePendingTransition(int enterAnim, int exitAnim) {
+    }
+
+    public void setRequestedOrientation(int requestedOrientation) {
+    }
+
+    public int getRequestedOrientation() {
+        return -1;
     }
 
     public void finish() {
@@ -303,6 +486,12 @@ public class Activity extends ContextThemeWrapper
     }
 
     public void onBackPressed() {
+        if (window != null && window.dispatchBackInvoked()) {
+            return;
+        }
+        if (fragmentManager != null && fragmentManager.popBackStackImmediate()) {
+            return;
+        }
         finish();
     }
 
@@ -359,31 +548,82 @@ public class Activity extends ContextThemeWrapper
         return false;
     }
 
+    public void registerActivityLifecycleCallbacks(Application.ActivityLifecycleCallbacks callback) {
+        if (callback != null && !lifecycleCallbacks.contains(callback)) {
+            lifecycleCallbacks.add(callback);
+        }
+    }
+
+    public void unregisterActivityLifecycleCallbacks(Application.ActivityLifecycleCallbacks callback) {
+        lifecycleCallbacks.remove(callback);
+    }
+
+    private void notifyLifecycle(java.util.function.Consumer<Application.ActivityLifecycleCallbacks> action) {
+        for (Application.ActivityLifecycleCallbacks cb : lifecycleCallbacks) {
+            try {
+                action.accept(cb);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     // --------------------------------------------------------- Gọi nội bộ bởi AAOW Runtime
 
     public final void performCreate(Bundle savedInstanceState) {
+        notifyLifecycle(cb -> cb.onActivityPreCreated(this, savedInstanceState));
         onCreate(savedInstanceState);
+        notifyLifecycle(cb -> cb.onActivityCreated(this, savedInstanceState));
+        notifyLifecycle(cb -> cb.onActivityPostCreated(this, savedInstanceState));
+        if (application != null) application.dispatchActivityCreated(this, savedInstanceState);
+        if (fragmentManager != null) fragmentManager.dispatchCreate();
         onPostCreate(savedInstanceState);
+        rebuildOptionsMenu();
     }
 
     public final void performStart() {
+        notifyLifecycle(cb -> cb.onActivityPreStarted(this));
         onStart();
+        notifyLifecycle(cb -> cb.onActivityStarted(this));
+        notifyLifecycle(cb -> cb.onActivityPostStarted(this));
+        if (application != null) application.dispatchActivityStarted(this);
+        if (fragmentManager != null) fragmentManager.dispatchStart();
     }
 
     public final void performResume() {
+        notifyLifecycle(cb -> cb.onActivityPreResumed(this));
         onResume();
+        notifyLifecycle(cb -> cb.onActivityResumed(this));
+        notifyLifecycle(cb -> cb.onActivityPostResumed(this));
+        if (application != null) application.dispatchActivityResumed(this);
+        if (fragmentManager != null) fragmentManager.dispatchResume();
         onPostResume();
+        rebuildOptionsMenu();
     }
 
     public final void performPause() {
+        notifyLifecycle(cb -> cb.onActivityPrePaused(this));
+        notifyLifecycle(cb -> cb.onActivityPaused(this));
+        if (application != null) application.dispatchActivityPaused(this);
+        if (fragmentManager != null) fragmentManager.dispatchPause();
         onPause();
+        notifyLifecycle(cb -> cb.onActivityPostPaused(this));
     }
 
     public final void performStop() {
+        notifyLifecycle(cb -> cb.onActivityPreStopped(this));
+        notifyLifecycle(cb -> cb.onActivityStopped(this));
+        if (application != null) application.dispatchActivityStopped(this);
+        if (fragmentManager != null) fragmentManager.dispatchStop();
         onStop();
+        notifyLifecycle(cb -> cb.onActivityPostStopped(this));
     }
 
     public final void performDestroy() {
+        notifyLifecycle(cb -> cb.onActivityPreDestroyed(this));
+        if (fragmentManager != null) fragmentManager.dispatchDestroy();
         onDestroy();
+        notifyLifecycle(cb -> cb.onActivityDestroyed(this));
+        notifyLifecycle(cb -> cb.onActivityPostDestroyed(this));
+        if (application != null) application.dispatchActivityDestroyed(this);
     }
 }

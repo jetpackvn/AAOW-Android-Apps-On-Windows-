@@ -70,6 +70,42 @@ public class KeyEvent extends InputEvent {
         return (metaState & META_ALT_ON) != 0;
     }
 
+    public static int normalizeMetaState(int metaState) {
+        return metaState & (META_SHIFT_ON | META_ALT_ON | META_CTRL_ON);
+    }
+
+    public static boolean metaStateHasNoModifiers(int metaState) {
+        return normalizeMetaState(metaState) == 0;
+    }
+
+    public static boolean metaStateHasModifiers(int metaState, int modifiers) {
+        return (normalizeMetaState(metaState) & modifiers) == modifiers;
+    }
+
+    public final boolean hasNoModifiers() {
+        return metaStateHasNoModifiers(metaState);
+    }
+
+    public final boolean hasModifiers(int modifiers) {
+        return metaStateHasModifiers(metaState, modifiers);
+    }
+
+    public final boolean isCanceled() {
+        return false;
+    }
+
+    public final int getUnicodeChar() {
+        return 0;
+    }
+
+    public final int getUnicodeChar(int metaState) {
+        return 0;
+    }
+
+    public final int getRepeatCount() {
+        return 0;
+    }
+
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(action);

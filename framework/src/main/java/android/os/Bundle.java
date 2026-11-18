@@ -63,6 +63,42 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         map.put(key, value);
     }
 
+    public void putParcelableArray(String key, Parcelable[] value) {
+        map.put(key, value);
+    }
+
+    public Parcelable[] getParcelableArray(String key) {
+        Object o = map.get(key);
+        return o instanceof Parcelable[] arr ? arr : null;
+    }
+
+    public void putCharSequenceArray(String key, CharSequence[] value) {
+        map.put(key, value);
+    }
+
+    public CharSequence[] getCharSequenceArray(String key) {
+        Object o = map.get(key);
+        return o instanceof CharSequence[] arr ? arr : null;
+    }
+
+    public void putFloatArray(String key, float[] value) {
+        map.put(key, value);
+    }
+
+    public float[] getFloatArray(String key) {
+        Object o = map.get(key);
+        return o instanceof float[] arr ? arr : null;
+    }
+
+    public void putByteArray(String key, byte[] value) {
+        map.put(key, value);
+    }
+
+    public byte[] getByteArray(String key) {
+        Object o = map.get(key);
+        return o instanceof byte[] arr ? arr : null;
+    }
+
     public void putParcelableArrayList(String key, ArrayList<? extends Parcelable> value) {
         map.put(key, value);
     }
@@ -72,14 +108,6 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     public void putIntegerArrayList(String key, ArrayList<Integer> value) {
-        map.put(key, value);
-    }
-
-    public void putIntArray(String key, int[] value) {
-        map.put(key, value);
-    }
-
-    public void putStringArray(String key, String[] value) {
         map.put(key, value);
     }
 

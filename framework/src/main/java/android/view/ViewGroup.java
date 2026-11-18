@@ -3,7 +3,11 @@ package android.view;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Canvas;
+import android.graphics.Point;
+import android.graphics.Rect;
+import android.os.Parcelable;
 import android.util.AttributeSet;
+import android.util.SparseArray;
 import dev.aaow.apk.ResValue;
 import dev.aaow.apk.XmlElement;
 
@@ -120,10 +124,43 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
             this.rightMargin = right;
             this.bottomMargin = bottom;
         }
+
+        public int getMarginStart() {
+            return leftMargin;
+        }
+
+        public int getMarginEnd() {
+            return rightMargin;
+        }
+
+        public void setMarginStart(int start) {
+            this.leftMargin = start;
+        }
+
+        public void setMarginEnd(int end) {
+            this.rightMargin = end;
+        }
+
+        public boolean isMarginRelative() {
+            return false;
+        }
+
+        public void resolveLayoutDirection(int layoutDirection) {
+        }
     }
+
+    public static final int FOCUS_BEFORE_DESCENDANTS = 0x20000;
+    public static final int FOCUS_AFTER_DESCENDANTS = 0x40000;
+    public static final int FOCUS_BLOCK_DESCENDANTS = 0x60000;
 
     protected final List<View> children = new ArrayList<>();
     private View touchTarget;
+    private View focusedChild;
+    private boolean clipChildren = true;
+    private boolean clipToPadding = true;
+    private int descendantFocusability = FOCUS_BEFORE_DESCENDANTS;
+    private boolean disallowIntercept;
+    private OnHierarchyChangeListener hierarchyChangeListener;
 
     public ViewGroup(Context context) {
         super(context);
@@ -226,6 +263,75 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
         children.clear();
         touchTarget = null;
         requestLayout();
+    }
+
+    protected void detachViewFromParent(View child) {
+        if (child != null && children.remove(child)) {
+            child.parent = null;
+        }
+    }
+
+    protected void detachViewFromParent(int index) {
+        if (index >= 0 && index < children.size()) {
+            View v = children.remove(index);
+            v.parent = null;
+        }
+    }
+
+    protected void detachViewsFromParent(int start, int count) {
+        for (int i = 0; i < count && start < children.size(); i++) {
+            View v = children.remove(start);
+            v.parent = null;
+        }
+    }
+
+    protected void detachAllViewsFromParent() {
+        for (View v : children) {
+            v.parent = null;
+        }
+        children.clear();
+    }
+
+    protected void attachViewToParent(View child, int index, LayoutParams params) {
+        if (child == null) return;
+        child.parent = this;
+        if (params != null) child.setLayoutParams(params);
+        if (index < 0 || index > children.size()) {
+            children.add(child);
+        } else {
+            children.add(index, child);
+        }
+    }
+
+    protected void removeDetachedView(View child, boolean animate) {
+        if (child != null && child.parent == this) {
+            child.parent = null;
+        }
+        if (touchTarget == child) touchTarget = null;
+    }
+
+    protected void cleanupLayoutState(View child) {
+    }
+
+    protected boolean addViewInLayout(View child, int index, LayoutParams params) {
+        return addViewInLayout(child, index, params, false);
+    }
+
+    protected boolean addViewInLayout(View child, int index, LayoutParams params, boolean preventRequestLayout) {
+        if (child == null) return false;
+        child.parent = this;
+        child.setLayoutParams(checkLayoutParams(params) ? params : generateLayoutParams(params));
+        if (index < 0 || index > children.size()) {
+            children.add(child);
+        } else {
+            children.add(index, child);
+        }
+        if (!preventRequestLayout) requestLayout();
+        return true;
+    }
+
+    public void removeAllViewsInLayout() {
+        detachAllViewsFromParent();
     }
 
     public LayoutParams generateLayoutParams(AttributeSet attrs) {
@@ -390,6 +496,258 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
 
     @Override
     public boolean isLayoutRequested() {
+        return super.isLayoutRequested();
+    }
+
+    public void setOnHierarchyChangeListener(OnHierarchyChangeListener listener) {
+        this.hierarchyChangeListener = listener;
+    }
+
+    public boolean getClipChildren() {
+        return clipChildren;
+    }
+
+    public void setClipChildren(boolean clipChildren) {
+        this.clipChildren = clipChildren;
+        invalidate();
+    }
+
+    public boolean getClipToPadding() {
+        return clipToPadding;
+    }
+
+    public void setClipToPadding(boolean clipToPadding) {
+        this.clipToPadding = clipToPadding;
+        invalidate();
+    }
+
+    public void setMotionEventSplittingEnabled(boolean split) {
+    }
+
+    public int getDescendantFocusability() {
+        return descendantFocusability;
+    }
+
+    public void setDescendantFocusability(int focusability) {
+        this.descendantFocusability = focusability;
+    }
+
+    @Override
+    public boolean hasFocus() {
+        if (super.hasFocus()) return true;
+        for (View child : children) {
+            if (child.hasFocus()) return true;
+        }
         return false;
+    }
+
+    @Override
+    public View findFocus() {
+        if (isFocused()) return this;
+        for (View child : children) {
+            View f = child.findFocus();
+            if (f != null) return f;
+        }
+        return null;
+    }
+
+    public View getFocusedChild() {
+        return focusedChild;
+    }
+
+    public boolean onInterceptTouchEvent(MotionEvent ev) {
+        return false;
+    }
+
+    @Override
+    public void bringChildToFront(View child) {
+        int idx = children.indexOf(child);
+        if (idx >= 0 && idx < children.size() - 1) {
+            children.remove(idx);
+            children.add(child);
+            invalidate();
+        }
+    }
+
+    @Override
+    public void requestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+        this.disallowIntercept = disallowIntercept;
+        if (parent != null) parent.requestDisallowInterceptTouchEvent(disallowIntercept);
+    }
+
+    @Override
+    public void invalidateChild(View child, Rect dirty) {
+        invalidate();
+    }
+
+    @Override
+    public ViewParent invalidateChildInParent(int[] location, Rect dirty) {
+        invalidate();
+        return parent;
+    }
+
+    @Override
+    public boolean getChildVisibleRect(View child, Rect r, Point offset) {
+        if (r != null && child != null) {
+            r.offset(child.getLeft() - scrollX, child.getTop() - scrollY);
+        }
+        if (offset != null && child != null) {
+            offset.x += child.getLeft() - scrollX;
+            offset.y += child.getTop() - scrollY;
+        }
+        return true;
+    }
+
+    @Override
+    public void requestChildFocus(View child, View focused) {
+        this.focusedChild = child;
+        if (parent != null) parent.requestChildFocus(this, focused);
+    }
+
+    @Override
+    public void clearChildFocus(View child) {
+        if (this.focusedChild == child) {
+            this.focusedChild = null;
+        }
+        if (parent != null) parent.clearChildFocus(this);
+    }
+
+    @Override
+    public boolean onStartNestedScroll(View child, View target, int nestedScrollAxes) {
+        return false;
+    }
+
+    @Override
+    public void onNestedScrollAccepted(View child, View target, int nestedScrollAxes) {
+    }
+
+    @Override
+    public void onStopNestedScroll(View target) {
+    }
+
+    @Override
+    public void onNestedScroll(View target, int dxConsumed, int dyConsumed, int dxUnconsumed, int dyUnconsumed) {
+    }
+
+    @Override
+    public void onNestedPreScroll(View target, int dx, int dy, int[] consumed) {
+    }
+
+    @Override
+    public boolean onNestedFling(View target, float velocityX, float velocityY, boolean consumed) {
+        return false;
+    }
+
+    @Override
+    public boolean onNestedPreFling(View target, float velocityX, float velocityY) {
+        return false;
+    }
+
+    @Override
+    public void requestFitSystemWindows() {
+        if (parent != null) parent.requestFitSystemWindows();
+    }
+
+    @Override
+    public boolean canResolveLayoutDirection() {
+        return true;
+    }
+
+    @Override
+    public boolean isLayoutDirectionResolved() {
+        return true;
+    }
+
+    @Override
+    public boolean canResolveTextDirection() {
+        return true;
+    }
+
+    @Override
+    public boolean isTextDirectionResolved() {
+        return true;
+    }
+
+    @Override
+    public boolean canResolveTextAlignment() {
+        return true;
+    }
+
+    @Override
+    public boolean isTextAlignmentResolved() {
+        return true;
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        for (View child : List.copyOf(children)) {
+            child.dispatchAttachedToWindow();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        for (View child : List.copyOf(children)) {
+            child.dispatchDetachedFromWindow();
+        }
+        super.onDetachedFromWindow();
+    }
+
+    @Override
+    protected void dispatchSaveInstanceState(SparseArray<Parcelable> container) {
+        super.dispatchSaveInstanceState(container);
+        for (View child : children) {
+            child.saveHierarchyState(container);
+        }
+    }
+
+    @Override
+    protected void dispatchRestoreInstanceState(SparseArray<Parcelable> container) {
+        super.dispatchRestoreInstanceState(container);
+        for (View child : children) {
+            child.restoreHierarchyState(container);
+        }
+    }
+
+    @Override
+    public WindowInsets dispatchApplyWindowInsets(WindowInsets insets) {
+        WindowInsets res = super.dispatchApplyWindowInsets(insets);
+        if (!res.isConsumed()) {
+            for (View child : children) {
+                child.dispatchApplyWindowInsets(res);
+            }
+        }
+        return res;
+    }
+
+    private boolean addStatesFromChildren;
+    private int transientStateCount;
+
+    public boolean addStatesFromChildren() {
+        return addStatesFromChildren;
+    }
+
+    public void setAddStatesFromChildren(boolean addsStates) {
+        this.addStatesFromChildren = addsStates;
+    }
+
+    @Override
+    public void childHasTransientStateChanged(View child, boolean hasTransientState) {
+        boolean old = hasTransientState();
+        if (hasTransientState) {
+            transientStateCount++;
+        } else if (transientStateCount > 0) {
+            transientStateCount--;
+        }
+        boolean now = hasTransientState();
+        if (old != now && getParent() != null) {
+            getParent().childHasTransientStateChanged(this, now);
+        }
+    }
+
+    @Override
+    public boolean hasTransientState() {
+        return transientStateCount > 0 || super.hasTransientState();
     }
 }

@@ -7,6 +7,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 import java.io.Serializable;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -18,6 +19,8 @@ public class Intent implements Cloneable, Parcelable {
     public static final String ACTION_CHOOSER = "android.intent.action.CHOOSER";
     public static final String ACTION_GET_CONTENT = "android.intent.action.GET_CONTENT";
     public static final String ACTION_OPEN_DOCUMENT = "android.intent.action.OPEN_DOCUMENT";
+    public static final String ACTION_CREATE_DOCUMENT = "android.intent.action.CREATE_DOCUMENT";
+    public static final String ACTION_OPEN_DOCUMENT_TREE = "android.intent.action.OPEN_DOCUMENT_TREE";
     public static final String CATEGORY_DEFAULT = "android.intent.category.DEFAULT";
     public static final String CATEGORY_LAUNCHER = "android.intent.category.LAUNCHER";
     public static final String CATEGORY_OPENABLE = "android.intent.category.OPENABLE";
@@ -26,12 +29,17 @@ public class Intent implements Cloneable, Parcelable {
     public static final String EXTRA_TITLE = "android.intent.extra.TITLE";
     public static final String EXTRA_STREAM = "android.intent.extra.STREAM";
     public static final String EXTRA_INTENT = "android.intent.extra.INTENT";
+    public static final String EXTRA_ALLOW_MULTIPLE = "android.intent.extra.ALLOW_MULTIPLE";
+    public static final String EXTRA_MIME_TYPES = "android.intent.extra.MIME_TYPES";
+
+    public static final int URI_INTENT_SCHEME = 1 << 0;
 
     public static final int FLAG_ACTIVITY_NEW_TASK = 0x10000000;
     public static final int FLAG_ACTIVITY_CLEAR_TOP = 0x04000000;
     public static final int FLAG_ACTIVITY_SINGLE_TOP = 0x20000000;
     public static final int FLAG_ACTIVITY_CLEAR_TASK = 0x00008000;
     public static final int FLAG_GRANT_READ_URI_PERMISSION = 0x00000001;
+    public static final int FLAG_GRANT_WRITE_URI_PERMISSION = 0x00000002;
 
     private String action;
     private Uri data;
@@ -39,6 +47,7 @@ public class Intent implements Cloneable, Parcelable {
     private String packageName;
     private ComponentName component;
     private int flags;
+    private ClipData clipData;
     private final Set<String> categories = new HashSet<>();
     private final Bundle extras = new Bundle();
 
@@ -53,6 +62,7 @@ public class Intent implements Cloneable, Parcelable {
             this.packageName = o.packageName;
             this.component = o.component;
             this.flags = o.flags;
+            this.clipData = o.clipData != null ? new ClipData(o.clipData) : null;
             this.categories.addAll(o.categories);
             this.extras.putAll(o.extras);
         }
@@ -245,6 +255,36 @@ public class Intent implements Cloneable, Parcelable {
         return this;
     }
 
+    public Intent putExtra(String name, byte[] value) {
+        extras.putByteArray(name, value);
+        return this;
+    }
+
+    public ClipData getClipData() {
+        return clipData;
+    }
+
+    public void setClipData(ClipData clip) {
+        this.clipData = clip;
+    }
+
+    @Deprecated
+    public String toUri() {
+        return toUri(0);
+    }
+
+    public String toUri(int flags) {
+        StringBuilder sb = new StringBuilder();
+        if (data != null) sb.append(data.toString());
+        else sb.append("intent:");
+        sb.append("#Intent;");
+        if (action != null) sb.append("action=").append(action).append(';');
+        if (packageName != null) sb.append("package=").append(packageName).append(';');
+        if (component != null) sb.append("component=").append(component.flattenToShortString()).append(';');
+        sb.append("end");
+        return sb.toString();
+    }
+
     public Intent putParcelableArrayListExtra(String name, ArrayList<? extends Parcelable> value) {
         extras.putParcelableArrayList(name, value);
         return this;
@@ -329,6 +369,10 @@ public class Intent implements Cloneable, Parcelable {
         return extras.getIntArray(name);
     }
 
+    public byte[] getByteArrayExtra(String name) {
+        return extras.getByteArray(name);
+    }
+
     public Bundle getExtras() {
         return new Bundle(extras);
     }
@@ -373,6 +417,59 @@ public class Intent implements Cloneable, Parcelable {
     @Override
     public Object clone() {
         return new Intent(this);
+    }
+
+    public static Intent parseUri(String uri, int flags) throws URISyntaxException {
+        if (uri == null) return new Intent();
+        Intent intent = new Intent(ACTION_VIEW);
+        if (uri.startsWith("intent:")) {
+            int hashIdx = uri.indexOf("#Intent;");
+            if (hashIdx >= 0) {
+                String schemePart = uri.substring("intent:".length(), hashIdx);
+                if (!schemePart.isEmpty()) {
+                    intent.setData(Uri.parse(schemePart));
+                }
+                String meta = uri.substring(hashIdx + "#Intent;".length());
+                String pkg = null;
+                String cls = null;
+                for (String token : meta.split(";")) {
+                    if ("end".equals(token)) break;
+                    int eq = token.indexOf('=');
+                    if (eq <= 0) continue;
+                    String k = token.substring(0, eq);
+                    String v = token.substring(eq + 1);
+                    switch (k) {
+                        case "action" -> intent.setAction(v);
+                        case "category" -> intent.addCategory(v);
+                        case "package" -> {
+                            pkg = v;
+                            intent.setPackage(v);
+                        }
+                        case "component" -> {
+                            int slash = v.indexOf('/');
+                            if (slash > 0) {
+                                pkg = v.substring(0, slash);
+                                cls = v.substring(slash + 1);
+                                if (cls.startsWith(".")) cls = pkg + cls;
+                                intent.setClassName(pkg, cls);
+                            }
+                        }
+                        case "scheme" -> {
+                            if (intent.getData() == null) {
+                                intent.setData(Uri.parse(v + ":" + schemePart));
+                            }
+                        }
+                        case "type" -> intent.setType(v);
+                        default -> {
+                            if (k.startsWith("S.")) intent.putExtra(k.substring(2), v);
+                        }
+                    }
+                }
+                return intent;
+            }
+        }
+        intent.setData(Uri.parse(uri));
+        return intent;
     }
 
     @Override

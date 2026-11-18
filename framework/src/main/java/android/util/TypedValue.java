@@ -26,6 +26,10 @@ public class TypedValue {
     public static final int COMPLEX_UNIT_PT = 3;
     public static final int COMPLEX_UNIT_IN = 4;
     public static final int COMPLEX_UNIT_MM = 5;
+    public static final int COMPLEX_UNIT_SHIFT = 0;
+    public static final int COMPLEX_UNIT_MASK = 0xf;
+    public static final int COMPLEX_UNIT_FRACTION = 0;
+    public static final int COMPLEX_UNIT_FRACTION_PARENT = 1;
 
     public int type;
     public CharSequence string;
@@ -79,5 +83,17 @@ public class TypedValue {
                 1.0f / (1 << 15) * mantissaMult, 1.0f / (1 << 23) * mantissaMult
         };
         return (complex & 0xffffff00) * radixMults[(complex >> 4) & 3];
+    }
+
+    public float getFraction(float base, float pbase) {
+        return complexToFraction(data, base, pbase);
+    }
+
+    public static float complexToFraction(int data, float base, float pbase) {
+        return switch ((data >> COMPLEX_UNIT_SHIFT) & COMPLEX_UNIT_MASK) {
+            case COMPLEX_UNIT_FRACTION -> complexToFloat(data) * base;
+            case COMPLEX_UNIT_FRACTION_PARENT -> complexToFloat(data) * pbase;
+            default -> 0f;
+        };
     }
 }

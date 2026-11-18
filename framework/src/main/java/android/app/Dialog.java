@@ -27,6 +27,10 @@ public class Dialog implements DialogInterface {
         return window;
     }
 
+    public ActionBar getActionBar() {
+        return null;
+    }
+
     public void setTitle(CharSequence title) {
         this.title = title != null ? title : "";
     }
@@ -49,6 +53,12 @@ public class Dialog implements DialogInterface {
 
     public void setCancelable(boolean flag) {
         this.cancelable = flag;
+    }
+
+    public void setCanceledOnTouchOutside(boolean cancel) {
+        if (cancel && !cancelable) {
+            cancelable = true;
+        }
     }
 
     public boolean isShowing() {

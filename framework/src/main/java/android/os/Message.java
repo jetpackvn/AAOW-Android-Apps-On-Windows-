@@ -6,12 +6,28 @@ public final class Message implements Parcelable {
     public int arg2;
     public Object obj;
     public int sendingUid = -1;
+    public long when;
     public Handler target;
     public Runnable callback;
     Bundle data;
 
     public static Message obtain() {
         return new Message();
+    }
+
+    public static Message obtain(Message orig) {
+        Message m = new Message();
+        if (orig != null) {
+            m.what = orig.what;
+            m.arg1 = orig.arg1;
+            m.arg2 = orig.arg2;
+            m.obj = orig.obj;
+            m.sendingUid = orig.sendingUid;
+            m.target = orig.target;
+            m.callback = orig.callback;
+            if (orig.data != null) m.data = new Bundle(orig.data);
+        }
+        return m;
     }
 
     public static Message obtain(Handler h) {
@@ -61,6 +77,31 @@ public final class Message implements Parcelable {
         return m;
     }
 
+    public void copyFrom(Message o) {
+        if (o == null) return;
+        this.what = o.what;
+        this.arg1 = o.arg1;
+        this.arg2 = o.arg2;
+        this.obj = o.obj;
+        this.data = o.data != null ? (Bundle) o.data.clone() : null;
+    }
+
+    public void setTarget(Handler target) {
+        this.target = target;
+    }
+
+    public Handler getTarget() {
+        return target;
+    }
+
+    public Runnable getCallback() {
+        return callback;
+    }
+
+    public long getWhen() {
+        return when;
+    }
+
     public void recycle() {
     }
 
@@ -70,6 +111,10 @@ public final class Message implements Parcelable {
 
     public Bundle getData() {
         if (data == null) data = new Bundle();
+        return data;
+    }
+
+    public Bundle peekData() {
         return data;
     }
 
@@ -89,4 +134,21 @@ public final class Message implements Parcelable {
         dest.writeInt(arg2);
         dest.writeBundle(data);
     }
+
+    public static final Creator<Message> CREATOR = new Creator<>() {
+        @Override
+        public Message createFromParcel(Parcel in) {
+            Message m = Message.obtain();
+            m.what = in.readInt();
+            m.arg1 = in.readInt();
+            m.arg2 = in.readInt();
+            m.data = in.readBundle();
+            return m;
+        }
+
+        @Override
+        public Message[] newArray(int size) {
+            return new Message[size];
+        }
+    };
 }

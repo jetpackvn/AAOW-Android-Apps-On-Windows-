@@ -38,7 +38,32 @@ public final class Uri implements Comparable<Uri>, Parcelable {
     }
 
     public static String encode(String s) {
-        return s == null ? null : URLEncoder.encode(s, StandardCharsets.UTF_8);
+        return s == null ? null : URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    public static String encode(String s, String allow) {
+        if (s == null) return null;
+        if (allow == null || allow.isEmpty()) return encode(s);
+        StringBuilder out = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); ) {
+            int cp = s.codePointAt(i);
+            int charCount = Character.charCount(cp);
+            if ((cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') || (cp >= '0' && cp <= '9')
+                    || cp == '_' || cp == '-' || cp == '.' || cp == '~'
+                    || (cp < 128 && allow.indexOf(cp) >= 0)) {
+                out.appendCodePoint(cp);
+            } else {
+                String sub = s.substring(i, i + charCount);
+                byte[] bytes = sub.getBytes(StandardCharsets.UTF_8);
+                for (byte b : bytes) {
+                    out.append('%');
+                    out.append(Character.toUpperCase(Character.forDigit((b >> 4) & 0xF, 16)));
+                    out.append(Character.toUpperCase(Character.forDigit(b & 0xF, 16)));
+                }
+            }
+            i += charCount;
+        }
+        return out.toString();
     }
 
     public static String decode(String s) {
@@ -175,7 +200,17 @@ public final class Uri implements Comparable<Uri>, Parcelable {
             return this;
         }
 
+        public Builder encodedAuthority(String authority) {
+            this.authority = authority;
+            return this;
+        }
+
         public Builder path(String path) {
+            this.path = path != null ? path : "";
+            return this;
+        }
+
+        public Builder encodedPath(String path) {
             this.path = path != null ? path : "";
             return this;
         }
@@ -201,6 +236,16 @@ public final class Uri implements Comparable<Uri>, Parcelable {
             return this;
         }
 
+        public Builder encodedQuery(String query) {
+            this.query = query;
+            return this;
+        }
+
+        public Builder clearQuery() {
+            this.query = null;
+            return this;
+        }
+
         public Builder appendQueryParameter(String key, String value) {
             String pair = encode(key) + "=" + encode(value != null ? value : "");
             this.query = (this.query == null || this.query.isEmpty()) ? pair : this.query + "&" + pair;
@@ -208,6 +253,11 @@ public final class Uri implements Comparable<Uri>, Parcelable {
         }
 
         public Builder fragment(String fragment) {
+            this.fragment = fragment;
+            return this;
+        }
+
+        public Builder encodedFragment(String fragment) {
             this.fragment = fragment;
             return this;
         }

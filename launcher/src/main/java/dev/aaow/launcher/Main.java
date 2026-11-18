@@ -49,10 +49,16 @@ public final class Main {
         }
 
         if (args.length >= 2 && "--screenshot-hub".equals(args[0])) {
-            AppRepository repo = new AppRepository(dataRoot, samplesDir);
-            File out = new File(args[1]);
-            new AppHubWindow(repo).renderScreenshot(out, 1080, 700);
-            Log.i("AAOW", "Đã xuất ảnh chụp giao diện AAOW App Hub ra: " + out.getAbsolutePath());
+            try {
+                AppRepository repo = new AppRepository(dataRoot, samplesDir);
+                File out = new File(args[1]);
+                new AppHubWindow(repo).renderScreenshot(out, 1080, 700);
+                Log.i("AAOW", "Đã xuất ảnh chụp giao diện AAOW App Hub ra: " + out.getAbsolutePath());
+                System.exit(0);
+            } catch (Throwable t) {
+                t.printStackTrace();
+                System.exit(1);
+            }
             return;
         }
 
@@ -126,13 +132,9 @@ public final class Main {
         Thread.currentThread().setContextClassLoader(apkClassLoader);
 
         AndroidRuntimeContext runtimeContext = new AndroidRuntimeContext(apk, apkClassLoader, dataRoot);
-        Application app = createApplication(mf, apkClassLoader, runtimeContext);
-        runtimeContext.setApplicationContext(app);
-        try {
-            app.onCreate();
-        } catch (Throwable t) {
-            Log.w("AAOW", "Application.onCreate() gặp ngoại lệ (đã bỏ qua để tiếp tục mở Activity): " + t);
-        }
+        Application app = AppRepository.createAndInitializeApplication(
+                mf, apkClassLoader, runtimeContext,
+                msg -> Log.w("AAOW", msg));
 
         String targetActivity = activityOverride != null ? activityOverride : mf.launcherActivity;
         if (targetActivity == null) {
@@ -141,31 +143,22 @@ public final class Main {
 
         HostWindow host = new HostWindow(runtimeContext, app);
         if (screenshotOut != null) {
-            host.renderHeadlessScreenshot(targetActivity, screenshotOut, 420, 820);
-            Log.i("AAOW", "Đã xuất ảnh chụp giao diện APK ra: " + screenshotOut.getAbsolutePath());
-            apk.close();
-            System.exit(0);
+            try {
+                host.renderHeadlessScreenshot(targetActivity, screenshotOut, 420, 820);
+                Log.i("AAOW", "Đã xuất ảnh chụp giao diện APK ra: " + screenshotOut.getAbsolutePath());
+                apk.close();
+                System.exit(0);
+            } catch (Throwable t) {
+                t.printStackTrace();
+                try {
+                    apk.close();
+                } catch (Exception ignored) {
+                }
+                System.exit(1);
+            }
         } else {
             host.showWindow(targetActivity);
         }
-    }
-
-    private static Application createApplication(AndroidManifest mf, ClassLoader cl, AndroidRuntimeContext ctx) {
-        if (mf.applicationClass != null && !mf.applicationClass.isEmpty()) {
-            try {
-                Class<?> cls = Class.forName(mf.applicationClass, true, cl);
-                if (Application.class.isAssignableFrom(cls)) {
-                    Application app = (Application) cls.getDeclaredConstructor().newInstance();
-                    app.attach(ctx);
-                    return app;
-                }
-            } catch (Throwable t) {
-                Log.w("AAOW", "Không khởi tạo được Application tuỳ chỉnh (" + mf.applicationClass + "), dùng mặc định: " + t);
-            }
-        }
-        Application app = new Application();
-        app.attach(ctx);
-        return app;
     }
 
     private static void printApkInfo(Path apkPath, boolean dumpXml) throws Exception {

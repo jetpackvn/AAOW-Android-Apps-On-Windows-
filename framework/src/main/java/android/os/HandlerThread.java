@@ -1,11 +1,12 @@
 package android.os;
 
 /**
- * Cài đặt android.os.HandlerThread cho phép các ứng dụng khởi chạy luồng nền có Looper riêng.
+ * Cài đặt thật android.os.HandlerThread chạy vòng lặp Looper.loop() trên luồng nền riêng.
  */
 public class HandlerThread extends Thread {
     private Looper looper;
-    private volatile boolean quitting;
+    private volatile boolean started;
+    private volatile boolean finished;
 
     public HandlerThread(String name) {
         super(name);
@@ -15,6 +16,12 @@ public class HandlerThread extends Thread {
     public HandlerThread(String name, int priority) {
         super(name);
         setDaemon(true);
+    }
+
+    @Override
+    public synchronized void start() {
+        started = true;
+        super.start();
     }
 
     protected void onLooperPrepared() {
@@ -27,41 +34,49 @@ public class HandlerThread extends Thread {
             looper = Looper.myLooper();
             notifyAll();
         }
-        onLooperPrepared();
-        while (!quitting && !isInterrupted()) {
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                break;
+        try {
+            onLooperPrepared();
+            Looper.loop();
+        } finally {
+            synchronized (this) {
+                finished = true;
+                notifyAll();
             }
         }
     }
 
     public Looper getLooper() {
-        if (!isAlive()) {
-            return Looper.getMainLooper();
+        if (!started) {
+            return null;
         }
         synchronized (this) {
-            long deadline = System.currentTimeMillis() + 500;
-            while (isAlive() && looper == null && System.currentTimeMillis() < deadline) {
+            while (started && !finished && looper == null) {
                 try {
                     wait(100);
                 } catch (InterruptedException ignored) {
                     break;
                 }
             }
+            return looper;
         }
-        return looper != null ? looper : Looper.getMainLooper();
     }
 
     public boolean quit() {
-        quitting = true;
-        interrupt();
-        return true;
+        Looper l = getLooper();
+        if (l != null) {
+            l.quit();
+            return true;
+        }
+        return false;
     }
 
     public boolean quitSafely() {
-        return quit();
+        Looper l = getLooper();
+        if (l != null) {
+            l.quitSafely();
+            return true;
+        }
+        return false;
     }
 
     public int getThreadId() {

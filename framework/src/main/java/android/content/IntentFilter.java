@@ -71,6 +71,14 @@ public class IntentFilter implements Parcelable {
         if (category != null && !categories.contains(category)) categories.add(category);
     }
 
+    public final int countCategories() {
+        return categories.size();
+    }
+
+    public final String getCategory(int index) {
+        return categories.get(index);
+    }
+
     public final boolean hasCategory(String category) {
         return category != null && categories.contains(category);
     }
@@ -79,12 +87,28 @@ public class IntentFilter implements Parcelable {
         if (scheme != null && !dataSchemes.contains(scheme)) dataSchemes.add(scheme);
     }
 
+    public final int countDataSchemes() {
+        return dataSchemes.size();
+    }
+
+    public final String getDataScheme(int index) {
+        return dataSchemes.get(index);
+    }
+
     public final boolean hasDataScheme(String scheme) {
         return scheme != null && dataSchemes.contains(scheme);
     }
 
     public final void addDataType(String type) {
         if (type != null && !dataTypes.contains(type)) dataTypes.add(type);
+    }
+
+    public final int countDataTypes() {
+        return dataTypes.size();
+    }
+
+    public final boolean hasDataType(String type) {
+        return type != null && dataTypes.contains(type);
     }
 
     public final boolean matchAction(String action) {

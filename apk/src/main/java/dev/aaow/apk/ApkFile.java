@@ -50,6 +50,18 @@ public final class ApkFile implements Closeable {
         }
     }
 
+    /** Liệt kê toàn bộ tên entry trong APK bắt đầu bằng tiền tố cho trước. */
+    public List<String> listEntries(String prefix) {
+        String p = prefix != null ? prefix : "";
+        List<String> out = new ArrayList<>();
+        zip.stream().forEach(e -> {
+            if (!e.isDirectory() && e.getName().startsWith(p)) {
+                out.add(e.getName());
+            }
+        });
+        return out;
+    }
+
     /** classes.dex, classes2.dex, classes3.dex... theo đúng thứ tự. */
     public List<byte[]> readDexFiles() throws IOException {
         List<byte[]> out = new ArrayList<>();
@@ -70,11 +82,27 @@ public final class ApkFile implements Closeable {
         zip.stream().forEach(e -> {
             String n = e.getName();
             if (n.startsWith("lib/") && n.endsWith(".so")) {
-                String abi = n.substring(4, n.indexOf('/', 4));
-                if (!abis.contains(abi)) abis.add(abi);
+                int slash = n.indexOf('/', 4);
+                if (slash > 4) {
+                    String abi = n.substring(4, slash);
+                    if (!abis.contains(abi)) abis.add(abi);
+                }
             }
         });
         return abis;
+    }
+
+    /** Liệt kê tên file thư viện native (.so / .dll) trong một thư mục ABI hoặc toàn bộ lib/. */
+    public List<String> listNativeLibraries(String abi) {
+        String prefix = abi != null && !abi.isEmpty() ? "lib/" + abi + "/" : "lib/";
+        List<String> out = new ArrayList<>();
+        zip.stream().forEach(e -> {
+            if (!e.isDirectory() && e.getName().startsWith(prefix)
+                    && (e.getName().endsWith(".so") || e.getName().endsWith(".dll"))) {
+                out.add(e.getName());
+            }
+        });
+        return out;
     }
 
     @Override

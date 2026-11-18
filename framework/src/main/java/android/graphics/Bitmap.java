@@ -3,10 +3,20 @@ package android.graphics;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import javax.imageio.ImageIO;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.OutputStream;
 
 public final class Bitmap implements Parcelable {
+    public enum CompressFormat {
+        JPEG,
+        PNG,
+        WEBP,
+        WEBP_LOSSY,
+        WEBP_LOSSLESS
+    }
+
     public enum Config {
         ALPHA_8,
         RGB_565,
@@ -17,9 +27,14 @@ public final class Bitmap implements Parcelable {
     }
 
     private final BufferedImage image;
+    private int density = 480;
+    private boolean hasAlpha = true;
 
     public Bitmap(BufferedImage image) {
         this.image = image;
+        if (image != null && image.getColorModel() != null) {
+            this.hasAlpha = image.getColorModel().hasAlpha();
+        }
     }
 
     public BufferedImage getAwtImage() {
@@ -59,6 +74,48 @@ public final class Bitmap implements Parcelable {
         g.setBackground(Color.toAwt(c));
         g.clearRect(0, 0, image.getWidth(), image.getHeight());
         g.dispose();
+    }
+
+    public Config getConfig() {
+        return Config.ARGB_8888;
+    }
+
+    public int getDensity() {
+        return density;
+    }
+
+    public void setDensity(int density) {
+        this.density = density;
+    }
+
+    public boolean hasAlpha() {
+        return hasAlpha;
+    }
+
+    public void setHasAlpha(boolean hasAlpha) {
+        this.hasAlpha = hasAlpha;
+    }
+
+    public Bitmap copy(Config config, boolean isMutable) {
+        if (image == null) return null;
+        BufferedImage copy = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = copy.createGraphics();
+        g.drawImage(image, 0, 0, null);
+        g.dispose();
+        Bitmap b = new Bitmap(copy);
+        b.setDensity(density);
+        b.setHasAlpha(hasAlpha);
+        return b;
+    }
+
+    public boolean compress(CompressFormat format, int quality, OutputStream stream) {
+        if (stream == null || image == null) return false;
+        String fmt = format == CompressFormat.JPEG ? "jpg" : "png";
+        try {
+            return ImageIO.write(image, fmt, stream);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public void recycle() {

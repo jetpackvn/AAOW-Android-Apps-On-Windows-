@@ -4,11 +4,15 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.util.AttributeSet;
+import android.view.MotionEvent;
 import android.view.View;
 
 public class ListView extends AbsListView {
     private ListAdapter adapter;
     private final Paint dividerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private int contentHeight;
+    private float dragLastY;
+    private boolean dragging;
 
     public ListView(Context context) {
         this(context, null);
@@ -57,6 +61,7 @@ public class ListView extends AbsListView {
             totalH += child.getMeasuredHeight() + 1;
             maxW = Math.max(maxW, child.getMeasuredWidth());
         }
+        this.contentHeight = totalH;
         setMeasuredDimension(
                 resolveSize(maxW + paddingLeft + paddingRight, widthMeasureSpec),
                 resolveSize(totalH, heightMeasureSpec)
@@ -72,6 +77,61 @@ public class ListView extends AbsListView {
             child.layout(paddingLeft, y, paddingLeft + w, y + ch);
             y += ch + 1;
         }
+        clampScroll();
+    }
+
+    private int maxScrollY() {
+        return Math.max(0, contentHeight - getHeight());
+    }
+
+    private void clampScroll() {
+        int max = maxScrollY();
+        if (scrollY < 0) scrollY = 0;
+        if (scrollY > max) scrollY = max;
+    }
+
+    @Override
+    public boolean canScrollVertically(int direction) {
+        if (direction < 0) return scrollY > 0;
+        if (direction > 0) return scrollY < maxScrollY();
+        return maxScrollY() > 0;
+    }
+
+    @Override
+    public boolean onMouseWheel(int wheelRotation, float x, float y) {
+        if (super.onMouseWheel(wheelRotation, x, y)) return true;
+        int max = maxScrollY();
+        if (max <= 0) return false;
+        scrollTo(0, Math.max(0, Math.min(max, scrollY + wheelRotation * 36)));
+        return true;
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (maxScrollY() > 0) {
+            switch (ev.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    dragLastY = ev.getY();
+                    dragging = false;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    float dy = dragLastY - ev.getY();
+                    if (Math.abs(dy) > 8f) dragging = true;
+                    if (dragging) {
+                        dragLastY = ev.getY();
+                        scrollTo(0, Math.max(0, Math.min(maxScrollY(), Math.round(scrollY + dy))));
+                        return true;
+                    }
+                }
+                case MotionEvent.ACTION_UP -> {
+                    if (dragging) {
+                        dragging = false;
+                        return true;
+                    }
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev);
     }
 
     @Override

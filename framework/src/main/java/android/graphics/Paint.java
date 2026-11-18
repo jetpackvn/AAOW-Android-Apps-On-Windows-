@@ -46,6 +46,14 @@ public class Paint {
         public float leading;
     }
 
+    public static class FontMetricsInt {
+        public int top;
+        public int ascent;
+        public int descent;
+        public int bottom;
+        public int leading;
+    }
+
     private int flags = ANTI_ALIAS_FLAG;
     private int color = Color.BLACK;
     private Style style = Style.FILL;
@@ -53,8 +61,14 @@ public class Paint {
     private Join join = Join.MITER;
     private float strokeWidth = 1.0f;
     private float textSize = 14.0f;
+    private float textScaleX = 1.0f;
+    private float textSkewX = 0.0f;
+    private float letterSpacing = 0.0f;
     private Align textAlign = Align.LEFT;
     private Typeface typeface = Typeface.DEFAULT;
+    private Xfermode xfermode;
+    private Shader shader;
+    private ColorFilter colorFilter;
 
     public Paint() {
     }
@@ -177,6 +191,103 @@ public class Paint {
         this.textSize = Math.max(1f, textSize);
     }
 
+    public float getTextScaleX() {
+        return textScaleX;
+    }
+
+    public void setTextScaleX(float scaleX) {
+        this.textScaleX = scaleX;
+    }
+
+    public float getTextSkewX() {
+        return textSkewX;
+    }
+
+    public void setTextSkewX(float skewX) {
+        this.textSkewX = skewX;
+    }
+
+    public float getLetterSpacing() {
+        return letterSpacing;
+    }
+
+    public void setLetterSpacing(float letterSpacing) {
+        this.letterSpacing = letterSpacing;
+    }
+
+    public Shader getShader() {
+        return shader;
+    }
+
+    public Shader setShader(Shader shader) {
+        this.shader = shader;
+        return shader;
+    }
+
+    public ColorFilter getColorFilter() {
+        return colorFilter;
+    }
+
+    public ColorFilter setColorFilter(ColorFilter filter) {
+        this.colorFilter = filter;
+        return filter;
+    }
+
+    public void setSubpixelText(boolean subpixelText) {
+        if (subpixelText) flags |= SUBPIXEL_TEXT_FLAG;
+        else flags &= ~SUBPIXEL_TEXT_FLAG;
+    }
+
+    public void setLinearText(boolean linearText) {
+        if (linearText) flags |= LINEAR_TEXT_FLAG;
+        else flags &= ~LINEAR_TEXT_FLAG;
+    }
+
+    public void setUnderlineText(boolean underlineText) {
+        if (underlineText) flags |= UNDERLINE_TEXT_FLAG;
+        else flags &= ~UNDERLINE_TEXT_FLAG;
+    }
+
+    public void setStrikeThruText(boolean strikeThruText) {
+        if (strikeThruText) flags |= STRIKE_THRU_TEXT_FLAG;
+        else flags &= ~STRIKE_THRU_TEXT_FLAG;
+    }
+
+    public void setFakeBoldText(boolean fakeBoldText) {
+        if (fakeBoldText) flags |= FAKE_BOLD_TEXT_FLAG;
+        else flags &= ~FAKE_BOLD_TEXT_FLAG;
+    }
+
+    public void getTextBounds(String text, int start, int end, Rect bounds) {
+        if (bounds == null) return;
+        float w = measureText(text, start, end);
+        FontMetrics fm = getFontMetrics();
+        bounds.set(0, Math.round(fm.ascent), Math.round(w), Math.round(fm.descent));
+    }
+
+    public void getTextBounds(char[] text, int index, int count, Rect bounds) {
+        if (text == null) return;
+        getTextBounds(new String(text, index, count), 0, count, bounds);
+    }
+
+    public int breakText(CharSequence text, int start, int end, boolean measureForwards,
+                         float maxWidth, float[] measuredWidth) {
+        if (text == null || start >= end) return 0;
+        String sub = text.subSequence(start, end).toString();
+        int len = sub.length();
+        float total = 0f;
+        for (int i = 1; i <= len; i++) {
+            float w = measureText(sub, 0, i);
+            if (w > maxWidth) {
+                if (measuredWidth != null && measuredWidth.length > 0) measuredWidth[0] = total;
+                return i - 1;
+            }
+            total = w;
+        }
+        if (measuredWidth != null && measuredWidth.length > 0) measuredWidth[0] = total;
+        return len;
+    }
+
     public Typeface getTypeface() {
         return typeface;
     }
@@ -211,6 +322,24 @@ public class Paint {
         return fm;
     }
 
+    public int getFontMetricsInt(FontMetricsInt fmi) {
+        FontMetrics fm = getFontMetrics();
+        if (fmi != null) {
+            fmi.top = Math.round(fm.top);
+            fmi.ascent = Math.round(fm.ascent);
+            fmi.descent = Math.round(fm.descent);
+            fmi.bottom = Math.round(fm.bottom);
+            fmi.leading = Math.round(fm.leading);
+        }
+        return Math.round(textSize * 1.15f);
+    }
+
+    public FontMetricsInt getFontMetricsInt() {
+        FontMetricsInt fmi = new FontMetricsInt();
+        getFontMetricsInt(fmi);
+        return fmi;
+    }
+
     public float measureText(String text) {
         if (text == null || text.isEmpty()) return 0f;
         return measureText(text, 0, text.length());
@@ -221,6 +350,16 @@ public class Paint {
         Font f = toAwtFont();
         java.awt.font.FontRenderContext frc = new java.awt.font.FontRenderContext(null, true, true);
         return (float) f.getStringBounds(text.substring(start, end), frc).getWidth();
+    }
+
+    public float measureText(CharSequence text, int start, int end) {
+        if (text == null || start >= end) return 0f;
+        return measureText(text.subSequence(start, end).toString());
+    }
+
+    public float measureText(char[] text, int index, int count) {
+        if (text == null || count <= 0) return 0f;
+        return measureText(new String(text, index, count));
     }
 
     public Font toAwtFont() {
@@ -243,5 +382,20 @@ public class Paint {
             default -> BasicStroke.JOIN_MITER;
         };
         return new BasicStroke(Math.max(1f, strokeWidth), awtCap, awtJoin);
+    }
+
+    public Xfermode getXfermode() {
+        return xfermode;
+    }
+
+    public Xfermode setXfermode(Xfermode xfermode) {
+        this.xfermode = xfermode;
+        return xfermode;
+    }
+
+    public void setShadowLayer(float radius, float dx, float dy, int shadowColor) {
+    }
+
+    public void clearShadowLayer() {
     }
 }

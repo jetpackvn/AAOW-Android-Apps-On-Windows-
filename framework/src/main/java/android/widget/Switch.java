@@ -16,7 +16,11 @@ public class Switch extends CompoundButton {
     }
 
     public Switch(Context context, AttributeSet attrs) {
-        super(context, attrs);
+        this(context, attrs, 0);
+    }
+
+    public Switch(Context context, AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
         setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         setTypeface(Typeface.DEFAULT);
         setPadding(8, 8, 56, 8);

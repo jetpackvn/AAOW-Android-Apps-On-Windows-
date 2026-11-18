@@ -1,25 +1,78 @@
 package dev.aaow.launcher;
 
+import android.app.ActivityManager;
+import android.app.IntentService;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationChannelGroup;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
+import android.content.ContentValues;
+import android.content.ContextWrapper;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ComponentInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ProviderInfo;
+import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
+import android.content.pm.Signature;
+import android.content.res.AssetFileDescriptor;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.database.AbstractWindowedCursor;
+import android.database.CursorWindow;
+import android.database.sqlite.SQLiteClosable;
+import android.database.sqlite.SQLiteCursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteProgram;
+import android.database.sqlite.SQLiteQuery;
+import android.database.sqlite.SQLiteStatement;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.Icon;
+import android.media.AudioFormat;
+import android.media.AudioRouting;
+import android.media.AudioTrack;
+import android.media.MediaPlayer;
+import android.media.VolumeAutomation;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkInfo;
+import android.net.NetworkRequest;
 import android.net.Uri;
+import android.os.BaseBundle;
 import android.os.Bundle;
+import android.os.Message;
+import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
+import android.os.PersistableBundle;
+import android.os.RemoteException;
+import android.os.ResultReceiver;
+import android.print.PageRange;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentInfo;
+import android.print.PrintJobId;
+import android.print.PrintJobInfo;
 import android.text.Editable;
 import android.text.Spannable;
 import android.util.AndroidException;
+import android.util.Base64;
+import android.util.JsonReader;
+import android.util.JsonToken;
+import android.util.JsonWriter;
+import android.os.PowerManager;
+import android.os.StatFs;
+import android.os.StrictMode;
 import android.view.InputEvent;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -31,6 +84,7 @@ import android.widget.BaseAdapter;
 import android.widget.Checkable;
 import android.widget.CompoundButton;
 import android.widget.ListView;
+import android.widget.RemoteViews;
 import android.widget.SeekBar;
 import android.widget.SpinnerAdapter;
 import dev.aaow.rt.HostWindow;
@@ -69,12 +123,45 @@ class FrameworkHierarchyTest {
         assertTrue(Checkable.class.isAssignableFrom(CompoundButton.class));
         assertTrue(SpinnerAdapter.class.isAssignableFrom(BaseAdapter.class));
         assertTrue(Spannable.class.isAssignableFrom(Editable.class));
+        assertTrue(SQLiteClosable.class.isAssignableFrom(SQLiteDatabase.class));
+        assertTrue(SQLiteClosable.class.isAssignableFrom(SQLiteProgram.class));
+        assertTrue(SQLiteClosable.class.isAssignableFrom(CursorWindow.class));
+        assertTrue(SQLiteProgram.class.isAssignableFrom(SQLiteStatement.class));
+        assertTrue(SQLiteProgram.class.isAssignableFrom(SQLiteQuery.class));
+        assertTrue(AbstractWindowedCursor.class.isAssignableFrom(SQLiteCursor.class));
+        assertTrue(ContextWrapper.class.isAssignableFrom(Service.class));
+        assertTrue(Service.class.isAssignableFrom(IntentService.class));
+        assertTrue(AndroidException.class.isAssignableFrom(RemoteException.class));
+        assertTrue(ComponentInfo.class.isAssignableFrom(ProviderInfo.class));
+        assertTrue(android.text.ClipboardManager.class.isAssignableFrom(ClipboardManager.class));
+        assertTrue(BaseBundle.class.isAssignableFrom(PersistableBundle.class));
+        assertTrue(AudioRouting.class.isAssignableFrom(MediaPlayer.class));
+        assertTrue(VolumeAutomation.class.isAssignableFrom(MediaPlayer.class));
+        assertTrue(AudioRouting.class.isAssignableFrom(AudioTrack.class));
+        assertTrue(VolumeAutomation.class.isAssignableFrom(AudioTrack.class));
+        assertTrue(java.io.Closeable.class.isAssignableFrom(JsonReader.class));
+        assertTrue(java.io.Closeable.class.isAssignableFrom(JsonWriter.class));
+        assertTrue(Enum.class.isAssignableFrom(JsonToken.class));
+        assertNotNull(Base64.class);
+        assertNotNull(StatFs.class);
+        assertNotNull(PowerManager.class);
+        assertNotNull(StrictMode.class);
 
         Class<?>[] parcelables = {
-                Intent.class, Bundle.class, Uri.class, ComponentName.class,
-                Bitmap.class, Rect.class, RectF.class, Configuration.class,
-                PackageInfo.class, ActivityInfo.class, ApplicationInfo.class,
-                ColorStateList.class, KeyEvent.class, MotionEvent.class
+                Intent.class, IntentFilter.class, Bundle.class, PersistableBundle.class,
+                ResultReceiver.class, Uri.class, ComponentName.class,
+                ContentValues.class, Bitmap.class, Rect.class, RectF.class, Configuration.class,
+                PackageInfo.class, ActivityInfo.class, ApplicationInfo.class, ProviderInfo.class,
+                ServiceInfo.class, ResolveInfo.class, Signature.class,
+                ActivityManager.RunningAppProcessInfo.class, ActivityManager.MemoryInfo.class,
+                ColorStateList.class, KeyEvent.class, MotionEvent.class,
+                Message.class, ParcelFileDescriptor.class, AssetFileDescriptor.class,
+                Network.class, NetworkInfo.class, NetworkCapabilities.class, NetworkRequest.class,
+                ClipData.class, ClipDescription.class, Notification.class, Notification.Action.class,
+                NotificationChannel.class, NotificationChannelGroup.class, PendingIntent.class,
+                Icon.class, RemoteViews.class, AudioFormat.class,
+                PrintAttributes.class, PageRange.class, PrintDocumentInfo.class,
+                PrintJobId.class, PrintJobInfo.class
         };
         for (Class<?> cls : parcelables) {
             assertTrue(Parcelable.class.isAssignableFrom(cls), cls.getName() + " must implement Parcelable");

@@ -20,6 +20,10 @@ public class Process {
         return true;
     }
 
+    public static String myProcessName() {
+        return android.app.ActivityThread.currentProcessName();
+    }
+
     public static final void killProcess(int pid) {
     }
 

@@ -118,6 +118,12 @@ public class Canvas {
         translate(-px, -py);
     }
 
+    public void concat(Matrix matrix) {
+        if (g != null && matrix != null) {
+            g.transform(matrix.getAwtTransform());
+        }
+    }
+
     public boolean clipRect(int left, int top, int right, int bottom) {
         if (g != null) g.clipRect(left, top, right - left, bottom - top);
         return true;
@@ -129,6 +135,13 @@ public class Canvas {
 
     public boolean clipRect(Rect rect) {
         return clipRect(rect.left, rect.top, rect.right, rect.bottom);
+    }
+
+    public boolean clipPath(Path path) {
+        if (g != null && path != null) {
+            g.clip(path.awtPath);
+        }
+        return true;
     }
 
     public void drawColor(int color) {

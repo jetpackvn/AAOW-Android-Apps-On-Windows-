@@ -211,13 +211,7 @@ public final class AppRepository {
             ClassLoader cl = DexLoader.loadApkDex(apk, dexCacheDir, AppRepository.class.getClassLoader());
 
             AndroidRuntimeContext ctx = new AndroidRuntimeContext(apk, cl, dataRoot);
-            Application androidApp = createApplication(mf, cl, ctx);
-            ctx.setApplicationContext(androidApp);
-            try {
-                androidApp.onCreate();
-            } catch (Throwable t) {
-                log("[AAOW-Warn] Application.onCreate() gặp ngoại lệ (đã bỏ qua để tiếp tục mở Activity): " + t);
-            }
+            Application androidApp = createAndInitializeApplication(mf, cl, ctx, this::log);
 
             HostWindow host = new HostWindow(ctx, androidApp);
             host.setExitProcessOnClose(false);
@@ -244,21 +238,36 @@ public final class AppRepository {
         }
     }
 
-    private static Application createApplication(AndroidManifest mf, ClassLoader cl, AndroidRuntimeContext ctx) {
+    public static Application createAndInitializeApplication(
+            AndroidManifest mf, ClassLoader cl, AndroidRuntimeContext ctx, java.util.function.Consumer<String> warnLog) {
+        Application app = null;
         if (mf.applicationClass != null && !mf.applicationClass.isEmpty()) {
             try {
                 Class<?> cls = Class.forName(mf.applicationClass, true, cl);
                 if (Application.class.isAssignableFrom(cls)) {
-                    Application a = (Application) cls.getDeclaredConstructor().newInstance();
-                    a.attach(ctx);
-                    return a;
+                    app = (Application) cls.getDeclaredConstructor().newInstance();
+                    app.attach(ctx);
                 }
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                if (warnLog != null) {
+                    warnLog.accept("Không khởi tạo được Application tuỳ chỉnh (" + mf.applicationClass + "), dùng mặc định: " + t);
+                }
             }
         }
-        Application a = new Application();
-        a.attach(ctx);
-        return a;
+        if (app == null) {
+            app = new Application();
+            app.attach(ctx);
+        }
+        ctx.setApplicationContext(app);
+        ctx.installManifestContentProviders();
+        try {
+            app.onCreate();
+        } catch (Throwable t) {
+            if (warnLog != null) {
+                warnLog.accept("[AAOW-Warn] Application.onCreate() gặp ngoại lệ (đã bỏ qua để tiếp tục mở Activity): " + t);
+            }
+        }
+        return app;
     }
 
     private InstalledApp inspectApk(Path apkPath) throws IOException {

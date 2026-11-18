@@ -1,5 +1,6 @@
 package android.content.pm;
 
+import android.content.res.XmlResourceParser;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -29,6 +30,16 @@ public class PackageItemInfo implements Parcelable {
     public CharSequence loadLabel(PackageManager pm) {
         if (nonLocalizedLabel != null) return nonLocalizedLabel;
         return name != null ? name : packageName;
+    }
+
+    public XmlResourceParser loadXmlMetaData(PackageManager pm, String name) {
+        if (metaData != null && pm != null) {
+            int resid = metaData.getInt(name);
+            if (resid != 0) {
+                return pm.getXml(packageName, resid, null);
+            }
+        }
+        return null;
     }
 
     @Override

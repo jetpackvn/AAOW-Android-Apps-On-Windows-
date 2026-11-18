@@ -15,6 +15,10 @@ public class Build {
     public static final String TYPE = "user";
     public static final String TAGS = "release-keys";
     public static final String FINGERPRINT = "AAOW/aaow_windows/windows_pc:15/AAOW.261117.001:user/release-keys";
+    @Deprecated
+    public static final String CPU_ABI = "x86_64";
+    @Deprecated
+    public static final String CPU_ABI2 = "arm64-v8a";
     public static final String[] SUPPORTED_ABIS = {"x86_64", "arm64-v8a"};
     public static final String[] SUPPORTED_32_BIT_ABIS = {"x86", "armeabi-v7a"};
     public static final String[] SUPPORTED_64_BIT_ABIS = {"x86_64", "arm64-v8a"};

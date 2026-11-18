@@ -19,6 +19,14 @@ public class Path {
         INVERSE_EVEN_ODD
     }
 
+    public enum Op {
+        DIFFERENCE,
+        INTERSECT,
+        UNION,
+        XOR,
+        REVERSE_DIFFERENCE
+    }
+
     final Path2D.Float awtPath = new Path2D.Float();
 
     public Path() {
@@ -40,20 +48,57 @@ public class Path {
         awtPath.moveTo(x, y);
     }
 
+    public void rMoveTo(float dx, float dy) {
+        java.awt.geom.Point2D pt = awtPath.getCurrentPoint();
+        if (pt == null) awtPath.moveTo(dx, dy);
+        else awtPath.moveTo(pt.getX() + dx, pt.getY() + dy);
+    }
+
     public void lineTo(float x, float y) {
+        if (awtPath.getCurrentPoint() == null) awtPath.moveTo(0, 0);
         awtPath.lineTo(x, y);
     }
 
+    public void rLineTo(float dx, float dy) {
+        java.awt.geom.Point2D pt = awtPath.getCurrentPoint();
+        if (pt == null) {
+            awtPath.moveTo(0, 0);
+            awtPath.lineTo(dx, dy);
+        } else {
+            awtPath.lineTo(pt.getX() + dx, pt.getY() + dy);
+        }
+    }
+
     public void quadTo(float x1, float y1, float x2, float y2) {
+        if (awtPath.getCurrentPoint() == null) awtPath.moveTo(0, 0);
         awtPath.quadTo(x1, y1, x2, y2);
     }
 
+    public void rQuadTo(float dx1, float dy1, float dx2, float dy2) {
+        java.awt.geom.Point2D pt = awtPath.getCurrentPoint();
+        float cx = pt != null ? (float) pt.getX() : 0f;
+        float cy = pt != null ? (float) pt.getY() : 0f;
+        if (pt == null) awtPath.moveTo(0, 0);
+        awtPath.quadTo(cx + dx1, cy + dy1, cx + dx2, cy + dy2);
+    }
+
     public void cubicTo(float x1, float y1, float x2, float y2, float x3, float y3) {
+        if (awtPath.getCurrentPoint() == null) awtPath.moveTo(0, 0);
         awtPath.curveTo(x1, y1, x2, y2, x3, y3);
     }
 
+    public void rCubicTo(float dx1, float dy1, float dx2, float dy2, float dx3, float dy3) {
+        java.awt.geom.Point2D pt = awtPath.getCurrentPoint();
+        float cx = pt != null ? (float) pt.getX() : 0f;
+        float cy = pt != null ? (float) pt.getY() : 0f;
+        if (pt == null) awtPath.moveTo(0, 0);
+        awtPath.curveTo(cx + dx1, cy + dy1, cx + dx2, cy + dy2, cx + dx3, cy + dy3);
+    }
+
     public void close() {
-        awtPath.closePath();
+        if (awtPath.getCurrentPoint() != null) {
+            awtPath.closePath();
+        }
     }
 
     public void addRect(float left, float top, float right, float bottom, Direction dir) {
@@ -74,5 +119,65 @@ public class Path {
 
     public void arcTo(RectF oval, float startAngle, float sweepAngle) {
         awtPath.append(new Arc2D.Float(oval.left, oval.top, oval.width(), oval.height(), -startAngle, -sweepAngle, Arc2D.OPEN), true);
+    }
+
+    public void arcTo(RectF oval, float startAngle, float sweepAngle, boolean forceMoveTo) {
+        awtPath.append(new Arc2D.Float(oval.left, oval.top, oval.width(), oval.height(), -startAngle, -sweepAngle, Arc2D.OPEN), !forceMoveTo);
+    }
+
+    public void set(Path src) {
+        awtPath.reset();
+        if (src != null) {
+            awtPath.append(src.awtPath, false);
+        }
+    }
+
+    public void transform(Matrix matrix) {
+        if (matrix != null) {
+            awtPath.transform(matrix.getAwtTransform());
+        }
+    }
+
+    public void transform(Matrix matrix, Path dst) {
+        Path target = dst != null ? dst : this;
+        if (target != this) target.set(this);
+        if (matrix != null) target.awtPath.transform(matrix.getAwtTransform());
+    }
+
+    public void setFillType(FillType ft) {
+        if (ft == FillType.EVEN_ODD || ft == FillType.INVERSE_EVEN_ODD) {
+            awtPath.setWindingRule(Path2D.WIND_EVEN_ODD);
+        } else {
+            awtPath.setWindingRule(Path2D.WIND_NON_ZERO);
+        }
+    }
+
+    public void computeBounds(RectF bounds, boolean exact) {
+        if (bounds == null) return;
+        Rectangle2D r = awtPath.getBounds2D();
+        bounds.set((float) r.getMinX(), (float) r.getMinY(), (float) r.getMaxX(), (float) r.getMaxY());
+    }
+
+    public boolean isEmpty() {
+        return awtPath.getCurrentPoint() == null;
+    }
+
+    public boolean op(Path path, Op op) {
+        if (path == null || op == null) return false;
+        java.awt.geom.Area a = new java.awt.geom.Area(this.awtPath);
+        java.awt.geom.Area b = new java.awt.geom.Area(path.awtPath);
+        switch (op) {
+            case DIFFERENCE -> a.subtract(b);
+            case INTERSECT -> a.intersect(b);
+            case UNION -> a.add(b);
+            case XOR -> a.exclusiveOr(b);
+            case REVERSE_DIFFERENCE -> {
+                b.subtract(a);
+                a = b;
+            }
+        }
+        awtPath.reset();
+        awtPath.append(a, false);
+        return !awtPath.getBounds2D().isEmpty();
     }
 }

@@ -14,7 +14,10 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.MotionEvent;
+import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -22,6 +25,8 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ListAdapter;
+import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -55,7 +60,11 @@ import java.io.File;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Cửa sổ Windows (Win32/Swing + Java2D) trực tiếp hiển thị và điều phối ứng dụng Android.
@@ -70,6 +79,10 @@ public final class HostWindow {
     private final AndroidRuntimeContext runtimeContext;
     private final Application application;
     private final Deque<Activity> activityStack = new ArrayDeque<>();
+    private final Map<Activity, PendingResultCaller> pendingResults = new IdentityHashMap<>();
+
+    private record PendingResultCaller(Activity caller, int requestCode) {
+    }
 
     private JFrame frame;
     private DeviceViewport viewport;
@@ -81,9 +94,17 @@ public final class HostWindow {
 
     private View focusedView;
     private AlertDialog activeDialog;
+    private PopupWindow activePopup;
+    private SimpleMenu activeOptionsMenu;
+    private final List<SimpleMenu.SimpleMenuItem> activeOverflowItems = new ArrayList<>();
+    private final List<ActionBarHit> actionBarHits = new ArrayList<>();
+    private boolean showingDiagnosticFallback = false;
     private String toastMessage;
     private long toastExpireAt;
     private Timer toastTimer;
+
+    private record ActionBarHit(int left, int right, boolean isHome, boolean isOverflow, SimpleMenu.SimpleMenuItem item) {
+    }
 
     private int themePrimaryColor = 0xFF3949AB;
     private int themeStatusBarColor = 0xFF283593;
@@ -93,11 +114,16 @@ public final class HostWindow {
         this.runtimeContext = runtimeContext;
         this.application = application;
         this.runtimeContext.setActivityStarter(this::startActivity);
+        this.runtimeContext.setActivityForResultStarter(this::startActivityForResult);
 
         resolveThemeColors(runtimeContext.getManifest().themeRes);
         Toast.setHostToastBridge(this::showToast);
         AlertDialog.setHostDialogBridge(d -> {
             this.activeDialog = d;
+            repaintViewport();
+        });
+        PopupWindow.setHostPopupBridge(pw -> {
+            this.activePopup = pw;
             repaintViewport();
         });
     }
@@ -166,6 +192,10 @@ public final class HostWindow {
             }
         }
         try {
+            runtimeContext.stopAllServices();
+        } catch (Exception ignored) {
+        }
+        try {
             application.onTerminate();
         } catch (Exception ignored) {
         }
@@ -220,21 +250,69 @@ public final class HostWindow {
 
     /** Chế độ kết xuất ảnh chụp màn hình tự động (kiểm thử trực tiếp từ CLI). */
     public void renderHeadlessScreenshot(String activityClass, File outFile, int width, int height) throws Exception {
-        Intent mainIntent = new Intent(Intent.ACTION_MAIN);
-        mainIntent.addCategory(Intent.CATEGORY_LAUNCHER);
-        mainIntent.setClassName(runtimeContext.getPackageName(), activityClass);
-        viewport = new DeviceViewport();
-        viewport.setSize(width, height);
-        startActivity(mainIntent);
+        Runnable launch = () -> {
+            Intent mainIntent = new Intent(Intent.ACTION_MAIN);
+            mainIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+            mainIntent.setClassName(runtimeContext.getPackageName(), activityClass);
+            viewport = new DeviceViewport();
+            viewport.setSize(width, height);
+            startActivity(mainIntent);
+            Activity top = activityStack.peek();
+            if (top != null) {
+                View decor = top.getWindow().getDecorView();
+                int ch = Math.max(0, height - viewport.contentTopOffset(top) - NAV_BAR_H);
+                decor.measure(
+                        View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY));
+                decor.layout(0, 0, width, ch);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            launch.run();
+        } else {
+            SwingUtilities.invokeAndWait(launch);
+        }
+
+        // Cho phép luồng nền (Room/AsyncTask/MarkdownView) và WebView tải xong nội dung trước khi chụp:
+        try {
+            Thread.sleep(300);
+            if (!SwingUtilities.isEventDispatchThread()) {
+                SwingUtilities.invokeAndWait(() -> {
+                });
+            }
+            WebViewEngineBridge.awaitAllIdle(2500);
+            Thread.sleep(100);
+            if (!SwingUtilities.isEventDispatchThread()) {
+                SwingUtilities.invokeAndWait(() -> {
+                });
+            }
+            WebViewEngineBridge.awaitAllIdle(1000);
+        } catch (Exception ignored) {
+        }
 
         BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g2 = img.createGraphics();
-        viewport.paintComponent(g2);
-        g2.dispose();
+        Runnable paint = () -> {
+            Graphics2D g2 = img.createGraphics();
+            viewport.paintComponent(g2);
+            g2.dispose();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            paint.run();
+        } else {
+            SwingUtilities.invokeAndWait(paint);
+        }
+        File parentDir = outFile.getParentFile();
+        if (parentDir != null) {
+            parentDir.mkdirs();
+        }
         ImageIO.write(img, "png", outFile);
     }
 
     public void startActivity(Intent intent) {
+        startActivityForResult(null, intent, -1);
+    }
+
+    public void startActivityForResult(Activity caller, Intent intent, int requestCode) {
         ComponentName cmp = intent != null ? intent.getComponent() : null;
         String rawCls = cmp != null ? cmp.getClassName() : runtimeContext.getManifest().launcherActivity;
         if (rawCls == null) {
@@ -286,17 +364,26 @@ public final class HostWindow {
             act = fallbackAct;
         }
         final Activity activeAct = act;
+        if (actMeta != null && actMeta.themeRes != 0) {
+            activeAct.setTheme(actMeta.themeRes);
+        }
+        activeAct.setOpenOptionsMenuBridge(() -> openOptionsMenuOverlay(activeAct, activeAct.getOptionsMenu(), null));
         activeAct.getWindow().setStatusBarColor(themeStatusBarColor);
         activeAct.getWindow().getDecorView().setInvalidateCallback(this::repaintViewport);
 
         activityStack.push(activeAct);
+        if (caller != null && requestCode >= 0) {
+            pendingResults.put(activeAct, new PendingResultCaller(caller, requestCode));
+        }
         Log.i("AAOW-ActivityManager", "Starting Activity: " + clsName);
 
         if (launchError == null) {
             try {
                 activeAct.performCreate(null);
-                activeAct.performStart();
-                activeAct.performResume();
+                if (!activeAct.isFinishing() && !activeAct.isDestroyed()) {
+                    activeAct.performStart();
+                    activeAct.performResume();
+                }
             } catch (Throwable t) {
                 launchError = t;
                 Log.e("AAOW-ActivityManager", "Lỗi trong vòng đời Activity " + clsName + ": " + t, t);
@@ -305,10 +392,16 @@ public final class HostWindow {
             Log.e("AAOW-ActivityManager", "Lỗi nạp lớp Activity " + clsName + ": " + launchError, launchError);
         }
 
-        FrameLayout decor = (FrameLayout) activeAct.getWindow().getDecorView();
-        if (decor.getChildCount() == 0) {
-            decor.addView(buildDiagnosticFallbackView(activeAct, clsName, launchError),
-                    new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (!activeAct.isFinishing() && !activeAct.isDestroyed()) {
+            FrameLayout decor = (FrameLayout) activeAct.getWindow().getDecorView();
+            boolean needFallback = (decor.getChildCount() == 0);
+            if (needFallback) {
+                decor.addView(buildDiagnosticFallbackView(activeAct, clsName, launchError),
+                        new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            if (activeAct == activityStack.peek()) {
+                showingDiagnosticFallback = needFallback;
+            }
         }
 
         focusedView = null;
@@ -390,23 +483,36 @@ public final class HostWindow {
 
         var abis = runtimeContext.getApk().nativeAbis();
         var libs = NativeBridge.getInterceptedLibraries();
+        var loadedNativeLibs = NativeLibraryManager.getLoadedLibraries();
+        var emulatedJni = NativeBridge.getEmulatedNativeCallCounts();
         var jniCalls = NativeBridge.getInterceptedNativeCalls();
         var stubs = NativeBridge.getStubbedClasses();
+        var pluginStubs = NativeBridge.getStubbedPluginClasses();
         var stubMethodCalls = NativeBridge.getStubMethodCalls();
         var topStubMethods = NativeBridge.getTopStubMethodCalls(5);
 
         StringBuilder diag = new StringBuilder();
         diag.append("• Kiến trúc .so trong APK : ").append(abis.isEmpty() ? "Không có" : abis).append('\n');
-        diag.append("• Thư viện .so đã chặn   : ").append(libs.isEmpty() ? "0" : libs).append('\n');
-        diag.append("• Lời gọi hàm JNI đã bọc : ").append(jniCalls.size()).append(" hàm\n");
+        diag.append("• Thư viện native đã nạp : ").append(loadedNativeLibs.size())
+                .append(" | đã chặn: ").append(libs.isEmpty() ? "0" : libs).append('\n');
+        diag.append("• Hàm JNI giả lập/ARM64  : ").append(emulatedJni.size())
+                .append(" hàm | fallback: ").append(jniCalls.size()).append(" hàm\n");
+        if (!emulatedJni.isEmpty()) {
+            int c = 0;
+            for (var entry : emulatedJni.entrySet()) {
+                diag.append("   + ").append(entry.getKey()).append(" (×").append(entry.getValue()).append(")\n");
+                if (++c >= 3) break;
+            }
+        }
         if (!jniCalls.isEmpty()) {
             int c = 0;
             for (String call : jniCalls) {
                 diag.append("   - ").append(call).append('\n');
-                if (++c >= 4) break;
+                if (++c >= 3) break;
             }
         }
-        diag.append("• Class android.jar gỡ Stub: ").append(stubs.size()).append(" class\n");
+        diag.append("• Class android.jar gỡ Stub: ").append(stubs.size())
+                .append(" | Plugin stub: ").append(pluginStubs.size()).append('\n');
         diag.append("• Hàm Stub đã gọi lúc chạy : ").append(stubMethodCalls.size()).append(" hàm");
         if (!topStubMethods.isEmpty()) {
             diag.append('\n');
@@ -488,6 +594,7 @@ public final class HostWindow {
         act.performStop();
         act.performDestroy();
         activityStack.remove(act);
+        PendingResultCaller prc = pendingResults.remove(act);
 
         if (activityStack.isEmpty()) {
             Log.i("AAOW-ActivityManager", "Activity gốc đã đóng, kết thúc ứng dụng.");
@@ -498,6 +605,9 @@ public final class HostWindow {
                 }
             }
         } else {
+            if (prc != null && !prc.caller().isDestroyed()) {
+                prc.caller().dispatchActivityResult(prc.requestCode(), act.getResultCode(), act.getResultData());
+            }
             Activity top = activityStack.peek();
             if (top != null) {
                 top.performResume();
@@ -603,6 +713,21 @@ public final class HostWindow {
                 dumpViewTree(vg.getChildAt(i), depth + 1, sb);
             }
         }
+    }
+
+    private void openOptionsMenuOverlay(Activity act, SimpleMenu menu, List<SimpleMenu.SimpleMenuItem> customItems) {
+        if (act == null || menu == null) return;
+        this.activeOptionsMenu = menu;
+        this.activeOverflowItems.clear();
+        if (customItems != null) {
+            this.activeOverflowItems.addAll(customItems);
+        } else {
+            this.activeOverflowItems.addAll(menu.getVisibleItems());
+        }
+        if (this.activeOverflowItems.isEmpty()) {
+            this.activeOptionsMenu = null;
+        }
+        repaintViewport();
     }
 
     public void repaintViewport() {
@@ -712,8 +837,29 @@ public final class HostWindow {
 
         private boolean isActionBarVisible(Activity act) {
             if (act == null || themeNoTitle) return false;
+            if (!showingDiagnosticFallback && hasAppCompatDecorBar(act.getWindow().getDecorView())) {
+                return false;
+            }
             ActionBar ab = act.getActionBar();
             return ab != null && ab.isShowing();
+        }
+
+        private static boolean hasAppCompatDecorBar(View root) {
+            if (!(root instanceof ViewGroup vg)) return false;
+            String name = vg.getClass().getName();
+            if ("androidx.appcompat.widget.ActionBarOverlayLayout".equals(name)
+                    || "androidx.appcompat.widget.Toolbar".equals(name)) {
+                return true;
+            }
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                View child = vg.getChildAt(i);
+                String cn = child.getClass().getName();
+                if ("androidx.appcompat.widget.ActionBarOverlayLayout".equals(cn)
+                        || "androidx.appcompat.widget.Toolbar".equals(cn)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void handleMouse(int action, int mx, int my) {
@@ -723,7 +869,21 @@ public final class HostWindow {
             int w = getWidth();
             int h = getHeight();
 
-            // 1. Nếu đang mở AlertDialog thì xử lý click nút trên hộp thoại
+            // 1. Nếu đang mở menu dropdown (ActionBar Overflow / SubMenu)
+            if (activeOptionsMenu != null) {
+                if (action == MotionEvent.ACTION_UP) {
+                    handleOptionsMenuClick(act, mx, my, w, h);
+                }
+                return;
+            }
+
+            // 2. Nếu đang mở PopupWindow (PopupMenu / Dropdown)
+            if (activePopup != null && activePopup.isShowing()) {
+                handlePopupTouch(action, mx, my, w, h);
+                return;
+            }
+
+            // 3. Nếu đang mở AlertDialog thì xử lý click nút / mục danh sách trên hộp thoại
             if (activeDialog != null) {
                 if (action == MotionEvent.ACTION_UP) {
                     handleDialogClick(mx, my, w, h);
@@ -731,7 +891,7 @@ public final class HostWindow {
                 return;
             }
 
-            // 2. Thanh điều hướng dưới cùng (Back / Home / Inspector)
+            // 4. Thanh điều hướng dưới cùng (Back / Home / Inspector)
             if (my >= h - NAV_BAR_H) {
                 if (action == MotionEvent.ACTION_UP) {
                     int third = w / 3;
@@ -751,8 +911,14 @@ public final class HostWindow {
                 return;
             }
 
-            // 3. Sự kiện chạm trong vùng decorView của Activity
+            // 5. Thanh ActionBar phía trên (HomeAsUp / Action Items / Overflow)
             int contentTop = contentTopOffset(act);
+            if (my >= STATUS_BAR_H && my < contentTop && isActionBarVisible(act)) {
+                if (action == MotionEvent.ACTION_UP) {
+                    handleActionBarClick(act, mx);
+                }
+                return;
+            }
             if (my < contentTop) return;
 
             float vx = mx;
@@ -823,6 +989,9 @@ public final class HostWindow {
                 // Đo, dàn trang và vẽ decorView của Activity
                 int ch = Math.max(0, h - topY - NAV_BAR_H);
                 View decor = act.getWindow().getDecorView();
+                if (!decor.isAttachedToWindow()) {
+                    decor.dispatchAttachedToWindow();
+                }
                 int wSpec = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY);
                 int hSpec = View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY);
                 decor.measure(wSpec, hSpec);
@@ -833,6 +1002,12 @@ public final class HostWindow {
                 decor.draw(androidCanvas);
                 contentG.dispose();
 
+                if (activePopup != null && activePopup.isShowing()) {
+                    drawPopupOverlay(g2, w, h, activePopup);
+                }
+                if (activeOptionsMenu != null) {
+                    drawOptionsMenuOverlay(g2, w, h, act);
+                }
                 if (activeDialog != null) {
                     drawAlertDialog(g2, w, h, activeDialog);
                 }
@@ -847,10 +1022,15 @@ public final class HostWindow {
 
         private void drawStatusBar(Graphics2D g2, int w, Activity act) {
             int sbColor = act.getWindow().getStatusBarColor();
+            if (((sbColor >>> 24) & 0xFF) < 20) sbColor = 0xFF283593;
             g2.setColor(Color.toAwt(sbColor));
             g2.fillRect(0, 0, w, STATUS_BAR_H);
 
-            g2.setColor(java.awt.Color.WHITE);
+            int r = (sbColor >> 16) & 0xFF;
+            int g = (sbColor >> 8) & 0xFF;
+            int b = sbColor & 0xFF;
+            boolean lightBar = (0.299 * r + 0.587 * g + 0.114 * b) > 180;
+            g2.setColor(lightBar ? new java.awt.Color(0x1C1B1F) : java.awt.Color.WHITE);
             g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
             g2.drawString(LocalTime.now().format(CLOCK_FMT), 14, 19);
 
@@ -861,28 +1041,298 @@ public final class HostWindow {
         }
 
         private void drawActionBar(Graphics2D g2, int w, int topY, Activity act) {
+            actionBarHits.clear();
             g2.setColor(Color.toAwt(themePrimaryColor));
             g2.fillRect(0, topY, w, ACTION_BAR_H);
 
-            int textX = 18;
-            if (runtimeContext.getManifest().iconRes != 0) {
+            ActionBar ab = act.getActionBar();
+            int textX = 16;
+            if (ab != null && ab.isDisplayHomeAsUp()) {
+                g2.setColor(java.awt.Color.WHITE);
+                g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                int cy = topY + ACTION_BAR_H / 2;
+                g2.drawLine(16, cy, 30, cy);
+                g2.drawLine(16, cy, 22, cy - 6);
+                g2.drawLine(16, cy, 22, cy + 6);
+                actionBarHits.add(new ActionBarHit(0, 44, true, false, null));
+                textX = 44;
+            } else if (runtimeContext.getManifest().iconRes != 0) {
                 Drawable icon = runtimeContext.getResources().getDrawable(runtimeContext.getManifest().iconRes);
                 if (icon != null) {
                     Canvas c = new Canvas(g2);
                     int iy = topY + (ACTION_BAR_H - 28) / 2;
                     icon.setBounds(14, iy, 14 + 28, iy + 28);
                     icon.draw(c);
+                    actionBarHits.add(new ActionBarHit(0, 48, true, false, null));
                     textX = 52;
                 }
             }
 
-            ActionBar ab = act.getActionBar();
+            // Phía phải: vẽ tối đa 3 nút Action + nút Overflow (⋮) nếu có
+            SimpleMenu menu = showingDiagnosticFallback ? null : act.getOptionsMenu();
+            List<SimpleMenu.SimpleMenuItem> visible = menu != null ? menu.getVisibleItems() : List.of();
+            List<SimpleMenu.SimpleMenuItem> barItems = new ArrayList<>();
+            List<SimpleMenu.SimpleMenuItem> overflowItems = new ArrayList<>();
+            for (SimpleMenu.SimpleMenuItem item : visible) {
+                if (item.requestsActionButton() && barItems.size() < 3) {
+                    barItems.add(item);
+                } else {
+                    overflowItems.add(item);
+                }
+            }
+
+            int rightCursor = w - 8;
+            if (!overflowItems.isEmpty()) {
+                int left = rightCursor - 34;
+                int cx = left + 17;
+                int cy = topY + ACTION_BAR_H / 2;
+                g2.setColor(java.awt.Color.WHITE);
+                g2.fillOval(cx - 2, cy - 8, 4, 4);
+                g2.fillOval(cx - 2, cy - 2, 4, 4);
+                g2.fillOval(cx - 2, cy + 4, 4, 4);
+                actionBarHits.add(new ActionBarHit(left, rightCursor, false, true, null));
+                rightCursor = left - 4;
+            }
+
+            for (int i = barItems.size() - 1; i >= 0; i--) {
+                SimpleMenu.SimpleMenuItem item = barItems.get(i);
+                Drawable icon = item.getIcon();
+                if (icon != null) {
+                    int left = rightCursor - 36;
+                    int iy = topY + (ACTION_BAR_H - 24) / 2;
+                    Canvas c = new Canvas(g2);
+                    icon.setBounds(left + 6, iy, left + 30, iy + 24);
+                    icon.draw(c);
+                    actionBarHits.add(new ActionBarHit(left, rightCursor, false, false, item));
+                    rightCursor = left - 4;
+                } else {
+                    String label = item.getTitleCondensed().toString();
+                    if (label.length() > 10) label = label.substring(0, 9) + "…";
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                    int tw = g2.getFontMetrics().stringWidth(label) + 14;
+                    int left = rightCursor - tw;
+                    g2.setColor(new java.awt.Color(255, 255, 255, 36));
+                    g2.fill(new RoundRectangle2D.Float(left, topY + 12, tw, 28, 8, 8));
+                    g2.setColor(java.awt.Color.WHITE);
+                    g2.drawString(label, left + 7, topY + 30);
+                    actionBarHits.add(new ActionBarHit(left, rightCursor, false, false, item));
+                    rightCursor = left - 6;
+                }
+            }
+
             String title = ab != null && ab.getTitle().length() > 0
                     ? ab.getTitle().toString()
                     : act.getTitle().toString();
+            int maxTitleW = Math.max(40, rightCursor - textX - 8);
             g2.setColor(java.awt.Color.WHITE);
             g2.setFont(new Font("Segoe UI", Font.BOLD, 17));
+            FontMetrics fm = g2.getFontMetrics();
+            while (title.length() > 1 && fm.stringWidth(title) > maxTitleW) {
+                title = title.substring(0, title.length() - 2) + "…";
+            }
             g2.drawString(title, textX, topY + 32);
+        }
+
+        private void handleActionBarClick(Activity act, int mx) {
+            SimpleMenu menu = showingDiagnosticFallback ? null : act.getOptionsMenu();
+            for (ActionBarHit hit : actionBarHits) {
+                if (mx >= hit.left() && mx <= hit.right()) {
+                    if (hit.isHome()) {
+                        SimpleMenu.SimpleMenuItem homeItem = new SimpleMenu(act)
+                                .add(Menu.NONE, 0x0102002c, Menu.NONE, "Home") instanceof SimpleMenu.SimpleMenuItem smi
+                                ? smi : null;
+                        if (homeItem != null) act.dispatchOptionsItemSelected(homeItem);
+                        repaintViewport();
+                        return;
+                    }
+                    if (hit.isOverflow() && menu != null) {
+                        List<SimpleMenu.SimpleMenuItem> overflow = new ArrayList<>();
+                        int barCount = 0;
+                        for (SimpleMenu.SimpleMenuItem item : menu.getVisibleItems()) {
+                            if (item.requestsActionButton() && barCount < 3) {
+                                barCount++;
+                            } else {
+                                overflow.add(item);
+                            }
+                        }
+                        openOptionsMenuOverlay(act, menu, overflow);
+                        return;
+                    }
+                    if (hit.item() != null) {
+                        if (hit.item().hasSubMenu() && hit.item().getSubMenu() instanceof SimpleMenu sub) {
+                            openOptionsMenuOverlay(act, sub, null);
+                        } else {
+                            act.dispatchOptionsItemSelected(hit.item());
+                            repaintViewport();
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        private void drawOptionsMenuOverlay(Graphics2D g2, int w, int h, Activity act) {
+            int itemCount = activeOverflowItems.size();
+            if (itemCount == 0) return;
+            int rowH = 40;
+            int menuW = 216;
+            int menuH = Math.min(h - 120, itemCount * rowH + 12);
+            int mx = w - menuW - 10;
+            int my = STATUS_BAR_H + (isActionBarVisible(act) ? ACTION_BAR_H : 0) + 4;
+
+            g2.setColor(new java.awt.Color(0, 0, 0, 50));
+            g2.fill(new RoundRectangle2D.Float(mx + 2, my + 3, menuW, menuH, 12, 12));
+            g2.setColor(java.awt.Color.WHITE);
+            g2.fill(new RoundRectangle2D.Float(mx, my, menuW, menuH, 12, 12));
+            g2.setColor(new java.awt.Color(0xD8DCE8));
+            g2.draw(new RoundRectangle2D.Float(mx, my, menuW, menuH, 12, 12));
+
+            int y = my + 6;
+            g2.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+            for (SimpleMenu.SimpleMenuItem item : activeOverflowItems) {
+                if (y + rowH > my + menuH) break;
+                g2.setColor(item.isEnabled() ? new java.awt.Color(0x1C1B1F) : new java.awt.Color(0x9CA3AF));
+                String text = item.getTitle().toString();
+                if (item.isCheckable()) {
+                    text = (item.isChecked() ? "☑ " : "☐ ") + text;
+                }
+                if (item.hasSubMenu()) {
+                    text = text + "  ▸";
+                }
+                g2.drawString(text, mx + 14, y + 25);
+                y += rowH;
+            }
+        }
+
+        private void handleOptionsMenuClick(Activity act, int mx, int my, int w, int h) {
+            int itemCount = activeOverflowItems.size();
+            int rowH = 40;
+            int menuW = 216;
+            int menuH = Math.min(h - 120, itemCount * rowH + 12);
+            int boxX = w - menuW - 10;
+            int boxY = STATUS_BAR_H + (isActionBarVisible(act) ? ACTION_BAR_H : 0) + 4;
+
+            if (mx < boxX || mx > boxX + menuW || my < boxY || my > boxY + menuH) {
+                activeOptionsMenu = null;
+                activeOverflowItems.clear();
+                repaintViewport();
+                return;
+            }
+            int idx = (my - (boxY + 6)) / rowH;
+            if (idx >= 0 && idx < activeOverflowItems.size()) {
+                SimpleMenu.SimpleMenuItem chosen = activeOverflowItems.get(idx);
+                if (chosen.hasSubMenu() && chosen.getSubMenu() instanceof SimpleMenu sub) {
+                    openOptionsMenuOverlay(act, sub, null);
+                    return;
+                }
+                activeOptionsMenu = null;
+                activeOverflowItems.clear();
+                act.dispatchOptionsItemSelected(chosen);
+                repaintViewport();
+            }
+        }
+
+        private void drawPopupOverlay(Graphics2D g2, int w, int h, PopupWindow pw) {
+            View cv = pw.getContentView();
+            if (cv == null) return;
+            int maxW = w - 24;
+            int maxH = h - 100;
+            int pwW = pw.getWidth() > 0 ? Math.min(pw.getWidth(), maxW) : maxW;
+            int pwH = pw.getHeight() > 0 ? Math.min(pw.getHeight(), maxH) : maxH;
+            cv.measure(
+                    View.MeasureSpec.makeMeasureSpec(pwW, pw.getWidth() > 0 ? View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST),
+                    View.MeasureSpec.makeMeasureSpec(pwH, pw.getHeight() > 0 ? View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST));
+            int mw = Math.max(80, cv.getMeasuredWidth());
+            int mh = Math.max(40, cv.getMeasuredHeight());
+            int px = Math.max(8, Math.min(pw.getAnchorX(), w - mw - 8));
+            int py = Math.max(STATUS_BAR_H + 8, Math.min(pw.getAnchorY(), h - NAV_BAR_H - mh - 8));
+            cv.layout(0, 0, mw, mh);
+
+            Graphics2D pg = (Graphics2D) g2.create(px, py, mw, mh);
+            cv.draw(new Canvas(pg));
+            pg.dispose();
+        }
+
+        private void handlePopupTouch(int action, int mx, int my, int w, int h) {
+            View cv = activePopup.getContentView();
+            if (cv == null) {
+                activePopup.dismiss();
+                return;
+            }
+            int mw = Math.max(80, cv.getWidth());
+            int mh = Math.max(40, cv.getHeight());
+            int px = Math.max(8, Math.min(activePopup.getAnchorX(), w - mw - 8));
+            int py = Math.max(STATUS_BAR_H + 8, Math.min(activePopup.getAnchorY(), h - NAV_BAR_H - mh - 8));
+            if (mx < px || mx > px + mw || my < py || my > py + mh) {
+                if (action == MotionEvent.ACTION_UP && activePopup.isOutsideTouchable()) {
+                    activePopup.dismiss();
+                }
+                return;
+            }
+            long now = SystemClock.uptimeMillis();
+            MotionEvent ev = new MotionEvent(action, mx - px, my - py, mx, my, now, now);
+            cv.dispatchTouchEvent(ev);
+            repaintViewport();
+        }
+
+        private int computeDialogHeight(AlertDialog d, int dw) {
+            if (d.getCustomView() != null) {
+                d.getCustomView().measure(
+                        View.MeasureSpec.makeMeasureSpec(dw - 44, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.AT_MOST));
+                return Math.min(460, Math.max(180, 110 + d.getCustomView().getMeasuredHeight()));
+            }
+            int itemCount = getDialogItemCount(d);
+            if (itemCount > 0) {
+                return Math.min(460, 110 + Math.min(itemCount, 8) * 38);
+            }
+            java.awt.image.BufferedImage dummy = new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            Graphics2D dg = dummy.createGraphics();
+            dg.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            List<String> lines = wrapDialogLines(d.getMessageText().toString(), dw - 44, dg.getFontMetrics());
+            dg.dispose();
+            return Math.min(460, Math.max(170, 110 + lines.size() * 20));
+        }
+
+        private static List<String> wrapDialogLines(String msg, int maxWidth, FontMetrics fm) {
+            List<String> out = new ArrayList<>();
+            if (msg == null || msg.isEmpty()) return out;
+            for (String para : msg.split("\n", -1)) {
+                if (para.isEmpty() || fm.stringWidth(para) <= maxWidth) {
+                    out.add(para);
+                    continue;
+                }
+                StringBuilder cur = new StringBuilder();
+                for (String word : para.split(" ")) {
+                    String cand = cur.isEmpty() ? word : cur + " " + word;
+                    if (!cur.isEmpty() && fm.stringWidth(cand) > maxWidth) {
+                        out.add(cur.toString());
+                        cur = new StringBuilder(word);
+                    } else {
+                        cur = new StringBuilder(cand);
+                    }
+                }
+                if (!cur.isEmpty()) out.add(cur.toString());
+            }
+            return out;
+        }
+
+        private static int getDialogItemCount(AlertDialog d) {
+            if (d.getItems() != null) return d.getItems().length;
+            if (d.getListAdapter() != null) return d.getListAdapter().getCount();
+            return 0;
+        }
+
+        private static String getDialogItemLabel(AlertDialog d, int index) {
+            if (d.getItems() != null && index < d.getItems().length) {
+                return d.getItems()[index] != null ? d.getItems()[index].toString() : "";
+            }
+            ListAdapter la = d.getListAdapter();
+            if (la != null && index < la.getCount()) {
+                Object item = la.getItem(index);
+                return item != null ? item.toString() : "";
+            }
+            return "";
         }
 
         private void drawAlertDialog(Graphics2D g2, int w, int h, AlertDialog d) {
@@ -890,7 +1340,7 @@ public final class HostWindow {
             g2.fillRect(0, 0, w, h);
 
             int dw = Math.min(w - 48, 340);
-            int dh = 180;
+            int dh = computeDialogHeight(d, dw);
             int dx = (w - dw) / 2;
             int dy = (h - dh) / 2;
 
@@ -901,14 +1351,36 @@ public final class HostWindow {
             g2.setFont(new Font("Segoe UI", Font.BOLD, 17));
             g2.drawString(d.getTitleText().toString(), dx + 22, dy + 36);
 
-            g2.setColor(new java.awt.Color(0x49454F));
-            g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-            String msg = d.getMessageText().toString();
-            String[] lines = msg.split("\n");
-            int ly = dy + 68;
-            for (String line : lines) {
-                g2.drawString(line, dx + 22, ly);
-                ly += 20;
+            int itemCount = getDialogItemCount(d);
+            if (d.getCustomView() != null) {
+                View cv = d.getCustomView();
+                int cw = dw - 44;
+                int ch = Math.max(40, dh - 110);
+                cv.layout(0, 0, cw, ch);
+                Graphics2D cg = (Graphics2D) g2.create(dx + 22, dy + 52, cw, ch);
+                cv.draw(new Canvas(cg));
+                cg.dispose();
+            } else if (itemCount > 0) {
+                g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+                int maxShow = Math.min(itemCount, 8);
+                int ly = dy + 58;
+                for (int i = 0; i < maxShow; i++) {
+                    String prefix = (d.getCheckedItem() == i) ? "◉ " : "";
+                    g2.setColor(new java.awt.Color(0x1C1B1F));
+                    g2.drawString(prefix + getDialogItemLabel(d, i), dx + 22, ly + 22);
+                    g2.setColor(new java.awt.Color(0xECEFF5));
+                    g2.drawLine(dx + 22, ly + 36, dx + dw - 22, ly + 36);
+                    ly += 38;
+                }
+            } else {
+                g2.setColor(new java.awt.Color(0x49454F));
+                g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+                List<String> lines = wrapDialogLines(d.getMessageText().toString(), dw - 44, g2.getFontMetrics());
+                int ly = dy + 68;
+                for (String line : lines) {
+                    g2.drawString(line, dx + 22, ly);
+                    ly += 20;
+                }
             }
 
             g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
@@ -928,17 +1400,37 @@ public final class HostWindow {
 
         private void handleDialogClick(int mx, int my, int w, int h) {
             if (activeDialog == null) return;
+            AlertDialog d = activeDialog;
             int dw = Math.min(w - 48, 340);
-            int dh = 180;
+            int dh = computeDialogHeight(d, dw);
             int dx = (w - dw) / 2;
             int dy = (h - dh) / 2;
 
             if (mx < dx || mx > dx + dw || my < dy || my > dy + dh) {
-                activeDialog.cancel();
+                d.cancel();
+                return;
+            }
+            int itemCount = getDialogItemCount(d);
+            if (itemCount > 0 && my >= dy + 54 && my < dy + dh - 52) {
+                int idx = (my - (dy + 54)) / 38;
+                if (idx >= 0 && idx < Math.min(itemCount, 8)) {
+                    if (d.getItemClickListener() != null) {
+                        d.getItemClickListener().onClick(d, idx);
+                    }
+                    d.dismiss();
+                    return;
+                }
+            }
+            if (d.getCustomView() != null && my >= dy + 52 && my < dy + dh - 52) {
+                long now = SystemClock.uptimeMillis();
+                MotionEvent ev = new MotionEvent(MotionEvent.ACTION_DOWN, mx - (dx + 22), my - (dy + 52), mx, my, now, now);
+                d.getCustomView().dispatchTouchEvent(ev);
+                MotionEvent evUp = new MotionEvent(MotionEvent.ACTION_UP, mx - (dx + 22), my - (dy + 52), mx, my, now, now);
+                d.getCustomView().dispatchTouchEvent(evUp);
+                repaintViewport();
                 return;
             }
             if (my >= dy + dh - 52) {
-                AlertDialog d = activeDialog;
                 if (mx >= dx + dw - 100 && d.getPositiveText() != null) {
                     if (d.getPositiveListener() != null) {
                         d.getPositiveListener().onClick(d, DialogInterface.BUTTON_POSITIVE);

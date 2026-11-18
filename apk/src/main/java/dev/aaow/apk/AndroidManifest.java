@@ -1,7 +1,9 @@
 package dev.aaow.apk;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Thông tin cần thiết lấy từ AndroidManifest.xml. */
 public final class AndroidManifest {
@@ -21,9 +23,21 @@ public final class AndroidManifest {
     public String applicationClass;
     public String launcherActivity;
     public final List<Activity> activities = new ArrayList<>();
+    public final List<Service> services = new ArrayList<>();
+    public final List<Receiver> receivers = new ArrayList<>();
+    public final List<Provider> providers = new ArrayList<>();
+    public final Map<String, MetaData> applicationMetaData = new LinkedHashMap<>();
     public final List<String> permissions = new ArrayList<>();
     public final List<String> usesLibraries = new ArrayList<>();
     public XmlElement xml;
+
+    public record MetaData(String name, int type, int intData, String stringValue, int resourceId) {
+    }
+
+    public static final class IntentFilterInfo {
+        public final List<String> actions = new ArrayList<>();
+        public final List<String> categories = new ArrayList<>();
+    }
 
     public static final class Activity {
         public String name;
@@ -31,11 +45,42 @@ public final class AndroidManifest {
         public int themeRes;
         public String targetActivity;
         public boolean launcher;
+        public final Map<String, MetaData> metaData = new LinkedHashMap<>();
 
         @Override
         public String toString() {
             return name + (launcher ? " [LAUNCHER]" : "");
         }
+    }
+
+    public static final class Service {
+        public String name;
+        public String permission;
+        public boolean enabled = true;
+        public boolean exported;
+        public final List<IntentFilterInfo> intentFilters = new ArrayList<>();
+        public final Map<String, MetaData> metaData = new LinkedHashMap<>();
+    }
+
+    public static final class Receiver {
+        public String name;
+        public String permission;
+        public boolean enabled = true;
+        public boolean exported;
+        public final List<IntentFilterInfo> intentFilters = new ArrayList<>();
+        public final Map<String, MetaData> metaData = new LinkedHashMap<>();
+    }
+
+    public static final class Provider {
+        public String name;
+        public String authorities;
+        public boolean enabled = true;
+        public boolean exported;
+        public boolean grantUriPermissions;
+        public int initOrder;
+        public String readPermission;
+        public String writePermission;
+        public final Map<String, MetaData> metaData = new LinkedHashMap<>();
     }
 
     public static AndroidManifest parse(byte[] axml, ResourceTable res) {
@@ -82,6 +127,46 @@ public final class AndroidManifest {
                 if (lib != null) m.usesLibraries.add(lib);
                 continue;
             }
+            if (c.name.equals("meta-data")) {
+                parseMetaData(c, res, m.applicationMetaData);
+                continue;
+            }
+            if (c.name.equals("service")) {
+                Service s = new Service();
+                s.name = qualify(m.packageName, str(c.attr("name"), res));
+                s.permission = str(c.attr("permission"), res);
+                s.enabled = boolVal(c.attr("enabled"), res, true);
+                s.exported = boolVal(c.attr("exported"), res, false);
+                parseIntentFilters(c, res, s.intentFilters);
+                parseChildrenMetaData(c, res, s.metaData);
+                m.services.add(s);
+                continue;
+            }
+            if (c.name.equals("receiver")) {
+                Receiver r = new Receiver();
+                r.name = qualify(m.packageName, str(c.attr("name"), res));
+                r.permission = str(c.attr("permission"), res);
+                r.enabled = boolVal(c.attr("enabled"), res, true);
+                r.exported = boolVal(c.attr("exported"), res, false);
+                parseIntentFilters(c, res, r.intentFilters);
+                parseChildrenMetaData(c, res, r.metaData);
+                m.receivers.add(r);
+                continue;
+            }
+            if (c.name.equals("provider")) {
+                Provider p = new Provider();
+                p.name = qualify(m.packageName, str(c.attr("name"), res));
+                p.authorities = str(c.attr("authorities"), res);
+                p.enabled = boolVal(c.attr("enabled"), res, true);
+                p.exported = boolVal(c.attr("exported"), res, false);
+                p.grantUriPermissions = boolVal(c.attr("grantUriPermissions"), res, false);
+                p.initOrder = intVal(c.attr("initOrder"), 0);
+                p.readPermission = str(c.attr("readPermission"), res);
+                p.writePermission = str(c.attr("writePermission"), res);
+                parseChildrenMetaData(c, res, p.metaData);
+                m.providers.add(p);
+                continue;
+            }
             if (!c.name.equals("activity") && !alias) continue;
             Activity a = new Activity();
             a.name = qualify(m.packageName, str(c.attr("name"), res));
@@ -97,6 +182,7 @@ public final class AndroidManifest {
                 }
                 if (main && launcher) a.launcher = true;
             }
+            parseChildrenMetaData(c, res, a.metaData);
             m.activities.add(a);
             if (a.launcher && m.launcherActivity == null) {
                 m.launcherActivity = a.targetActivity != null ? a.targetActivity : a.name;
@@ -104,8 +190,74 @@ public final class AndroidManifest {
         }
     }
 
+    private static void parseIntentFilters(XmlElement comp, ResourceTable res, List<IntentFilterInfo> out) {
+        for (XmlElement f : comp.children("intent-filter")) {
+            IntentFilterInfo info = new IntentFilterInfo();
+            for (XmlElement x : f.children) {
+                String v = str(x.attr("name"), res);
+                if (v == null) continue;
+                if (x.name.equals("action")) info.actions.add(v);
+                else if (x.name.equals("category")) info.categories.add(v);
+            }
+            out.add(info);
+        }
+    }
+
+    private static void parseChildrenMetaData(XmlElement comp, ResourceTable res, Map<String, MetaData> out) {
+        for (XmlElement mc : comp.children("meta-data")) {
+            parseMetaData(mc, res, out);
+        }
+    }
+
+    private static void parseMetaData(XmlElement mc, ResourceTable res, Map<String, MetaData> out) {
+        String key = str(mc.attr("name"), res);
+        if (key == null || key.isEmpty()) return;
+        XmlElement.Attribute valAttr = mc.attr("value");
+        XmlElement.Attribute resAttr = mc.attr("resource");
+        int resId = refVal(resAttr);
+        int type = ResValue.TYPE_NULL;
+        int intData = 0;
+        String sVal = null;
+        if (valAttr != null) {
+            ResValue rv = res.resolve(valAttr.value);
+            if (rv != null) {
+                type = rv.type();
+                intData = rv.data();
+                sVal = rv.coerceToString();
+            }
+        }
+        out.put(key, new MetaData(key, type, intData, sVal, resId));
+    }
+
     public Activity findActivity(String className) {
-        for (Activity a : activities) if (a.name.equals(className)) return a;
+        for (Activity a : activities) if (className != null && className.equals(a.name)) return a;
+        return null;
+    }
+
+    public Service findService(String className) {
+        for (Service s : services) if (className != null && className.equals(s.name)) return s;
+        return null;
+    }
+
+    public Service findServiceByAction(String action) {
+        if (action == null) return null;
+        for (Service s : services) {
+            if (!s.enabled) continue;
+            for (IntentFilterInfo f : s.intentFilters) {
+                if (f.actions.contains(action)) return s;
+            }
+        }
+        return null;
+    }
+
+    public Provider findProviderByAuthority(String authority) {
+        if (authority == null || authority.isEmpty()) return null;
+        for (Provider p : providers) {
+            if (!p.enabled || p.authorities == null) continue;
+            for (String part : p.authorities.split(";")) {
+                if (authority.equals(part.trim())) return p;
+            }
+        }
         return null;
     }
 
@@ -120,6 +272,17 @@ public final class AndroidManifest {
         if (a == null) return null;
         ResValue v = res.resolve(a.value);
         return v == null ? null : v.coerceToString();
+    }
+
+    private static boolean boolVal(XmlElement.Attribute a, ResourceTable res, boolean def) {
+        if (a == null) return def;
+        ResValue v = res.resolve(a.value);
+        if (v == null) return def;
+        if (v.type() == ResValue.TYPE_INT_BOOLEAN || v.isInt()) return v.data() != 0;
+        String s = v.coerceToString();
+        if ("true".equalsIgnoreCase(s)) return true;
+        if ("false".equalsIgnoreCase(s)) return false;
+        return def;
     }
 
     private static int intVal(XmlElement.Attribute a, int def) {

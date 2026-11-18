@@ -15,10 +15,14 @@ import dev.aaow.apk.ResValue;
 import dev.aaow.apk.ResourceTable;
 import dev.aaow.apk.XmlElement;
 import dev.aaow.rt.AndroidSystemResources;
+import dev.aaow.rt.AxmlXmlResourceParser;
 import dev.aaow.rt.XmlDrawableLoader;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -35,45 +39,60 @@ public class Resources {
     }
 
     public final class Theme {
-        private int themeResId;
+        private final List<Integer> styleLayers = new ArrayList<>();
 
         public void applyStyle(int resId, boolean force) {
-            if (force || themeResId == 0) {
-                themeResId = resId;
+            if (resId == 0) return;
+            styleLayers.remove(Integer.valueOf(resId));
+            if (force) {
+                styleLayers.add(0, resId);
+            } else {
+                styleLayers.add(resId);
             }
         }
 
         public void setTo(Theme other) {
-            if (other != null) this.themeResId = other.themeResId;
+            styleLayers.clear();
+            if (other != null) {
+                styleLayers.addAll(other.styleLayers);
+            }
         }
 
         public int getThemeResId() {
-            return themeResId;
+            return styleLayers.isEmpty() ? 0 : styleLayers.get(0);
+        }
+
+        public List<Integer> getStyleLayers() {
+            return Collections.unmodifiableList(styleLayers);
         }
 
         public void rebase() {
         }
 
         public TypedArray obtainStyledAttributes(int[] attrs) {
-            return new TypedArray(Resources.this, attrs);
+            return TypedArray.obtain(Resources.this, styleLayers, null, attrs, 0, 0);
         }
 
         public TypedArray obtainStyledAttributes(int resid, int[] attrs) {
-            return new TypedArray(Resources.this, attrs);
+            return TypedArray.obtain(Resources.this, styleLayers, null, attrs, 0, resid);
         }
 
         public TypedArray obtainStyledAttributes(AttributeSet set, int[] attrs, int defStyleAttr, int defStyleRes) {
-            return new TypedArray(Resources.this, attrs);
+            return TypedArray.obtain(Resources.this, styleLayers, set, attrs, defStyleAttr, defStyleRes);
         }
 
         public boolean resolveAttribute(int resid, TypedValue outValue, boolean resolveRefs) {
-            ResValue rv = resolveStyleAttr(themeResId, resid);
+            ResValue rv = null;
+            for (int styleId : styleLayers) {
+                rv = resolveStyleAttr(styleId, resid);
+                if (rv != null) break;
+            }
             if (rv == null) return false;
             if (outValue != null) {
                 outValue.type = rv.type();
                 outValue.data = rv.data();
                 outValue.string = rv.string();
-                outValue.resourceId = resid;
+                outValue.resourceId = rv.isReference() ? rv.data() : resid;
             }
             return true;
         }
@@ -85,10 +104,16 @@ public class Resources {
     private final DisplayMetrics metrics = new DisplayMetrics();
     private final Configuration config = new Configuration();
 
+    private static final Resources SYSTEM_RESOURCES = new Resources(null);
+
     public Resources(ApkFile apk) {
         this.apk = apk;
         this.table = apk != null ? apk.getResources() : ResourceTable.empty();
         this.assets = new AssetManager(apk);
+    }
+
+    public static Resources getSystem() {
+        return SYSTEM_RESOURCES;
     }
 
     public ApkFile getApk() {
@@ -286,6 +311,74 @@ public class Resources {
         }
     }
 
+    public XmlResourceParser getXml(int id) throws NotFoundException {
+        return new AxmlXmlResourceParser(loadXmlElement(id), table);
+    }
+
+    public XmlResourceParser getLayout(int id) throws NotFoundException {
+        return getXml(id);
+    }
+
+    public XmlResourceParser getAnimation(int id) throws NotFoundException {
+        return getXml(id);
+    }
+
+    public void getValue(int id, TypedValue outValue, boolean resolveRefs) throws NotFoundException {
+        if (outValue == null) return;
+        ResValue v = resolveRefs ? table.getValue(id) : null;
+        if (v == null) {
+            ResourceTable.Entry e = table.getEntry(id);
+            if (e != null && !e.isBag()) {
+                v = resolveRefs ? table.resolve(e.value) : e.value;
+            }
+        }
+        if (v == null) {
+            String sys = AndroidSystemResources.systemString(id);
+            if (sys != null) {
+                outValue.type = TypedValue.TYPE_STRING;
+                outValue.string = sys;
+                outValue.resourceId = id;
+                return;
+            }
+            Integer sysCol = AndroidSystemResources.systemColor(id);
+            if (sysCol != null) {
+                outValue.type = TypedValue.TYPE_INT_COLOR_ARGB8;
+                outValue.data = sysCol;
+                outValue.resourceId = id;
+                return;
+            }
+            throw new NotFoundException("Resource ID #0x" + Integer.toHexString(id));
+        }
+        outValue.type = v.type();
+        outValue.data = v.data();
+        outValue.string = v.string();
+        outValue.resourceId = v.isReference() ? v.data() : id;
+    }
+
+    public void getValueForDensity(int id, int density, TypedValue outValue, boolean resolveRefs) throws NotFoundException {
+        getValue(id, outValue, resolveRefs);
+    }
+
+    public float getFraction(int id, int base, int pbase) {
+        ResValue v = table.getValue(id);
+        if (v == null) return 0f;
+        if (v.type() == ResValue.TYPE_FRACTION) {
+            float val = v.complexValue();
+            int type = v.complexUnit();
+            return (type == 1 ? pbase : base) * val;
+        }
+        return v.getFloat();
+    }
+
+    public void updateConfiguration(Configuration config, DisplayMetrics metrics) {
+        if (config != null) {
+            this.config.setTo(config);
+        }
+        if (metrics != null) {
+            this.metrics.setTo(metrics);
+        }
+    }
+
     public InputStream openRawResource(int id) {
         ResValue v = table.getValue(id);
         if (v != null && v.isString() && v.string() != null && apk != null) {
@@ -296,6 +389,25 @@ public class Resources {
             }
         }
         throw new NotFoundException("Raw resource #0x" + Integer.toHexString(id));
+    }
+
+    public AssetFileDescriptor openRawResourceFd(int id) throws NotFoundException {
+        ResValue v = table.getValue(id);
+        if (v != null && v.isString() && v.string() != null && apk != null) {
+            try {
+                return assets.openNonAssetFd(v.string());
+            } catch (Exception ignored) {
+            }
+        }
+        throw new NotFoundException("Raw resource FD #0x" + Integer.toHexString(id));
+    }
+
+    public CharSequence[] getTextArray(int id) throws NotFoundException {
+        return getStringArray(id);
+    }
+
+    public TypedArray obtainAttributes(AttributeSet set, int[] attrs) {
+        return newTheme().obtainStyledAttributes(set, attrs, 0, 0);
     }
 
     public int getIdentifier(String name, String defType, String defPackage) {
@@ -389,7 +501,7 @@ public class Resources {
     public ResValue resolveStyleAttr(int styleResId, int attrResId) {
         String targetName = AndroidSystemResources.attrName(attrResId);
         int cur = styleResId;
-        for (int depth = 0; depth < 12 && cur != 0; depth++) {
+        for (int depth = 0; depth < 32 && cur != 0; depth++) {
             ResourceTable.Entry e = table.getEntry(cur);
             if (e == null || !e.isBag()) break;
             ResValue direct = e.bag.get(attrResId);

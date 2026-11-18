@@ -3,6 +3,12 @@ package android.view;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.widget.FrameLayout;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 public class Window {
     public static final int FEATURE_NO_TITLE = 1;
@@ -65,6 +71,56 @@ public class Window {
     private int navigationBarColor = 0xFF121212;
     private boolean noTitle;
     private Runnable onContentChanged;
+    private final List<BackCallbackEntry> backCallbacks = new ArrayList<>();
+    private final WindowInsetsController insetsController = new WindowInsetsController() {
+        private int appearance;
+        private int behavior = BEHAVIOR_DEFAULT;
+
+        @Override
+        public void show(int types) {
+        }
+
+        @Override
+        public void hide(int types) {
+        }
+
+        @Override
+        public void setSystemBarsAppearance(int appearance, int mask) {
+            this.appearance = (this.appearance & ~mask) | (appearance & mask);
+        }
+
+        @Override
+        public int getSystemBarsAppearance() {
+            return appearance;
+        }
+
+        @Override
+        public void setSystemBarsBehavior(int behavior) {
+            this.behavior = behavior;
+        }
+
+        @Override
+        public int getSystemBarsBehavior() {
+            return behavior;
+        }
+    };
+    private final OnBackInvokedDispatcher backDispatcher = new OnBackInvokedDispatcher() {
+        @Override
+        public void registerOnBackInvokedCallback(int priority, OnBackInvokedCallback callback) {
+            if (callback == null) return;
+            unregisterOnBackInvokedCallback(callback);
+            backCallbacks.add(new BackCallbackEntry(priority, callback));
+            backCallbacks.sort(Comparator.comparingInt(BackCallbackEntry::priority).reversed());
+        }
+
+        @Override
+        public void unregisterOnBackInvokedCallback(OnBackInvokedCallback callback) {
+            backCallbacks.removeIf(e -> e.callback == callback);
+        }
+    };
+
+    private record BackCallbackEntry(int priority, OnBackInvokedCallback callback) {
+    }
 
     public Window(Context context) {
         this.context = context;
@@ -196,5 +252,20 @@ public class Window {
 
     public void setOnContentChanged(Runnable r) {
         this.onContentChanged = r;
+    }
+
+    public WindowInsetsController getInsetsController() {
+        return insetsController;
+    }
+
+    public OnBackInvokedDispatcher getOnBackInvokedDispatcher() {
+        return backDispatcher;
+    }
+
+    public boolean dispatchBackInvoked() {
+        if (backCallbacks.isEmpty()) return false;
+        BackCallbackEntry top = backCallbacks.get(0);
+        top.callback().onBackInvoked();
+        return true;
     }
 }

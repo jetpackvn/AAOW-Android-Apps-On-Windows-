@@ -78,4 +78,46 @@ public class SparseArray<E> implements Cloneable {
         Arrays.fill(values, 0, size, null);
         size = 0;
     }
+
+    public void append(int key, E value) {
+        if (size != 0 && key <= keys[size - 1]) {
+            put(key, value);
+            return;
+        }
+        if (size >= keys.length) {
+            keys = Arrays.copyOf(keys, keys.length * 2);
+            values = Arrays.copyOf(values, values.length * 2);
+        }
+        keys[size] = key;
+        values[size] = value;
+        size++;
+    }
+
+    public int indexOfKey(int key) {
+        int i = Arrays.binarySearch(keys, 0, size, key);
+        return i >= 0 ? i : -1;
+    }
+
+    public int indexOfValue(E value) {
+        for (int i = 0; i < size; i++) {
+            if (values[i] == value) return i;
+        }
+        return -1;
+    }
+
+    public void setValueAt(int index, E value) {
+        values[index] = value;
+    }
+
+    public void removeAt(int index) {
+        if (index >= 0 && index < size) {
+            System.arraycopy(keys, index + 1, keys, index, size - (index + 1));
+            System.arraycopy(values, index + 1, values, index, size - (index + 1));
+            size--;
+        }
+    }
+
+    public boolean contains(int key) {
+        return indexOfKey(key) >= 0;
+    }
 }

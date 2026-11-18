@@ -1,7 +1,14 @@
 package android.os;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Cài đặt nhẹ của android.os.Parcel để các APK có thể đọc/ghi dữ liệu Parcelable trong bộ nhớ.
@@ -167,6 +174,15 @@ public final class Parcel {
         return o instanceof int[] arr ? arr : new int[0];
     }
 
+    public void writeStringArray(String[] val) {
+        writeItem(val != null ? val.clone() : null);
+    }
+
+    public String[] createStringArray() {
+        Object o = readItem();
+        return o instanceof String[] arr ? arr.clone() : new String[0];
+    }
+
     public void writeByteArray(byte[] b) {
         writeItem(b);
     }
@@ -184,5 +200,109 @@ public final class Parcel {
     public <T> ArrayList<T> createTypedArrayList(Parcelable.Creator<T> c) {
         Object o = readItem();
         return o instanceof List<?> l ? new ArrayList<>((List<T>) l) : new ArrayList<>();
+    }
+
+    public void writeStrongBinder(IBinder val) {
+        writeItem(val);
+    }
+
+    public IBinder readStrongBinder() {
+        Object o = readItem();
+        return o instanceof IBinder b ? b : null;
+    }
+
+    public void writeStrongInterface(IInterface val) {
+        writeItem(val != null ? val.asBinder() : null);
+    }
+
+    public void writeNoException() {
+        writeInt(0);
+    }
+
+    public void readException() {
+        int code = readInt();
+        if (code != 0) {
+            String msg = readString();
+            throw new RuntimeException(msg != null ? msg : "Parcel remote exception code=" + code);
+        }
+    }
+
+    public void writeInterfaceToken(String interfaceName) {
+        writeItem(interfaceName);
+    }
+
+    public void enforceInterface(String interfaceName) {
+        readItem();
+    }
+
+    public void writeSerializable(Serializable s) {
+        writeItem(s);
+    }
+
+    public Serializable readSerializable() {
+        Object o = readItem();
+        return o instanceof Serializable s ? s : null;
+    }
+
+    public void writeList(List<?> val) {
+        writeItem(val != null ? new ArrayList<>(val) : null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public ArrayList<Object> readArrayList(ClassLoader loader) {
+        Object o = readItem();
+        return o instanceof List<?> l ? new ArrayList<>(l) : new ArrayList<>();
+    }
+
+    public void writeMap(Map<?, ?> val) {
+        writeItem(val != null ? new HashMap<>(val) : null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public HashMap<Object, Object> readHashMap(ClassLoader loader) {
+        Object o = readItem();
+        return o instanceof Map<?, ?> m ? new HashMap<>(m) : new HashMap<>();
+    }
+
+    public void writeValue(Object v) {
+        writeItem(v);
+    }
+
+    public Object readValue(ClassLoader loader) {
+        return readItem();
+    }
+
+    public byte[] marshall() {
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
+             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+            oos.writeInt(data.size());
+            for (Object item : data) {
+                oos.writeObject(item instanceof Serializable ? item : null);
+            }
+            oos.flush();
+            return bos.toByteArray();
+        } catch (Exception e) {
+            return new byte[0];
+        }
+    }
+
+    public void unmarshall(byte[] bytes, int offset, int length) {
+        data.clear();
+        pos = 0;
+        if (bytes == null || length <= 0 || offset < 0 || offset + length > bytes.length) {
+            return;
+        }
+        try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(bytes, offset, length))) {
+            int count = ois.readInt();
+            for (int i = 0; i < count; i++) {
+                data.add(ois.readObject());
+            }
+        } catch (Exception ignored) {
+            // Dữ liệu nhị phân thô không phải từ marshall(): lưu nguyên byte[] để tránh lỗi
+            data.clear();
+            byte[] slice = new byte[length];
+            System.arraycopy(bytes, offset, slice, 0, length);
+            data.add(slice);
+        }
     }
 }

@@ -3,9 +3,17 @@ package android.graphics.drawable;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.graphics.Canvas;
+import android.graphics.ColorFilter;
+import android.graphics.Outline;
+import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
+import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
+import android.util.AttributeSet;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 
 public abstract class Drawable {
@@ -31,6 +39,10 @@ public abstract class Drawable {
         public int getChangingConfigurations() {
             return 0;
         }
+
+        public boolean canApplyTheme() {
+            return false;
+        }
     }
 
     private final Rect bounds = new Rect();
@@ -40,6 +52,10 @@ public abstract class Drawable {
     private int[] stateSet = new int[0];
     private WeakReference<Callback> callback;
     private ColorStateList tintList;
+    private ColorFilter colorFilter;
+    private int changingConfigurations;
+    private int layoutDirection;
+    private boolean autoMirrored;
 
     public abstract void draw(Canvas canvas);
 
@@ -52,12 +68,21 @@ public abstract class Drawable {
         return alpha;
     }
 
-    public void setColorFilter(int color, PorterDuff.Mode mode) {
+    public void setColorFilter(ColorFilter colorFilter) {
+        this.colorFilter = colorFilter;
         invalidateSelf();
     }
 
+    public void setColorFilter(int color, PorterDuff.Mode mode) {
+        setColorFilter(new PorterDuffColorFilter(color, mode));
+    }
+
+    public ColorFilter getColorFilter() {
+        return colorFilter;
+    }
+
     public void clearColorFilter() {
-        invalidateSelf();
+        setColorFilter(null);
     }
 
     public void setTint(int tintColor) {
@@ -74,15 +99,33 @@ public abstract class Drawable {
     }
 
     public void setBounds(int left, int top, int right, int bottom) {
+        boolean changed = bounds.left != left || bounds.top != top
+                || bounds.right != right || bounds.bottom != bottom;
         bounds.set(left, top, right, bottom);
+        if (changed) {
+            onBoundsChange(bounds);
+        }
     }
 
     public void setBounds(Rect bounds) {
-        if (bounds != null) this.bounds.set(bounds);
+        if (bounds != null) {
+            setBounds(bounds.left, bounds.top, bounds.right, bounds.bottom);
+        }
     }
 
     public final Rect getBounds() {
         return bounds;
+    }
+
+    public final Rect copyBounds() {
+        return new Rect(bounds);
+    }
+
+    public final void copyBounds(Rect bounds) {
+        if (bounds != null) bounds.set(this.bounds);
+    }
+
+    protected void onBoundsChange(Rect bounds) {
     }
 
     public int getIntrinsicWidth() {
@@ -104,8 +147,85 @@ public abstract class Drawable {
     }
 
     public boolean getPadding(Rect padding) {
-        padding.set(0, 0, 0, 0);
+        if (padding != null) padding.set(0, 0, 0, 0);
         return false;
+    }
+
+    public void getOutline(Outline outline) {
+        if (outline != null) {
+            outline.setRect(getBounds());
+            outline.setAlpha(getAlpha() / 255.0f);
+        }
+    }
+
+    public int getOpacity() {
+        return PixelFormat.TRANSLUCENT;
+    }
+
+    public void setDither(boolean dither) {
+    }
+
+    public void setFilterBitmap(boolean filter) {
+    }
+
+    public boolean isFilterBitmap() {
+        return false;
+    }
+
+    public void setAutoMirrored(boolean mirrored) {
+        this.autoMirrored = mirrored;
+    }
+
+    public boolean isAutoMirrored() {
+        return autoMirrored;
+    }
+
+    public int getLayoutDirection() {
+        return layoutDirection;
+    }
+
+    public final boolean setLayoutDirection(int layoutDirection) {
+        if (this.layoutDirection != layoutDirection) {
+            this.layoutDirection = layoutDirection;
+            return onLayoutDirectionChanged(layoutDirection);
+        }
+        return false;
+    }
+
+    public boolean onLayoutDirectionChanged(int layoutDirection) {
+        return false;
+    }
+
+    public int getChangingConfigurations() {
+        return changingConfigurations;
+    }
+
+    public void setChangingConfigurations(int configs) {
+        this.changingConfigurations = configs;
+    }
+
+    public void applyTheme(Resources.Theme t) {
+    }
+
+    public boolean canApplyTheme() {
+        return false;
+    }
+
+    public void setHotspot(float x, float y) {
+    }
+
+    public void setHotspotBounds(int left, int top, int right, int bottom) {
+    }
+
+    public void getHotspotBounds(Rect outRect) {
+        if (outRect != null) outRect.set(getBounds());
+    }
+
+    public void jumpToCurrentState() {
+    }
+
+    public Drawable getCurrent() {
+        return this;
     }
 
     public void setCallback(Callback cb) {
@@ -139,6 +259,10 @@ public abstract class Drawable {
 
     public boolean isStateful() {
         return tintList != null && tintList.isStateful();
+    }
+
+    public boolean hasFocusStateSpecified() {
+        return false;
     }
 
     public int[] getState() {
@@ -180,11 +304,26 @@ public abstract class Drawable {
         return visible;
     }
 
+    public void inflate(Resources r, XmlPullParser parser, AttributeSet attrs)
+            throws XmlPullParserException, IOException {
+        inflate(r, parser, attrs, null);
+    }
+
+    public void inflate(Resources r, XmlPullParser parser, AttributeSet attrs, Resources.Theme theme)
+            throws XmlPullParserException, IOException {
+    }
+
     public Drawable mutate() {
         return this;
     }
 
     public ConstantState getConstantState() {
-        return null;
+        final Drawable self = this;
+        return new ConstantState() {
+            @Override
+            public Drawable newDrawable() {
+                return self;
+            }
+        };
     }
 }

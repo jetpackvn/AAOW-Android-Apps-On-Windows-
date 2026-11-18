@@ -15,7 +15,35 @@ public final class Configuration implements Comparable<Configuration>, Parcelabl
     public static final int UI_MODE_NIGHT_NO = 0x10;
     public static final int UI_MODE_NIGHT_YES = 0x20;
 
+    public static final int KEYBOARD_UNDEFINED = 0;
+    public static final int KEYBOARD_NOKEYS = 1;
+    public static final int KEYBOARD_QWERTY = 2;
+    public static final int KEYBOARD_12KEY = 3;
+
+    public static final int KEYBOARDHIDDEN_UNDEFINED = 0;
+    public static final int KEYBOARDHIDDEN_NO = 1;
+    public static final int KEYBOARDHIDDEN_YES = 2;
+
+    public static final int HARDKEYBOARDHIDDEN_UNDEFINED = 0;
+    public static final int HARDKEYBOARDHIDDEN_NO = 1;
+    public static final int HARDKEYBOARDHIDDEN_YES = 2;
+
+    public static final int NAVIGATION_UNDEFINED = 0;
+    public static final int NAVIGATION_NONAV = 1;
+    public static final int NAVIGATION_DPAD = 2;
+    public static final int NAVIGATION_TRACKBALL = 3;
+    public static final int NAVIGATION_WHEEL = 4;
+
+    public static final int NAVIGATIONHIDDEN_UNDEFINED = 0;
+    public static final int NAVIGATIONHIDDEN_NO = 1;
+    public static final int NAVIGATIONHIDDEN_YES = 2;
+
+    public static final int TOUCHSCREEN_UNDEFINED = 0;
+    public static final int TOUCHSCREEN_NOTOUCH = 1;
+    public static final int TOUCHSCREEN_FINGER = 3;
+
     public float fontScale = 1.0f;
+    public int fontWeightAdjustment = 0;
     public int mcc;
     public int mnc;
     public Locale locale = Locale.getDefault();
@@ -26,6 +54,12 @@ public final class Configuration implements Comparable<Configuration>, Parcelabl
     public int screenHeightDp = 840;
     public int smallestScreenWidthDp = 412;
     public int densityDpi = 160;
+    public int keyboard = KEYBOARD_QWERTY;
+    public int keyboardHidden = KEYBOARDHIDDEN_NO;
+    public int hardKeyboardHidden = HARDKEYBOARDHIDDEN_NO;
+    public int navigation = NAVIGATION_NONAV;
+    public int navigationHidden = NAVIGATIONHIDDEN_NO;
+    public int touchscreen = TOUCHSCREEN_FINGER;
 
     public Configuration() {
     }
@@ -37,6 +71,7 @@ public final class Configuration implements Comparable<Configuration>, Parcelabl
     public void setTo(Configuration o) {
         if (o == null) return;
         this.fontScale = o.fontScale;
+        this.fontWeightAdjustment = o.fontWeightAdjustment;
         this.mcc = o.mcc;
         this.mnc = o.mnc;
         this.locale = o.locale;
@@ -47,10 +82,17 @@ public final class Configuration implements Comparable<Configuration>, Parcelabl
         this.screenHeightDp = o.screenHeightDp;
         this.smallestScreenWidthDp = o.smallestScreenWidthDp;
         this.densityDpi = o.densityDpi;
+        this.keyboard = o.keyboard;
+        this.keyboardHidden = o.keyboardHidden;
+        this.hardKeyboardHidden = o.hardKeyboardHidden;
+        this.navigation = o.navigation;
+        this.navigationHidden = o.navigationHidden;
+        this.touchscreen = o.touchscreen;
     }
 
     public void setToDefaults() {
         fontScale = 1.0f;
+        fontWeightAdjustment = 0;
         locale = Locale.getDefault();
         localeList = LocaleList.getDefault();
         orientation = ORIENTATION_PORTRAIT;
@@ -59,6 +101,12 @@ public final class Configuration implements Comparable<Configuration>, Parcelabl
         screenHeightDp = 840;
         smallestScreenWidthDp = 412;
         densityDpi = 160;
+        keyboard = KEYBOARD_QWERTY;
+        keyboardHidden = KEYBOARDHIDDEN_NO;
+        hardKeyboardHidden = HARDKEYBOARDHIDDEN_NO;
+        navigation = NAVIGATION_NONAV;
+        navigationHidden = NAVIGATIONHIDDEN_NO;
+        touchscreen = TOUCHSCREEN_FINGER;
     }
 
     public void setLocale(Locale loc) {

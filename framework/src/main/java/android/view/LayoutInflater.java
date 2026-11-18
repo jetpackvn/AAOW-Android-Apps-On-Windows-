@@ -20,6 +20,10 @@ public class LayoutInflater {
         View onCreateView(View parent, String name, Context context, AttributeSet attrs);
     }
 
+    public interface Filter {
+        boolean onLoadClass(Class clazz);
+    }
+
     private final Context context;
     private Factory factory;
     private Factory2 factory2;
@@ -111,6 +115,12 @@ public class LayoutInflater {
     }
 
     private View createViewFromTag(View parent, String tagName, AttributeSet attrs) {
+        if ("view".equals(tagName) && attrs != null) {
+            String classAttr = attrs.getClassAttribute();
+            if (classAttr != null && !classAttr.isEmpty()) {
+                tagName = classAttr;
+            }
+        }
         if (factory2 != null) {
             View v = factory2.onCreateView(parent, tagName, context, attrs);
             if (v != null) return v;
@@ -118,15 +128,30 @@ public class LayoutInflater {
             View v = factory.onCreateView(tagName, context, attrs);
             if (v != null) return v;
         }
+        if (context instanceof Factory2 priv && priv != factory2) {
+            View v = priv.onCreateView(parent, tagName, context, attrs);
+            if (v != null) return v;
+        }
+
+        ClassLoader cl = context.getClassLoader() != null ? context.getClassLoader() : getClass().getClassLoader();
+        View direct = instantiateByName(tagName, attrs, cl);
+        if (direct != null) return direct;
 
         String mapped = mapTagName(tagName);
-        ClassLoader cl = context.getClassLoader() != null ? context.getClassLoader() : getClass().getClassLoader();
-        String[] prefixes = mapped.contains(".")
+        if (!mapped.equals(tagName)) {
+            View mappedView = instantiateByName(mapped, attrs, cl);
+            if (mappedView != null) return mappedView;
+        }
+        return createSupportFallbackView(tagName, attrs);
+    }
+
+    private View instantiateByName(String name, AttributeSet attrs, ClassLoader cl) {
+        String[] prefixes = name.contains(".")
                 ? new String[]{""}
                 : new String[]{"android.widget.", "android.view.", "android.webkit."};
 
         for (String prefix : prefixes) {
-            String fullName = prefix + mapped;
+            String fullName = prefix + name;
             try {
                 Class<?> cls = Class.forName(fullName, true, cl);
                 if (View.class.isAssignableFrom(cls)) {
@@ -139,18 +164,56 @@ public class LayoutInflater {
                     }
                 }
             } catch (ClassNotFoundException ignored) {
-            } catch (Exception e) {
-                throw new RuntimeException("Lỗi khởi tạo View <" + tagName + ">: " + e, e);
+            } catch (Throwable t) {
+                Throwable root = (t instanceof java.lang.reflect.InvocationTargetException ite && ite.getCause() != null)
+                        ? ite.getCause() : t;
+                if (isSupportOrMaterialTag(name)) {
+                    System.err.println("[AAOW LayoutInflater] Fallback cho <" + name + "> sau lỗi: " + root);
+                    return createSupportFallbackView(name, attrs);
+                }
+                if (root instanceof RuntimeException re) throw re;
+                throw new RuntimeException("Lỗi khởi tạo View <" + name + ">: " + root, root);
             }
         }
-        // Fallback nếu gặp một custom container của AndroidX/Material chưa được đóng gói:
-        if (tagName.endsWith("Layout") || tagName.endsWith("CardView") || tagName.endsWith("ScrollView")) {
-            if (tagName.contains("ScrollView")) {
-                return new android.widget.ScrollView(context, attrs);
+        return null;
+    }
+
+    private static boolean isSupportOrMaterialTag(String tag) {
+        return tag != null && (tag.startsWith("androidx.")
+                || tag.startsWith("android.support.")
+                || tag.startsWith("com.google.android.material."));
+    }
+
+    private View createSupportFallbackView(String tagName, AttributeSet attrs) {
+        if (tagName.endsWith("ConstraintLayout")) {
+            return new dev.aaow.rt.compat.CompatConstraintLayout(context, attrs);
+        }
+        if (tagName.endsWith("RecyclerView")) {
+            return new dev.aaow.rt.compat.CompatRecyclerView(context, attrs);
+        }
+        if (tagName.endsWith("ViewPager") || tagName.endsWith("ViewPager2")) {
+            return new dev.aaow.rt.compat.CompatViewPager(context, attrs);
+        }
+        if (tagName.endsWith("CardView")) {
+            return new dev.aaow.rt.compat.CompatCardView(context, attrs);
+        }
+        if (tagName.endsWith("ScrollView")) {
+            return new android.widget.ScrollView(context, attrs);
+        }
+        if (tagName.contains("AppBarLayout") || tagName.contains("Linear") || tagName.endsWith("TabLayout")) {
+            android.widget.LinearLayout ll = new android.widget.LinearLayout(context, attrs);
+            if (tagName.contains("AppBarLayout")) {
+                ll.setOrientation(android.widget.LinearLayout.VERTICAL);
             }
-            if (tagName.contains("Linear")) {
-                return new android.widget.LinearLayout(context, attrs);
-            }
+            return ll;
+        }
+        if (tagName.endsWith("Toolbar")) {
+            return new android.widget.Toolbar(context, attrs);
+        }
+        if (tagName.contains("FloatingActionButton") || tagName.endsWith("ImageButton")) {
+            return new android.widget.ImageButton(context, attrs);
+        }
+        if (tagName.endsWith("Layout") || tagName.endsWith("ContainerView") || tagName.endsWith("Group")) {
             return new android.widget.FrameLayout(context, attrs);
         }
         return new android.widget.TextView(context, attrs);
@@ -174,7 +237,7 @@ public class LayoutInflater {
             case "androidx.appcompat.widget.LinearLayoutCompat" -> "android.widget.LinearLayout";
             case "androidx.core.widget.NestedScrollView" -> "android.widget.ScrollView";
             case "androidx.cardview.widget.CardView",
-                 "com.google.android.material.card.MaterialCardView" -> "android.widget.FrameLayout";
+                 "com.google.android.material.card.MaterialCardView" -> "dev.aaow.rt.compat.CompatCardView";
             default -> tag;
         };
     }

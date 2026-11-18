@@ -83,3 +83,196 @@ Khi bắt đầu triển khai **Sprint 4 (Mở rộng Android Framework Cốt l�
    - Cài đặt `ValueAnimator`, `ObjectAnimator`, `AnimatorSet`, `ScaleGestureDetector`, `GestureDetector` thật chạy trên Swing `Timer` 60fps.
 4. **Bước 4.4 — Kiểm thử & Nghiệm thu Sprint 4:**
    - Kiểm thử tương tác thật trên bộ APK F-Droid (mở menu của `Editor`/`Notes`, mở được giao diện chính của `org.woheller69.level` và ít nhất 1 app AndroidX khác), chạy `.\gradlew.bat test` (giữ 100% PASS) và cập nhật biên bản vào file này.
+
+---
+
+## Sprint 4: Mở rộng Android Framework Cốt lõi (UI, Fragment, Animation & Tương thích AndroidX) — ✅ Đã nghiệm thu
+
+### Các hạng mục đã hoàn thành
+1. **Fragment, Menu, ActionBar/Toolbar & Vòng đời Hiện đại:**
+   - Hoàn thiện `android.app.Fragment`, `FragmentManager`, `FragmentTransaction` (hỗ trợ `add`, `replace` kèm `expandOps`/`popBackStackImmediate`, `hide`/`show`, `attach`/`detach`, `FragmentLifecycleCallbacks`, đồng bộ View trong container), `PreferenceFragment`/`PreferenceScreen`/`PreferenceManager` đọc XML cài đặt.
+   - Bổ sung `Activity.registerActivityLifecycleCallbacks()` + `default onActivityPre*/Post*` trên `Application.ActivityLifecycleCallbacks` (cho Jetpack Lifecycle `ReportFragment`), `OnBackInvokedDispatcher`/`OnBackInvokedCallback` ưu tiên theo mức độ ưu tiên trước khi fall back sang `FragmentManager.popBackStackImmediate()`, `Window.Callback`, `WindowInsets` + `WindowInsets.Builder` + `WindowInsetsController`.
+   - Hoàn thiện `SimpleMenu`, `MenuInflater` đọc trực tiếp `res/menu/*.xml` (mục chính, `SubMenu`, icon vector, cờ `showAsAction`), thanh `Toolbar` / `ActionBar` & overlay dropdown `HostWindow` (kèm tự động ẩn ActionBar tổng hợp khi Activity đã nạp `ActionBarOverlayLayout`/`Toolbar` của AndroidX).
+2. **Resource XML Parser, Theme Stack & AndroidX/Material Containers:**
+   - Thêm `XmlPullParser` / `XmlPullParserException` / `XmlResourceParser` / `AxmlXmlResourceParser` / `android.util.Xml` và cải tiến `Resources.getXml`/`TypedArray` + stack nhiều tầng style trong `Resources.Theme.applyStyle(resId, force)` (tránh trường hợp `Theme.AppCompat.Empty` ghi đè làm mất thuộc tính cha của `LevelTheme`).
+   - Sửa `LayoutInflater` bảo toàn instance theo từng `Activity`, hỗ trợ `Factory`/`Factory2` + private `Activity` factory (cho Jetpack `FragmentContainerView`), thẻ `<view class="..."/>`, ưu tiên class AndroidX/Material thật trước rồi fallback thông minh sang `CompatConstraintLayout`, `CompatCardView`, `CompatRecyclerView`, `CompatViewPager`.
+   - Bổ sung loạt lớp UI & đồ họa nền tảng giúp thành phần AndroidX/Material hoạt động trực tiếp: `ViewStub`, `SurfaceView`/`SurfaceHolder`/`Surface` (double-buffer Bitmap), `CheckedTextView`, `AutoCompleteTextView` (`setOnItemClickListener`/`getDropDownAnchor`), `ViewOutlineProvider`, `VectorDrawable` (gói chuẩn `android.graphics.drawable`), `Path.op`/`transform`/`rLineTo`, `Matrix.setRectToRect`/`ScaleToFit`, `Xfermode`/`PorterDuffXfermode`, `Handler.createAsync` (cho Kotlin Coroutines `Dispatchers.Main`), `View.Property` (`ALPHA`, `TRANSLATION_Z`, v.v.), `Drawable.getConstantState()`, `Html.fromHtml()`, `Observable`/`DataSetObservable`, `AccessibilityManager`/`AccessibilityDelegate`, `AudioAttributes`/`SoundPool` và `SensorManager` cảm biến ảo.
+3. **Hệ thống Animation 60fps & Cử chỉ:**
+   - Triển khai `ValueAnimator`, `ObjectAnimator`, `AnimatorSet`, `PropertyValuesHolder`, `TimeInterpolator`, `TypeEvaluator`/`ArgbEvaluator`, `PathInterpolator`, `ViewPropertyAnimator`, họ `View` `Animation` (`AlphaAnimation`, `TranslateAnimation`, `ScaleAnimation`, `RotateAnimation`, `AnimationSet`), `GestureDetector` & `ScaleGestureDetector` đa điểm chạm.
+4. **Ổn định CLI Headless Screenshot:**
+   - Cập nhật `--screenshot` & `--screenshot-hub` trong `Main.java` luôn thoát sạch JVM sau khi chụp/lỗi (tránh treo bởi non-daemon Swing EDT) và chạy 1 nhịp EDT flush trước khi chụp `SurfaceView`/`Handler.post`.
+
+### Kết quả Nghiệm thu Thực tế Sprint 4
+- **Unit test JUnit 5 (`.\gradlew.bat test --rerun-tasks --console=plain`):** **12/12 PASSED** (0 failures, 0 skipped):
+  - `AndroidSdkFallbackClassLoaderTest` (2), `ApkCompatibilityScannerTest` (2), `FrameworkHierarchyTest` (2 — **0 sai lệch superclass** đối chiếu `android.jar` cho toàn bộ lớp `android.*` mới), `Sprint4FrameworkTest` (6 — kiểm thử `MenuInflater`/`Toolbar` trên APK thật `editor_198` & `notes_142`, `FragmentManager` back stack & `OnBackInvokedDispatcher`, `Resources.Theme` stack, `ViewStub`, `Compat*`, `Animator`/`GestureDetector`, `SurfaceView`/`SensorManager`).
+- **Độ phủ API tĩnh (`.\aaow.bat --scan`) sau Sprint 4 (theo Call-Sites):**
+  - `org.billthefarmer.editor_198.apk`: **94.4%** call-sites (`805/853` khớp `:framework` thật).
+  - `org.billthefarmer.notes_142.apk`: **93.3%** call-sites (`856/917` khớp `:framework` thật).
+  - `org.woheller69.level_35.apk`: tăng từ `71.2%` -> **87.1%** call-sites (`8,542/9,804`).
+  - `org.secuso.privacyfriendlynotes_105.apk`: tăng từ `69.8%` -> **83.2%** call-sites (`29,555/35,539`).
+- **Kiểm thử chạy APK & xuất ảnh thực tế (`build/sprint4-final/*.png`):**
+  - **Chạy thật trọn vẹn (0 lỗi):** `aaow-showcase.apk`, `aaow-2048.apk`, `org.billthefarmer.editor_198.apk` (hiển thị ActionBar `Editor.txt` + `Edit` / `New file` / `Open file...` / `⋮`), `org.woheller69.level_35.apk` (vào `Level`, hiển thị Toolbar `Bubble` và hộp thoại `FreeDroidWarn` ngắt dòng sạch đẹp; 0 stub warning), `org.secuso.privacyfriendlynotes_105.apk` (`SplashActivity -> TutorialActivity` với nút `Skip`, chấm `• • •`, `Next`; 0 stub warning), và `AAOW App Hub` (`hub.png`).
+  - **Chạy có phạm vi Sprint kế tiếp / giữ chỗ nhẹ:**
+    - `org.billthefarmer.notes_142.apk`: ActionBar và nút tác vụ hiển thị đầy đủ không lỗi, vùng nội dung hiển thị `WebView: about:blank` vì WebView thật thuộc **Sprint 6**.
+    - `org.secuso.privacyfriendlynotes_105.apk` (`MainActivity`): UI AndroidX/Material (`DrawerLayout`, `AppBarLayout`, `MaterialToolbar`, `SearchView`, `RecyclerView`, `CoordinatorLayout`, `FragmentContainerView` + `MainFABFragment` nút `+`) đã khởi tạo và dàn trang không còn lỗi UI hay fallback; luồng nền `Room`/`FrameworkSQLiteOpenHelper` dừng tại `Context.getDatabasePath` + `SQLiteOpenHelper` thuộc **Sprint 5**.
+    - `com.jarsilio.android.scrambledeggsif_88.apk` vẫn giữ giới hạn JVM bytecode verifier từ R8 (`kotlin.UNINITIALIZED_VALUE`), không nằm trong mục tiêu Sprint 4.
+    - Một số thành phần dùng giữ chỗ nhẹ đúng phạm vi Sprint 4: `SoundPool` chưa phát âm thanh thật (thuộc Sprint 6), `SensorManager` cung cấp dữ liệu cảm biến tĩnh ảo, và `MaterialToolbar` chưa tô nền `MaterialShapeDrawable` theo tint từ theme.
+
+### Chuẩn bị cho Sprint tiếp theo (Sprint 5 — Dữ liệu, Lưu trữ, Mạng & Đa luồng Hệ thống)
+- Cài đặt `SQLiteDatabase`, `SQLiteOpenHelper`, `Cursor`/`MatrixCursor`, `Context.getDatabasePath()` (kết nối JDBC SQLite) để ứng dụng dùng `Room` (như `PFNotes MainActivity`) đọc/ghi dữ liệu thật.
+- Hoàn thiện `ContentResolver`/`ContentProvider` (mở/đọc URI tệp trên Windows), `BroadcastReceiver`, `Service`, `HttpURLConnection`, `ConnectivityManager` và đa luồng nền (`AsyncTask`/`HandlerThread`).
+
+---
+
+## Sprint 5: Dữ liệu, Lưu trữ, Mạng & Đa luồng Hệ thống — ✅ Đã nghiệm thu
+
+### Các hạng mục đã hoàn thành
+1. **Cơ sở dữ liệu SQLite thật (`org.xerial:sqlite-jdbc:3.54.1.0`) & Hệ thống `Cursor`:**
+   - Thêm phụ thuộc `org.xerial:sqlite-jdbc:3.54.1.0` vào `:framework` (`framework/build.gradle.kts`) để chạy SQLite thật trực tiếp trên ổ cứng Windows.
+   - Cài đặt đầy đủ `android.database.*` & `android.database.sqlite.*`: `SQLiteDatabase` (`openDatabase`, `openOrCreateDatabase`, `createInMemory`, `deleteDatabase`, giao dịch `beginTransaction`/`setTransactionSuccessful`/`endTransaction`, `SQLiteTransactionListener`, truy vấn & cập nhật tham số hóa), `SQLiteOpenHelper` (`onConfigure`/`onCreate`/`onUpgrade`/`onDowngrade`/`onOpen`), `SQLiteProgram`, `SQLiteStatement`, `SQLiteQuery`, `SQLiteCursor`, `SQLiteQueryBuilder`, `Cursor`, `AbstractCursor`, `AbstractWindowedCursor`, `CursorWindow`, `MatrixCursor`, `CursorWrapper`, `CrossProcessCursor`/`CrossProcessCursorWrapper`, `ContentObserver`, `DatabaseUtils`, `DefaultDatabaseErrorHandler` và bộ ngoại lệ `SQLite*Exception`.
+   - Giải quyết vấn đề giữ khóa file `.db` trên Windows với AndroidX `Room` (`SharedSQLiteStatement` được cache không đóng ngay khi `RoomDatabase.close()`) bằng cách không giữ reference `SQLiteDatabase` suốt vòng đời `SQLiteProgram`, giúp `RoomDatabase.close()` giải phóng kết nối JDBC ngay lập tức.
+   - Bổ sung quản lý đường dẫn dữ liệu ứng dụng trên Windows (`Context.getDatabasePath()`, `openOrCreateDatabase()`, `deleteDatabase()`, `databaseList()`).
+2. **`ContentResolver`, `ContentProvider`, Manifest Metadata & IPC Binder:**
+   - Mở rộng [AndroidManifest.java](file:///d:/Project/AAOW%20%28Android%20Apps%20On%20Windows%29/apk/src/main/java/dev/aaow/apk/AndroidManifest.java) phân tích `<service>`, `<receiver>`, `<provider>`, `<meta-data>`, `<intent-filter>`; bổ sung `PackageManager.resolveContentProvider`, `PackageItemInfo.loadXmlMetaData`, `PackageManager.getServiceInfo`/`getResourcesForApplication`/`getXml`/`hasSystemFeature`, `ProviderInfo`, `PathPermission`, `PatternMatcher`.
+   - Cài đặt `ContentResolver`, `ContentProvider`, `ContentUris`, `UriMatcher`, `ParcelFileDescriptor` (`AutoCloseInputStream`/`AutoCloseOutputStream`), `AssetFileDescriptor`, `OperationApplicationException` hỗ trợ đọc/ghi `file://` và định tuyến `content://` (kể cả nạp XML đường dẫn của `androidx.core.content.FileProvider` / `android.support.v4.content.FileProvider`).
+   - Hoàn thiện `IBinder`, `Binder`, `IInterface`, `RemoteException`, `CancellationSignal`/`OperationCanceledException` và mở rộng `Parcel` (`writeStrongBinder`, `readStrongBinder`, `writeStrongInterface`, `writeNoException`, `readException`), `BaseBundle`/`Bundle`, `IntentFilter`, `Uri`.
+3. **Đa luồng Hệ thống (`Looper`/`HandlerThread`/`AsyncTask`), `Service` & `BroadcastReceiver`:**
+   - Viết lại `Looper`, `Message`, `Handler`, `HandlerThread` với hàng đợi tin nhắn có độ trễ cho luồng nền và đồng bộ `Looper.getMainLooper().getThread()` đúng tới Swing EDT (`AWT-EventQueue-0`), khắc phục `LiveData.assertMainThread()` và đảm bảo `HostWindow.renderHeadlessScreenshot()` chạy vòng đời `Activity` trên đúng luồng giao diện chính.
+   - Cài đặt `AsyncTask` (thực thi trên background thread và trả kết quả `onProgressUpdate`/`onPostExecute` về Main Looper), `Service`, `IntentService`, `ServiceConnection` (`startService`/`stopService`/`bindService`/`unbindService` nội bộ trong `AndroidRuntimeContext` và tự động `stopAllServices()` khi đóng cửa sổ `HostWindow`), và `BroadcastReceiver` (`registerReceiver`, `unregisterReceiver`, `sendBroadcast`, `sendOrderedBroadcast`, `sendStickyBroadcast`, `goAsync()`/`PendingResult`).
+4. **Kết nối Mạng (`ConnectivityManager`) & API hỗ trợ phát sinh:**
+   - Cài đặt `ConnectivityManager`, `Network`, `NetworkInfo`, `NetworkCapabilities`, `NetworkRequest` thăm dò giao diện mạng Windows thật qua `java.net.NetworkInterface` (báo trạng thái kết nối online cho các ứng dụng/thư viện truy vấn `ConnectivityManager`, kết hợp `java.net.HttpURLConnection` chuẩn của Java 21).
+   - Bổ sung một số API hỗ trợ phát sinh khi kiểm thử APK thật: `StateSet`, `TextUtils.split`, `Paint.setShadowLayer`/`clearShadowLayer`, `SparseArray` mở rộng, `Configuration.fontWeightAdjustment`, `TextView` (`setMinWidth`/`getMinWidth`/`setMaxWidth`/`getMaxWidth`, `getLetterSpacing`/`setLetterSpacing`, `setShowSoftInputOnFocus`/`getShowSoftInputOnFocus`, `getTextColors`), `AutoCompleteTextView.setText(CharSequence, boolean)`/`setOnDismissListener`, `Adapter`/`BaseAdapter`/`ViewGroup.setAddStatesFromChildren`.
+
+### Kết quả Nghiệm thu Thực tế Sprint 5
+- **Unit test JUnit 5 (`.\gradlew.bat test --rerun-tasks --console=plain`):** **17/17 PASSED** (0 failures, 0 errors, 0 skipped):
+  - `AndroidSdkFallbackClassLoaderTest` (2), `ApkCompatibilityScannerTest` (2), `FrameworkHierarchyTest` (2 — **0 sai lệch superclass** khi đối chiếu `android.jar`, đã kiểm tra thêm hệ phân cấp SQLite, `Service`/`IntentService`, `ProviderInfo`, `RemoteException` và giao diện `Parcelable` cho các lớp mới), `Sprint4FrameworkTest` (6), `Sprint5FrameworkTest` (5 — kiểm thử `SQLiteOpenHelper` CRUD/upgrade/rollback/listener + `MatrixCursor`/`CursorWrapper`, `ContentResolver`/`UriMatcher`/`FileProvider` trên `editor_198`, `HandlerThread`/`Looper`/`AsyncTask`, `Service`/`IntentService`/`Binder`/`BroadcastReceiver`, `ConnectivityManager` và **khởi tạo/insert/query thật bảng `categories` trên AndroidX `Room` `NoteDatabase` (`allthenotes`) từ APK `org.secuso.privacyfriendlynotes_105.apk`**).
+- **Độ phủ API tĩnh (`.\aaow.bat --scan`) sau Sprint 5 (theo Call-Sites):**
+  - `org.billthefarmer.editor_198.apk`: **97.5%** (`842/864` call-sites; class `87.4%`, method `94.0%`).
+  - `org.billthefarmer.notes_142.apk`: **96.2%** (`893/928` call-sites; class `88.2%`, method `91.7%`).
+  - `org.woheller69.level_35.apk`: **88.5%** (`8,687/9,820` call-sites; class `69.3%`, method `67.3%`).
+  - `org.secuso.privacyfriendlynotes_105.apk`: **88.3%** (`31,564/35,732` call-sites; class `48.1%`, method `50.8%`).
+  - Tham chiếu baseline thương mại `com.apkpure.aegon.apk`: **92.6%** (`69,130/74,640` call-sites; vẫn chờ Sprint 6–7 cho WebView/MediaPlayer/GMS/Native `.so`).
+- **Kiểm thử chạy APK & xuất ảnh thực tế (`build/sprint5-final/*.png`):**
+  - **Chạy thật trọn vẹn (0 lỗi, 0 stub warning):** `aaow-showcase.apk`, `aaow-2048.apk`, `org.billthefarmer.editor_198.apk`, `org.woheller69.level_35.apk`, `org.secuso.privacyfriendlynotes_105.apk` (`SplashActivity -> TutorialActivity`, `MainActivity` kèm `MainFABFragment`, `ManageCategoriesActivity`), và `AAOW App Hub` (`hub.png`).
+  - **Đánh giá trung thực phần chưa hoàn chỉnh / ngoài phạm vi Sprint 5:**
+    - `org.secuso.privacyfriendlynotes_105.apk`: `MainActivity` mở sạch không lỗi và `Room` (`NoteDatabase`) đọc/ghi SQLite thật trên Windows, nhưng thanh `MaterialToolbar` vẫn giữ nền trắng (chưa tô màu từ `MaterialShapeDrawable`), và màn hình phụ `TextNoteActivity` dừng khi inflate `Material TextInputLayout` tại `EditText.getTextCursorDrawable()` (API 29 widget Material, ngoài phạm vi Sprint 5).
+    - `org.billthefarmer.notes_142.apk`: giao diện ActionBar chạy sạch, vùng nội dung vẫn hiển thị khung `WebView: about:blank` chờ **Sprint 6**.
+    - `Service` và `BroadcastReceiver` hoạt động chuẩn trong cùng tiến trình ứng dụng AAOW; chưa có lớp IPC liên tiến trình giữa nhiều APK tách biệt.
+
+### Chuẩn bị cho Sprint tiếp theo (Sprint 6 — Đa phương tiện, WebView & Tích hợp Sâu Hệ điều hành Windows)
+- Nâng cấp `android.webkit.WebView` từ khung giữ chỗ sang trình duyệt nhúng thật (JavaFX WebView hoặc JCEF) để hiển thị nội dung HTML/Web trong app (`billthefarmer.notes`, trang đăng nhập/tin tức).
+- Cài đặt phát âm thanh thật (`MediaPlayer`, `SoundPool`, `AudioTrack`) qua hệ thống âm thanh Windows.
+- Kết nối `NotificationManager` sang Windows System Tray / Toast notification, đồng bộ `ClipboardManager` hai chiều và mở hộp thoại chọn file của Windows cho `Intent.ACTION_GET_CONTENT` / `ACTION_OPEN_DOCUMENT`.
+
+---
+
+## Sprint 6: Đa phương tiện, WebView & Tích hợp Sâu Hệ điều hành Windows — ✅ Đã hoàn thành & Nghiệm thu
+
+### Mục tiêu đã đề ra
+Nâng cấp lớp tương thích AAOW từ chạy UI/lưu trữ cơ bản lên hỗ trợ trình duyệt web nhúng thật (`WebView`), âm thanh đa phương tiện thật qua Windows Audio, và tích hợp sâu các dịch vụ hệ điều hành Windows (`NotificationManager` → `SystemTray`, đồng bộ `ClipboardManager`, hộp thoại chọn/tạo file Windows và in ấn).
+
+### Các hạng mục đã triển khai
+1. **Tích hợp JavaFX 21 WebKit & `android.webkit.*` hoàn chỉnh**
+   - Bổ sung thư viện `org.openjfx:javafx-{base,graphics,controls,media,web,swing}:21.0.5:win` vào `framework/build.gradle.kts` chạy trực tiếp trên classpath Java 21.
+   - Triển khai `dev.aaow.rt.WebViewEngineBridge` quản lý `javafx.scene.web.WebView`/`WebEngine` trong offscreen `Stage` (có lớp dự phòng Swing `JEditorPane` nếu môi trường thiếu JavaFX), trích xuất thư mục `assets/` của APK ra `<cacheDir>/aaow-webview-assets/` để phục vụ `file:///android_asset/` và `<base href=...>`.
+   - Hỗ trợ `addJavascriptInterface` (ràng buộc theo vòng đời `SCHEDULED`/`RUNNING`/`progressProperty`/`documentProperty`/`SUCCEEDED`), `evaluateJavascript`, `WebViewClient`, `WebChromeClient`, `WebBackForwardList`, `findAll`/`findNext`, `zoomIn`/`Out`/`By`, chuyển tiếp chuột/cuộn/phím và chụp snapshot sang Java2D (`awaitIdle`/`awaitAllIdle`).
+   - Bổ sung & hoàn thiện hệ sinh thái `android.webkit.*`: `WebView` (kế thừa `AbsoluteLayout` khớp đúng chữ ký `android.jar`), `URLUtil` (giải quyết gốc rễ lỗi `MarkdownView.loadMarkdownUrl` bị rơi về `about:blank` trong `org.billthefarmer.notes`), `MimeTypeMap`, `WebSettings`, `WebViewClient`, `WebChromeClient`, `ValueCallback`, `WebResourceRequest`, `WebResourceResponse`, `WebResourceError`, `WebHistoryItem`, `WebBackForwardList`, `ConsoleMessage`, `JsResult`, `JsPromptResult`, `DownloadListener`, `JavascriptInterface`, `CookieManager`.
+   - Cập nhật `ApkFile.listEntries`, `AssetManager` (`openFd`, `openNonAssetFd`, `list`), `ParcelFileDescriptor.getFile()`, và `Resources` (`getSystem`, `openRawResourceFd`, `getTextArray`, `obtainAttributes`).
+
+2. **Âm thanh Windows thật (`android.media.*`)**
+   - Tạo `WindowsAudioHelper`, `MediaPlayer`, `SoundPool`, `AudioTrack`, `AudioManager`, `AudioFormat`, `AudioFocusRequest`, `MediaDataSource`, `AudioRouting`, `VolumeAutomation`.
+   - Phát âm thanh thật qua `javax.sound.sampled` (`Clip`, `SourceDataLine`, PCM WAV tổng hợp/file/URI/RawResource/AssetFd) kết hợp fallback qua JavaFX Media.
+
+3. **Tích hợp Sâu Hệ điều hành Windows (`SystemTray`, `Clipboard`, `File Picker`, `Print`, `IME`)**
+   - **Thông báo (`NotificationManager`):** Tạo `WindowsTrayBridge` đẩy thông báo thật ra `java.awt.SystemTray` của Windows kèm `NotificationChannel`, `NotificationChannelGroup`, `Notification`, `PendingIntent`, `Icon`, `RemoteViews`, `PersistableBundle`, `ResultReceiver`.
+   - **Clipboard hai chiều:** Triển khai `android.text.ClipboardManager`, `android.content.ClipboardManager`, `ClipData`, `ClipDescription` đồng bộ trực tiếp với `Toolkit.getDefaultToolkit().getSystemClipboard()`, tích hợp vào `EditText` (`Ctrl+C`, `Ctrl+X`, `Ctrl+V`).
+   - **Chọn / Lưu tệp Windows:** Tạo `WindowsFilePickerBridge`, `android.provider.DocumentsContract`, mở rộng `Intent` (`ACTION_CREATE_DOCUMENT`, `ACTION_OPEN_DOCUMENT_TREE`, `EXTRA_ALLOW_MULTIPLE`, `EXTRA_MIME_TYPES`, `ClipData`) và chặn `Activity.startActivityForResult` để bật hộp thoại chọn/tạo/thư mục của Windows (`ACTION_GET_CONTENT`, `ACTION_OPEN_DOCUMENT`, `ACTION_CREATE_DOCUMENT`, `ACTION_OPEN_DOCUMENT_TREE`), trả `Uri` kết quả về `HostWindow` → `onActivityResult`.
+   - **In ấn & UI/Layout phụ trợ:** Tạo gói `android.print.*` (`PrintManager`, `PrintDocumentAdapter`, `PrintAttributes`, `PrintDocumentInfo`, `PageRange`, `PrintJob`, `PrintJobInfo`, `PrintJobId`), `InputMethodManager`, `InputFilter`, `StaticLayout.Builder`, `TextDirectionHeuristic`/`Heuristics`, `Paint.FontMetricsInt`, `Canvas.concat(Matrix)`, `Html.toHtml`, `LayoutInflater.Filter` và các API `View`/`TextView`/`HorizontalScrollView`/`Toast` để mở khóa thêm các màn hình phức tạp (`TextNoteActivity`, `AudioNoteActivity`).
+
+### Kết quả kiểm thử & nghiệm thu Sprint 6
+1. **Kiểm thử tự động JUnit 5 (`.\gradlew.bat test --rerun-tasks --console=plain`):**
+   - `AndroidSdkFallbackClassLoaderTest`: 2/2 PASS
+   - `ApkCompatibilityScannerTest`: 2/2 PASS
+   - `FrameworkHierarchyTest`: 2/2 PASS (**0 `SUPER_MISMATCH`** khi đối chiếu toàn bộ cây kế thừa lớp framework với `android.jar`)
+   - `Sprint4FrameworkTest`: 6/6 PASS
+   - `Sprint5FrameworkTest`: 5/5 PASS
+   - `Sprint6FrameworkTest`: 4/4 PASS
+   - **Tổng cộng:** `21 tests, 0 failures, 0 errors, 0 skipped`.
+2. **Đóng gói chạy nhanh & Quét API tĩnh (`.\aaow.bat --rebuild`, `.\aaow.bat --scan`):**
+   - `org.billthefarmer.notes_142.apk`: Class `104/110 (94.5%)`, Unique Method `323/327 (98.8%)`, Call Sites `924/928 (99.6%)`
+   - `org.billthefarmer.editor_198.apk`: Class `89/95 (93.7%)`, Unique Method `263/267 (98.5%)`, Call Sites `858/864 (99.3%)`
+   - `org.woheller69.level_35.apk`: Class `298/407 (73.2%)`, Unique Method `1658/2359 (70.3%)`, Call Sites `8820/9820 (89.8%)`
+   - `org.secuso.privacyfriendlynotes_105.apk`: Class `406/751 (54.1%)`, Unique Method `2773/4863 (57.0%)`, Call Sites `32242/35732 (90.2%)`
+   - `com.apkpure.aegon.apk`: Class `431/760 (56.7%)`, Unique Method `3040/4676 (65.0%)`, Call Sites `70652/74640 (94.7%)`
+3. **Kiểm thử chạy thật & Chụp màn hình (`build/sprint6-final/*.png`):**
+   - `org.billthefarmer.notes_142.apk` (`notes.png`): Mở thẳng giao diện `Notes.md`, nạp ghi chú mẫu UTF-8 tại `build/aaow-data/sdcard/Notes/Notes.md` và kết xuất trọn vẹn HTML/CSS/danh sách/code qua `MarkdownView` (JavaFX WebKit) với `file:///android_asset/styles.css` — không còn màn hình trắng `about:blank`.
+   - `samples/aaow-showcase.apk` (`showcase.png`), `samples/aaow-2048.apk` (`game2048.png`), `org.billthefarmer.editor_198.apk` (`editor.png`), `org.woheller69.level_35.apk` (`level.png`), và AAOW App Hub (`hub.png`): Tất cả dựng hình ổn định, không có hồi quy.
+   - `org.secuso.privacyfriendlynotes_105.apk`: Cả `MainActivity` (`pfnotes-main.png`), `TextNoteActivity` (`pfnotes-text.png`) và `AudioNoteActivity` (`pfnotes-audio.png`) đều mở và hiển thị sạch sẽ (spinner `Default`, ô nhập tiêu đề, nút FAB, `SeekBar` âm thanh).
+
+### Đánh giá trung thực (Chạy thật vs Giới hạn hiện tại)
+- **Chạy thật:**
+  - `WebView` dựng bằng động cơ trình duyệt WebKit thật (JavaFX 21 WebView), giải mã asset nội bộ APK (`file:///android_asset/`), chạy JS/CSS và tương tác hai chiều với mã Java trong APK (`addJavascriptInterface`, `evaluateJavascript`).
+  - Âm thanh (`MediaPlayer`, `SoundPool`, `AudioTrack`) phát qua thiết bị âm thanh Windows thật bằng `javax.sound.sampled` (kèm JavaFX Media fallback); thông báo `NotificationManager` đẩy thật qua `SystemTray` của Windows; `ClipboardManager` đồng bộ hai chiều với clipboard Windows; `startActivityForResult` mở hộp thoại chọn/lưu file Windows.
+- **Giới hạn hiện tại & Ngoài phạm vi Sprint 6:**
+  - Chạy `org.billthefarmer.notes` cần có sẵn tệp ghi chú (đã đặt sẵn tệp mẫu kiểm thử `build/aaow-data/sdcard/Notes/Notes.md`) nếu muốn thấy nội dung ngay khi vừa mở app mới cài.
+  - Ở `org.secuso.privacyfriendlynotes_105.apk`, thanh `MaterialToolbar` vẫn giữ nền trắng (hạn chế theme AppCompat/Material đã ghi nhận từ Sprint 5) và `TextInputLayout` phát ra 1 cảnh báo `LayoutInflater` fallback (`The current box background mode 0 is not supported by the end icon mode 3`) trước khi hiển thị an toàn.
+  - Định dạng âm thanh nén đặc thù ngoài khả năng giải mã mặc định của Java Sound / JavaFX Media (ví dụ một số codec AAC/OGG hiếm) phụ thuộc codec hỗ trợ trên JVM/Windows; hộp thoại File Picker & SystemTray ở chế độ `--screenshot` headless sử dụng đường dẫn an toàn không chặn luồng UI.
+  - Chưa hỗ trợ nạp thư viện native C/C++ (`.so` ARM/x86_64) và chưa có lớp thay thế Google Play Services / Firebase (đây là mục tiêu của Sprint 7).
+
+### Chuẩn bị cho Sprint tiếp theo (Sprint 7 — Tầng Thư viện Native (`.so` / JNI) & Dịch vụ thay thế GMS)
+- Nghiên cứu và xây dựng cơ chế nạp/ánh xạ thư viện native `.so` (`System.loadLibrary`, cầu nối JNI hoặc giả lập/chuyển dịch nhẹ cho các hàm native phổ biến).
+- Xây dựng lớp tương thích nhẹ cho các API Google Play Services / Firebase cơ bản (theo hướng microG) để các ứng dụng thương mại (`com.apkpure.aegon` v.v.) không bị chặn ngay từ bước khởi tạo dịch vụ.
+
+
+---
+
+## Sprint 7: Tầng Thư viện Native (`.so` / JNI) & Dịch vụ thay thế GMS (`microG-lite`)
+**Trạng thái:** ✅ Đã hoàn thành & Nghiệm thu (18/11/2026)
+
+### 1. Mục tiêu đã hoàn thành
+1. **Nghiên cứu kiến trúc Native ABI ([NATIVE_ABI_SPIKE.md](NATIVE_ABI_SPIKE.md)):**
+   - Đo đạc trực tiếp APK thương mại `com.apkpure.aegon.apk` (5 thư viện ARM `.so`: `libglide-webp.so`, `libqmp.so`, `libqsealib.so`, `libdeflater7z.so`, `libdaemon_acc_v2.1.5.so`; 95 hàm `native` trên 12 class, trong đó `MMKV` chiếm 47 hàm).
+   - Chốt kiến trúc **Hybrid JNI HLE + ELF Parser + Pure-Java ARM64 Interpreter + Windows DLL Loader** (0 thư viện C ngoài, thuần Java 21).
+2. **Tầng phân tích ELF, giải nén & cầu nối Native (`.so` / `.dll` / JNI):**
+   - Bổ sung [ElfFile.java](../apk/src/main/java/dev/aaow/apk/ElfFile.java) và mở rộng [ApkFile.java](../apk/src/main/java/dev/aaow/apk/ApkFile.java) giải mã header ELF32/ELF64, phân đoạn `PT_LOAD` (`VirtualImage`), phụ thuộc `DT_NEEDED`, bảng ký hiệu `SHT_DYNSYM`/`SHT_SYMTAB` (`JNI_OnLoad`, `Java_*`).
+   - Xây dựng [NativeLibraryManager.java](../framework/src/main/java/dev/aaow/rt/NativeLibraryManager.java) giải nén `.so` từ APK vào `applicationInfo.nativeLibraryDir`, hỗ trợ nạp `.dll` Windows thật qua `System.load` khi có, và lập chỉ mục hàm JNI `arm64-v8a`.
+   - Nâng cấp [DexLoader.java](../launcher/src/main/java/dev/aaow/launcher/DexLoader.java) (`-v7.jar`) viết lại mọi phương thức `ACC_NATIVE` gọi qua [NativeBridge.invokeNative](../framework/src/main/java/dev/aaow/rt/NativeBridge.java) có truyền `this` và tham số trước khi thoái lui an toàn về giá trị mặc định.
+   - Xây dựng 5 bộ giả lập JNI HLE trong [dev/aaow/rt/jni](../framework/src/main/java/dev/aaow/rt/jni):
+     - `MmkvJniHandler`: lưu trữ key-value bền vững ra file `.aaow.mmkv` (bool, int, long, float, double, String, byte[], String[], `allKeys`, `sync`, NativeBuffer).
+     - `WebpJniHandler` & `WebpHelper` (tích hợp vào `BitmapFactory`): đọc kích thước thực từ header RIFF WebP (`VP8` / `VP8L` / `VP8X`) và giải mã ảnh tiêu chuẩn.
+     - `ZlibAndPatchJniHandler`: hỗ trợ `DeflateTask.deflateByCallback`, `CRC32.updateBytes`.
+     - `MemFileJniHandler`: giả lập handle bộ nhớ dùng chung cho `MemFileJniApi`.
+     - `SqliteJniHandler`: cầu nối JNI SQLite bổ trợ.
+   - Xây dựng [Arm64JniInterpreter.java](../framework/src/main/java/dev/aaow/rt/Arm64JniInterpreter.java) (trình thông dịch CPU AArch64 thuần Java ở mức người dùng, giới hạn 200.000 bước, hỗ trợ bảng ảo `JNIEnv*` như `NewStringUTF`, `GetStringUTFChars`, mảng nguyên thủy).
+3. **Lớp tương thích Google Play Services & Firebase (`microG-lite`) & Mở khóa khởi động APK thương mại:**
+   - Tổ chức source set thứ cấp `framework/src/microg/java/` đóng gói thành `dev/aaow/microg-lite.jar` vào resource của `:framework`.
+   - Xây dựng [ApkDexClassLoader.java](../launcher/src/main/java/dev/aaow/launcher/ApkDexClassLoader.java) theo thứ tự **system parent-first -> APK DEX child-first -> `microg-lite.jar` fallback (cùng ClassLoader để tránh `LinkageError`)** -> tổng hợp stub cho plugin tùy chọn bằng ASM (`DynamicPluginStubber` có kiểm tra `StackWalker` để không nuốt `Class.forName` thăm dò).
+   - Cài đặt đầy đủ gói `microg-lite`: `FirebaseApp`, `FirebaseOptions`, `FirebaseInitProvider`, `FirebaseAnalytics`, `FirebaseCrashlytics`, `FirebaseMessaging`, `FirebaseInstallations`, `GoogleApiAvailability`, `GoogleApiAvailabilityLight`, `GooglePlayServicesUtil`, `AdvertisingIdClient` (kết nối AIDL `Binder` qua [MicroGServiceRegistry.java](../framework/src/main/java/dev/aaow/rt/microg/MicroGServiceRegistry.java)), `AppSet`, `Tasks`/`TaskCompletionSource`, `ProviderInstaller`, `Conscrypt`, `DiskLruCache`, `commons-logging`.
+   - Chuẩn hóa vòng đời khởi động `Application.attach` -> `installManifestContentProviders()` (sắp xếp theo `initOrder`) trong [AppRepository.java](../launcher/src/main/java/dev/aaow/launcher/AppRepository.java) & [AndroidRuntimeContext.java](../framework/src/main/java/dev/aaow/rt/AndroidRuntimeContext.java) (kèm làm sạch ký tự `:` trong tên `SharedPreferences` trên Windows).
+   - Sửa `Looper.myLooper()` chỉ trả `MAIN_LOOPER` trên luồng EDT / sau `prepareMainLooper()` (`null` trên worker thread để vượt qua kiểm tra `Preconditions.checkNotMainThread`) và bổ sung loạt API Android cốt lõi: `AlarmManager`, `JobScheduler`/`JobInfo`/`JobWorkItem`, `ActivityThread`, `ActivityManager`, `PowerManager`, `UserManager`, `Settings` (`Secure`/`System`/`Global`), `StatFs`, `StrictMode`, `Base64`, `JsonReader`/`JsonWriter`, `Process.myProcessName()`, `PackageManager` (`getPackageArchiveInfo`, `getInstalledPackages`, `getReceiverInfo`, `getProviderInfo`, `queryBroadcastReceivers`, `getInstallerPackageName`, `isInstantApp`, gói GMS/Play ảo), `libcore.io.Memory`, cùng nâng cấp Diagnostic Card 2 trên `HostWindow`.
+
+### 2. Kết quả Nghiệm thu Thực tế (Đã chạy sau chỉnh sửa cuối cùng)
+- **Kiểm thử tự động (`.\gradlew.bat test --rerun-tasks --console=plain`):**
+  - **26/26 tests PASS (0 failed, 0 errors, 0 skipped)** trong `:launcher:test`:
+    - `AndroidSdkFallbackClassLoaderTest` (2), `ApkCompatibilityScannerTest` (2), `FrameworkHierarchyTest` (2 — giữ vững **0 `SUPER_MISMATCH`** trước `android.jar` API 37), `Sprint4FrameworkTest` (6), `Sprint5FrameworkTest` (5), `Sprint6FrameworkTest` (4), `Sprint7FrameworkTest` (5).
+- **Quét tương thích tĩnh (`.\aaow.bat --scan`):**
+  - `samples/aaow-showcase.apk`: **100.0%** class (38/38), **100.0%** method (74/74), **100.0%** call sites (154/154).
+  - `samples/aaow-2048.apk`: **100.0%** class (22/22), **100.0%** method (44/44), **100.0%** call sites (84/84).
+  - `org.billthefarmer.editor_198.apk`: **93.7%** class (89/95), **98.5%** method (263/267), **99.3%** call sites (858/864).
+  - `org.billthefarmer.notes_142.apk`: **94.5%** class (104/110), **98.8%** method (323/327), **99.6%** call sites (924/928).
+  - `org.woheller69.level_35.apk`: **74.4%** class (303/407), **71.0%** method (1674/2359), **90.0%** call sites (8842/9820).
+  - `org.secuso.privacyfriendlynotes_105.apk`: **57.1%** class (429/751), **59.3%** method (2886/4865), **91.1%** call sites (32565/35734).
+  - `com.jarsilio.android.scrambledeggsif_88.apk`: **65.1%** class (329/505), **64.3%** method (2079/3234), **90.1%** call sites (18105/20092).
+  - `com.apkpure.aegon.apk`: **60.2%** class (458/761), **68.4%** method (3202/4679), **96.0%** call sites (71673/74651); chỉ còn 4 system class thiếu hoàn toàn (0.5%).
+- **Kiểm thử chạy thật & chụp màn hình (`build/sprint7-final/*.png`):**
+  - Toàn bộ ứng dụng mẫu (`showcase`, `2048`), các app F-Droid (`Editor`, `Notes` WebView, `Bubble` Level, `Privacy Friendly Notes` onboarding) và `AAOW App Hub` hiển thị sạch, không thoái lui giao diện.
+  - `com.apkpure.aegon.apk` đã vượt qua khởi động `Application`, chạy HLE `MemFileJniApi.init`/`readString`, khởi tạo `FirebaseInitProvider` + `FA` (`App measurement initialized`), tổng hợp stub plugin `tmsdk.fg.module.cleanV2.CleanManager`, vượt qua các điểm nghẽn `AlarmManager` / `JobScheduler` / `Looper` / `PackageManager`, và chạy hết `SplashActivity.onCreate()` mà không còn crash Activity (hiển thị Diagnostic Card với trạng thái chờ callback native/mạng trước `setContentView`).
+  - **Vá hậu nghiệm thu (22:20):** Bổ sung `View.hasTransientState()` / `setHasTransientState(boolean)` và `ViewParent`/`ViewGroup.childHasTransientStateChanged()` (khắc phục `NoSuchMethodError` trên `org.secuso.privacyfriendlynotes.ui.main.MainActivity` khi `RecyclerView` có dữ liệu `Room`); thêm `SQLiteDatabase.resolveDatabasePath()` định tuyến các tên DB tương đối về thư mục `databases/` của ứng dụng thay vì rò ra thư mục làm việc hiện tại.
+
+### 3. Đánh giá Trung thực (Chạy thật vs. Giả lập / Giới hạn hiện tại)
+- **Chạy thật trên JVM Windows:** giải mã ELF32/ELF64, nạp `.dll` Windows thật qua `System.load` nếu có, lưu/đọc bền vững `MMKV` (`.aaow.mmkv`), nén `zlib` (`DeflateTask`, `CRC32`), đọc kích thước RIFF WebP (`VP8`/`VP8L`/`VP8X`), bộ nhớ chia sẻ `MemFileJniApi`, thông dịch CPU ARM64 thuần Java cho hàm tính toán & `JNIEnv` cơ bản, luồng `FirebaseInitProvider` + AIDL `Binder` ảo cho `AdvertisingIdClient` / `AppSet`, `AlarmManager`, `JobScheduler`.
+- **Giả lập / Giới hạn:** các thư viện `.so` Linux phức tạp gọi syscall Bionic/anti-debug/crypto (`libqmp.so`, `libqsealib.so`, full native WebP pixel pipeline của `libglide-webp.so`) hiện chưa có tầng dịch nhị phân đa luồng kiểu Unicorn/FEX nên tự thoái lui an toàn. Trên APKPure thương mại, một số module phụ trợ chạy nền vẫn gặp giới hạn (thiếu trường nội bộ như `mNativePtr`, thiếu `android.os.SystemProperties`, chứng chỉ X.509 giả lập chưa ở chuẩn DER cho verifier của GMS `FA`, và `SplashActivity` chưa tự mở UI chính trước callback mạng/native).
+
+### 4. Chuẩn bị cho Sprint 8
+- Đóng gói AAOW thành bộ cài Windows độc lập (`.exe`/`.msi`) qua `jpackage` không cần cài JDK sẵn.
+- Tích hợp liên kết đuôi file `.apk` trên Windows (nhấp đúp mở thẳng bằng AAOW) và tối ưu tốc độ khung hình render / dung lượng RAM.
