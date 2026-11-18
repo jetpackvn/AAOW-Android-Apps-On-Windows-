@@ -1,0 +1,140 @@
+package android.view;
+
+import android.content.Context;
+import android.content.res.Resources;
+import android.util.AttributeSet;
+import dev.aaow.apk.ResValue;
+import dev.aaow.apk.XmlElement;
+
+import java.lang.reflect.Constructor;
+
+/**
+ * Cài đặt android.view.LayoutInflater: biến cây XML nhị phân (AXML) trong APK
+ * thành cây đối tượng View/ViewGroup sống.
+ */
+public class LayoutInflater {
+    private final Context context;
+
+    public LayoutInflater(Context context) {
+        this.context = context;
+    }
+
+    public static LayoutInflater from(Context context) {
+        if (context != null) {
+            Object svc = context.getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+            if (svc instanceof LayoutInflater li) return li;
+        }
+        return new LayoutInflater(context);
+    }
+
+    public Context getContext() {
+        return context;
+    }
+
+    public View inflate(int resource, ViewGroup root) {
+        return inflate(resource, root, root != null);
+    }
+
+    public View inflate(int resource, ViewGroup root, boolean attachToRoot) {
+        Resources res = context.getResources();
+        XmlElement xmlRoot = res.loadXmlElement(resource);
+        return inflateElement(xmlRoot, root, attachToRoot);
+    }
+
+    private View inflateElement(XmlElement el, ViewGroup parent, boolean attachToRoot) {
+        Resources res = context.getResources();
+        if ("include".equals(el.name)) {
+            XmlElement.Attribute layoutAttr = el.attr(null, "layout");
+            if (layoutAttr != null && layoutAttr.value.isReference()) {
+                XmlElement included = res.loadXmlElement(layoutAttr.value.data());
+                return inflateElement(included, parent, attachToRoot);
+            }
+        }
+        if ("merge".equals(el.name)) {
+            if (parent == null) throw new IllegalStateException("<merge /> requires a non-null ViewGroup root");
+            for (XmlElement childEl : el.children) {
+                inflateElement(childEl, parent, true);
+            }
+            return parent;
+        }
+
+        AttributeSet attrs = new AttributeSet.XmlAttributeSet(el, res.getTable());
+        View view = createViewFromTag(el.name, attrs);
+        ViewGroup.LayoutParams lp = parent != null ? parent.generateLayoutParams(attrs) : null;
+        if (lp != null) view.setLayoutParams(lp);
+
+        if (view instanceof ViewGroup vg) {
+            for (XmlElement childEl : el.children) {
+                if ("requestFocus".equals(childEl.name)) continue;
+                inflateElement(childEl, vg, true);
+            }
+        }
+
+        if (parent != null && attachToRoot) {
+            parent.addView(view, lp);
+            return parent;
+        }
+        return view;
+    }
+
+    private View createViewFromTag(String tagName, AttributeSet attrs) {
+        String mapped = mapTagName(tagName);
+        ClassLoader cl = context.getClassLoader() != null ? context.getClassLoader() : getClass().getClassLoader();
+        String[] prefixes = mapped.contains(".")
+                ? new String[]{""}
+                : new String[]{"android.widget.", "android.view.", "android.webkit."};
+
+        for (String prefix : prefixes) {
+            String fullName = prefix + mapped;
+            try {
+                Class<?> cls = Class.forName(fullName, true, cl);
+                if (View.class.isAssignableFrom(cls)) {
+                    try {
+                        Constructor<?> c2 = cls.getConstructor(Context.class, AttributeSet.class);
+                        return (View) c2.newInstance(context, attrs);
+                    } catch (NoSuchMethodException e) {
+                        Constructor<?> c1 = cls.getConstructor(Context.class);
+                        return (View) c1.newInstance(context);
+                    }
+                }
+            } catch (ClassNotFoundException ignored) {
+            } catch (Exception e) {
+                throw new RuntimeException("Lỗi khởi tạo View <" + tagName + ">: " + e, e);
+            }
+        }
+        // Fallback nếu gặp một custom container của AndroidX/Material chưa được đóng gói:
+        if (tagName.endsWith("Layout") || tagName.endsWith("CardView") || tagName.endsWith("ScrollView")) {
+            if (tagName.contains("ScrollView")) {
+                return new android.widget.ScrollView(context, attrs);
+            }
+            if (tagName.contains("Linear")) {
+                return new android.widget.LinearLayout(context, attrs);
+            }
+            return new android.widget.FrameLayout(context, attrs);
+        }
+        return new android.widget.TextView(context, attrs);
+    }
+
+    private static String mapTagName(String tag) {
+        return switch (tag) {
+            case "androidx.appcompat.widget.AppCompatTextView",
+                 "com.google.android.material.textview.MaterialTextView" -> "android.widget.TextView";
+            case "androidx.appcompat.widget.AppCompatButton",
+                 "com.google.android.material.button.MaterialButton" -> "android.widget.Button";
+            case "androidx.appcompat.widget.AppCompatEditText",
+                 "com.google.android.material.textfield.TextInputEditText" -> "android.widget.EditText";
+            case "androidx.appcompat.widget.AppCompatImageView",
+                 "androidx.appcompat.widget.AppCompatImageButton" -> "android.widget.ImageView";
+            case "androidx.appcompat.widget.AppCompatCheckBox",
+                 "com.google.android.material.checkbox.MaterialCheckBox" -> "android.widget.CheckBox";
+            case "androidx.appcompat.widget.SwitchCompat",
+                 "com.google.android.material.switchmaterial.SwitchMaterial",
+                 "com.google.android.material.materialswitch.MaterialSwitch" -> "android.widget.Switch";
+            case "androidx.appcompat.widget.LinearLayoutCompat" -> "android.widget.LinearLayout";
+            case "androidx.core.widget.NestedScrollView" -> "android.widget.ScrollView";
+            case "androidx.cardview.widget.CardView",
+                 "com.google.android.material.card.MaterialCardView" -> "android.widget.FrameLayout";
+            default -> tag;
+        };
+    }
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AAOW Control Center</string>
+    <string name="header_title">Chạy trực tiếp APK trên Windows</string>
+    <string name="header_subtitle">Không máy ảo • Không Hyper-V • Dịch trực tiếp DEX &amp; AXML</string>
+    <string name="section_interactive">Thử nghiệm Widget &amp; Lưu trữ (SharedPreferences)</string>
+    <string name="hint_note">Nhập ghi chú từ bàn phím Windows...</string>
+    <string name="btn_save_note">Lưu ghi chú</string>
+    <string name="btn_dialog">Mở hộp thoại</string>
+    <string name="btn_open_canvas">Mở phòng thí nghiệm đồ họa Canvas 2D →</string>
+    <string name="switch_boost">Bật tăng tốc đồ họa Java2D Direct</string>
+    <string name="check_notifications">Cho phép thông báo nổi (Toast Overlay)</string>
+    <string name="canvas_lab_title">AAOW Canvas 2D Lab</string>
+</resources>
