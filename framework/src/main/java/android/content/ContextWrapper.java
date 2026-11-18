@@ -3,6 +3,7 @@ package android.content;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Bundle;
 import android.os.Looper;
@@ -37,6 +38,36 @@ public class ContextWrapper extends Context {
     @Override
     public PackageManager getPackageManager() {
         return base.getPackageManager();
+    }
+
+    @Override
+    public ContentResolver getContentResolver() {
+        return base.getContentResolver();
+    }
+
+    @Override
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
+        return base != null ? base.registerReceiver(receiver, filter) : null;
+    }
+
+    @Override
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter, int flags) {
+        return base != null ? base.registerReceiver(receiver, filter, flags) : null;
+    }
+
+    @Override
+    public void unregisterReceiver(BroadcastReceiver receiver) {
+        if (base != null) base.unregisterReceiver(receiver);
+    }
+
+    @Override
+    public void sendBroadcast(Intent intent) {
+        if (base != null) base.sendBroadcast(intent);
+    }
+
+    @Override
+    public Context createConfigurationContext(Configuration overrideConfiguration) {
+        return base != null ? base.createConfigurationContext(overrideConfiguration) : this;
     }
 
     @Override

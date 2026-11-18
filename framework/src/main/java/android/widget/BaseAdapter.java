@@ -3,7 +3,10 @@ package android.widget;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-public abstract class BaseAdapter implements ListAdapter {
+import android.view.View;
+import android.view.ViewGroup;
+
+public abstract class BaseAdapter implements ListAdapter, SpinnerAdapter {
     private final List<Runnable> observers = new CopyOnWriteArrayList<>();
 
     public void registerObserver(Runnable r) {
@@ -27,5 +30,10 @@ public abstract class BaseAdapter implements ListAdapter {
     @Override
     public boolean isEmpty() {
         return getCount() == 0;
+    }
+
+    @Override
+    public View getDropDownView(int position, View convertView, ViewGroup parent) {
+        return getView(position, convertView, parent);
     }
 }

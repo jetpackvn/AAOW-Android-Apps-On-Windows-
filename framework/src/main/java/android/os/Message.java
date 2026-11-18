@@ -1,6 +1,6 @@
 package android.os;
 
-public final class Message {
+public final class Message implements Parcelable {
     public int what;
     public int arg1;
     public int arg2;
@@ -75,5 +75,18 @@ public final class Message {
 
     public void setData(Bundle data) {
         this.data = data;
+    }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel dest, int flags) {
+        dest.writeInt(what);
+        dest.writeInt(arg1);
+        dest.writeInt(arg2);
+        dest.writeBundle(data);
     }
 }

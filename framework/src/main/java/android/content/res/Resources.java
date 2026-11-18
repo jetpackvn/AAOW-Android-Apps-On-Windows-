@@ -51,6 +51,9 @@ public class Resources {
             return themeResId;
         }
 
+        public void rebase() {
+        }
+
         public TypedArray obtainStyledAttributes(int[] attrs) {
             return new TypedArray(Resources.this, attrs);
         }
@@ -297,14 +300,22 @@ public class Resources {
 
     public int getIdentifier(String name, String defType, String defPackage) {
         if (name == null) return 0;
+        String pkg = defPackage;
         String type = defType;
         String entry = name;
         int colon = entry.indexOf(':');
-        if (colon >= 0) entry = entry.substring(colon + 1);
+        if (colon >= 0) {
+            pkg = entry.substring(0, colon);
+            entry = entry.substring(colon + 1);
+        }
         int slash = entry.indexOf('/');
         if (slash >= 0) {
             type = entry.substring(0, slash);
             entry = entry.substring(slash + 1);
+        }
+        if ("android".equals(pkg) && "id".equals(type)) {
+            if ("action_bar".equals(entry)) return AndroidSystemResources.ID_ACTION_BAR;
+            if ("content".equals(entry)) return AndroidSystemResources.ID_ANDROID_CONTENT;
         }
         if (type == null) return 0;
         return table.getIdentifier(type, entry);

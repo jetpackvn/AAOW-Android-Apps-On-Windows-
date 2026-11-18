@@ -1,7 +1,6 @@
 package android.view;
 
 import android.content.Context;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.widget.FrameLayout;
 
@@ -10,8 +9,58 @@ public class Window {
     public static final int FEATURE_ACTION_BAR = 8;
     public static final int ID_ANDROID_CONTENT = 0x01020002; // android.R.id.content
 
+    public interface Callback {
+        default boolean dispatchKeyEvent(KeyEvent event) {
+            return false;
+        }
+
+        default boolean dispatchTouchEvent(MotionEvent event) {
+            return false;
+        }
+
+        default View onCreatePanelView(int featureId) {
+            return null;
+        }
+
+        default boolean onCreatePanelMenu(int featureId, Menu menu) {
+            return false;
+        }
+
+        default boolean onPreparePanel(int featureId, View view, Menu menu) {
+            return false;
+        }
+
+        default boolean onMenuOpened(int featureId, Menu menu) {
+            return false;
+        }
+
+        default boolean onMenuItemSelected(int featureId, MenuItem item) {
+            return false;
+        }
+
+        default void onWindowAttributesChanged(WindowManager.LayoutParams attrs) {
+        }
+
+        default void onContentChanged() {
+        }
+
+        default void onWindowFocusChanged(boolean hasFocus) {
+        }
+
+        default void onAttachedToWindow() {
+        }
+
+        default void onDetachedFromWindow() {
+        }
+
+        default void onPanelClosed(int featureId, Menu menu) {
+        }
+    }
+
     private final Context context;
     private final FrameLayout decorView;
+    private final WindowManager.LayoutParams attributes = new WindowManager.LayoutParams();
+    private Callback callback;
     private int statusBarColor = 0xFF1A237E;
     private int navigationBarColor = 0xFF121212;
     private boolean noTitle;
@@ -27,7 +76,35 @@ public class Window {
         return context;
     }
 
+    public void setCallback(Callback callback) {
+        this.callback = callback;
+    }
+
+    public final Callback getCallback() {
+        return callback;
+    }
+
+    public final WindowManager.LayoutParams getAttributes() {
+        return attributes;
+    }
+
+    public void setAttributes(WindowManager.LayoutParams a) {
+        if (a != null) {
+            attributes.width = a.width;
+            attributes.height = a.height;
+            attributes.x = a.x;
+            attributes.y = a.y;
+            attributes.flags = a.flags;
+            attributes.alpha = a.alpha;
+            if (callback != null) callback.onWindowAttributesChanged(attributes);
+        }
+    }
+
     public View getDecorView() {
+        return decorView;
+    }
+
+    public View peekDecorView() {
         return decorView;
     }
 
@@ -102,12 +179,19 @@ public class Window {
     }
 
     public void setFlags(int flags, int mask) {
+        attributes.flags = (attributes.flags & ~mask) | (flags & mask);
     }
 
     public void addFlags(int flags) {
+        attributes.flags |= flags;
     }
 
     public void clearFlags(int flags) {
+        attributes.flags &= ~flags;
+    }
+
+    public void setSoftInputMode(int mode) {
+        attributes.softInputMode = mode;
     }
 
     public void setOnContentChanged(Runnable r) {

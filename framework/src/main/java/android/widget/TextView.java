@@ -7,13 +7,17 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.text.Editable;
+import android.text.TextPaint;
 import android.text.TextWatcher;
+import android.text.method.MovementMethod;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import dev.aaow.apk.ResValue;
 import dev.aaow.apk.XmlElement;
 
@@ -25,7 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-public class TextView extends View {
+public class TextView extends View implements ViewTreeObserver.OnPreDrawListener {
     private static final Graphics2D METRICS_G =
             new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB).createGraphics();
 
@@ -39,6 +43,8 @@ public class TextView extends View {
     protected int maxLines = Integer.MAX_VALUE;
     protected boolean singleLine;
     protected boolean allCaps;
+    protected int inputType;
+    protected Editable.SimpleEditable editableText;
     protected final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     protected final List<TextWatcher> watchers = new CopyOnWriteArrayList<>();
 
@@ -109,6 +115,13 @@ public class TextView extends View {
         return text;
     }
 
+    public Editable getEditableText() {
+        if (editableText == null) {
+            editableText = text instanceof Editable.SimpleEditable se ? se : new Editable.SimpleEditable(text);
+        }
+        return editableText;
+    }
+
     public void setText(CharSequence text) {
         CharSequence newText = text != null ? text : "";
         CharSequence oldText = this.text;
@@ -116,9 +129,10 @@ public class TextView extends View {
             w.beforeTextChanged(oldText, 0, oldText.length(), newText.length());
         }
         this.text = newText;
+        this.editableText = newText instanceof Editable.SimpleEditable se ? se : new Editable.SimpleEditable(newText);
         for (TextWatcher w : watchers) {
             w.onTextChanged(newText, 0, oldText.length(), newText.length());
-            w.afterTextChanged(new Editable.SimpleEditable(newText));
+            w.afterTextChanged(this.editableText);
         }
         requestLayout();
         invalidate();
@@ -243,6 +257,50 @@ public class TextView extends View {
         if (text != null) {
             setText(this.text.toString() + text);
         }
+    }
+
+    public int getInputType() {
+        return inputType;
+    }
+
+    public void setInputType(int type) {
+        this.inputType = type;
+    }
+
+    public void setRawInputType(int type) {
+        this.inputType = type;
+    }
+
+    public void setTextAppearance(int resId) {
+    }
+
+    @Deprecated
+    public void setTextAppearance(Context context, int resId) {
+    }
+
+    public void setCompoundDrawablesWithIntrinsicBounds(int left, int top, int right, int bottom) {
+    }
+
+    public void setCompoundDrawablesWithIntrinsicBounds(Drawable left, Drawable top, Drawable right, Drawable bottom) {
+    }
+
+    public void setTextIsSelectable(boolean selectable) {
+    }
+
+    public void setMovementMethod(MovementMethod movement) {
+    }
+
+    public TextPaint getPaint() {
+        TextPaint tp = new TextPaint(textPaint);
+        tp.setTextSize(textSizePx);
+        tp.setTypeface(typeface);
+        tp.setColor(textColor);
+        return tp;
+    }
+
+    @Override
+    public boolean onPreDraw() {
+        return true;
     }
 
     protected String displayString() {

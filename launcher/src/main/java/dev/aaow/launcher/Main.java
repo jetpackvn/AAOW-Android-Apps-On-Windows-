@@ -17,14 +17,29 @@ import java.util.List;
  * Điểm vào chính của AAOW (Android Apps On Windows).
  */
 public final class Main {
+    private static Path resolveAaowHome() {
+        String env = System.getenv("AAOW_HOME");
+        if (env != null && !env.isBlank()) {
+            Path p = Path.of(env);
+            if (Files.isDirectory(p)) return p;
+        }
+        return Path.of("").toAbsolutePath();
+    }
+
     public static void main(String[] args) throws Exception {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {
         }
 
-        Path dataRoot = Path.of("build", "aaow-data");
-        Path samplesDir = Path.of("samples");
+        Path home = resolveAaowHome();
+        Path dataRoot = home.resolve("build").resolve("aaow-data");
+        Path samplesDir = home.resolve("samples");
+
+        if (args.length >= 1 && ("--help".equals(args[0]) || "-h".equals(args[0]))) {
+            printUsage();
+            return;
+        }
 
         // Mặc định hoặc --hub: Mở giao diện AAOW App Hub
         if (args.length == 0 || (args.length == 1 && "--hub".equals(args[0]))) {
@@ -41,6 +56,17 @@ public final class Main {
             return;
         }
 
+        if (args.length >= 2 && "--scan".equals(args[0])) {
+            Path apkPath = Path.of(args[1]);
+            if (!Files.exists(apkPath)) {
+                System.err.println("Không tìm thấy file APK: " + apkPath.toAbsolutePath());
+                System.exit(1);
+            }
+            ApkCompatibilityScanner.ScanReport report = ApkCompatibilityScanner.scan(apkPath, dataRoot.resolve("dex-cache"));
+            System.out.print(report.formatReport());
+            return;
+        }
+
         if (args.length >= 2 && "--info".equals(args[0])) {
             printApkInfo(Path.of(args[1]), args.length >= 3 && "--xml".equals(args[2]));
             return;
@@ -50,16 +76,30 @@ public final class Main {
             Path apkPath = Path.of(args[1]);
             File outFile = new File(args[2]);
             String actOverride = args.length >= 4 ? args[3] : null;
-            runApk(apkPath, actOverride, outFile);
+            runApk(apkPath, dataRoot, actOverride, outFile);
             return;
         }
 
         Path apkPath = Path.of(args[0]);
         String activityOverride = args.length >= 2 ? args[1] : null;
-        runApk(apkPath, activityOverride, null);
+        runApk(apkPath, dataRoot, activityOverride, null);
     }
 
-    private static void runApk(Path apkPath, String activityOverride, File screenshotOut) throws Exception {
+    private static void printUsage() {
+        System.out.println("""
+                AAOW — Android Apps On Windows (Compatibility Layer)
+                Cách dùng:
+                  aaow.bat                                     Mở AAOW App Hub
+                  aaow.bat <file.apk> [ten.Activity]           Chạy trực tiếp một file APK
+                  aaow.bat --scan <file.apk>                   Quét độ tương thích API tĩnh của APK
+                  aaow.bat --info <file.apk> [--xml]           Xem thông tin & giải mã AndroidManifest
+                  aaow.bat --screenshot <apk> <out.png> [Act]  Chụp ảnh màn hình APK tự động
+                  aaow.bat --screenshot-hub <out.png>          Chụp ảnh màn hình App Hub
+                  aaow.bat --rebuild [tham-so-khac...]         Biên dịch lại bản chạy nhanh installDist
+                """);
+    }
+
+    private static void runApk(Path apkPath, Path dataRoot, String activityOverride, File screenshotOut) throws Exception {
         if (!Files.exists(apkPath)) {
             System.err.println("Không tìm thấy file APK: " + apkPath.toAbsolutePath());
             System.exit(1);
@@ -82,7 +122,6 @@ public final class Main {
         System.out.println(" Activity    : " + (activityOverride != null ? activityOverride : mf.launcherActivity));
         System.out.println("============================================================");
 
-        Path dataRoot = Path.of("build", "aaow-data");
         ClassLoader apkClassLoader = DexLoader.loadApkDex(apk, dataRoot.resolve("dex-cache"), Main.class.getClassLoader());
         Thread.currentThread().setContextClassLoader(apkClassLoader);
 

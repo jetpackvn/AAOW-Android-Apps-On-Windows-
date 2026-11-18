@@ -1,11 +1,17 @@
 package android.content.pm;
 
-public class ActivityInfo {
-    public String name;
-    public String packageName;
-    public int labelRes;
-    public CharSequence nonLocalizedLabel;
-    public int icon;
+import android.os.Parcel;
+
+public class ActivityInfo extends ComponentInfo {
     public int theme;
-    public ApplicationInfo applicationInfo;
+    public int configChanges;
+    public int uiOptions;
+    public int screenOrientation = -1;
+    public int softInputMode;
+
+    @Override
+    public void writeToParcel(Parcel dest, int parcelableFlags) {
+        super.writeToParcel(dest, parcelableFlags);
+        dest.writeInt(theme);
+    }
 }

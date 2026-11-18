@@ -1,6 +1,9 @@
 package android.content.res;
 
-public class ColorStateList {
+import android.os.Parcel;
+import android.os.Parcelable;
+
+public class ColorStateList implements Parcelable {
     private final int defaultColor;
 
     public ColorStateList(int[][] states, int[] colors) {
@@ -21,5 +24,15 @@ public class ColorStateList {
 
     public boolean isStateful() {
         return false;
+    }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel dest, int flags) {
+        dest.writeInt(defaultColor);
     }
 }

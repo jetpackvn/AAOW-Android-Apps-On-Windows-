@@ -14,7 +14,13 @@ import java.util.List;
  * Lớp cơ sở android.view.ViewGroup chứa các View con, điều phối đo kích thước,
  * vẽ có cắt vùng (clip) và phân phối sự kiện chuột/chạm từ trên xuống.
  */
-public abstract class ViewGroup extends View implements ViewParent, ViewManager {
+public abstract class ViewGroup extends View implements ViewManager, ViewParent {
+    public interface OnHierarchyChangeListener {
+        void onChildViewAdded(View parent, View child);
+
+        void onChildViewRemoved(View parent, View child);
+    }
+
     public static class LayoutParams {
         public static final int FILL_PARENT = -1;
         public static final int MATCH_PARENT = -1;

@@ -121,6 +121,10 @@ public final class AppRepository {
         }
     }
 
+    public Path getDexCacheDir() {
+        return dexCacheDir;
+    }
+
     public synchronized List<InstalledApp> listApps() {
         return new ArrayList<>(apps.values());
     }

@@ -1,6 +1,8 @@
 package android.content.pm;
 
+import android.content.ComponentName;
 import android.content.Intent;
+import android.util.AndroidException;
 import dev.aaow.apk.AndroidManifest;
 
 public class PackageManager {
@@ -10,7 +12,7 @@ public class PackageManager {
     public static final int PERMISSION_GRANTED = 0;
     public static final int PERMISSION_DENIED = -1;
 
-    public static class NameNotFoundException extends Exception {
+    public static class NameNotFoundException extends AndroidException {
         public NameNotFoundException() {
         }
 
@@ -64,5 +66,25 @@ public class PackageManager {
 
     public int checkPermission(String permName, String pkgName) {
         return PERMISSION_GRANTED;
+    }
+
+    public ServiceInfo getServiceInfo(ComponentName component, int flags) throws NameNotFoundException {
+        throw new NameNotFoundException(component != null ? component.flattenToString() : "null");
+    }
+
+    public ActivityInfo getActivityInfo(ComponentName component, int flags) throws NameNotFoundException {
+        if (manifest != null && component != null) {
+            AndroidManifest.Activity act = manifest.findActivity(component.getClassName());
+            if (act != null) {
+                ActivityInfo ai = new ActivityInfo();
+                ai.packageName = manifest.packageName;
+                ai.name = act.name;
+                ai.nonLocalizedLabel = act.label;
+                ai.theme = act.themeRes;
+                ai.applicationInfo = appInfo;
+                return ai;
+            }
+        }
+        throw new NameNotFoundException(component != null ? component.flattenToString() : "null");
     }
 }

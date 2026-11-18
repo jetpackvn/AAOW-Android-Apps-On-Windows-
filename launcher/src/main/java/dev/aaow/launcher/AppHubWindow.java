@@ -154,7 +154,7 @@ public final class AppHubWindow {
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPane, rightPane);
         split.setResizeWeight(0.62);
-        split.setDividerLocation(640);
+        split.setDividerLocation(655);
         split.setDividerSize(4);
         split.setBorder(BorderFactory.createEmptyBorder());
         split.setBackground(BG_DARK);
@@ -397,7 +397,7 @@ public final class AppHubWindow {
         center.add(Box.createVerticalStrut(10));
 
         // Dòng 3: Các nút điều khiển
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         btnRow.setOpaque(false);
         btnRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
@@ -429,6 +429,10 @@ public final class AppHubWindow {
             refreshCards();
         });
         btnRow.add(btnInspect);
+
+        JButton btnScan = createStyledButton("Quét API", new Color(0x243B55), new Color(0x90CAF9));
+        btnScan.addActionListener(e -> scanCompatibility(app));
+        btnRow.add(btnScan);
 
         JButton btnReset = createStyledButton("Xóa dữ liệu", new Color(0x2B314B), TEXT_MUTED);
         btnReset.addActionListener(e -> {
@@ -493,6 +497,42 @@ public final class AppHubWindow {
         sb.append(app.manifestXmlDump());
         inspectorArea.setText(sb.toString());
         inspectorArea.setCaretPosition(0);
+    }
+
+    private void scanCompatibility(AppRepository.InstalledApp app) {
+        selectedApp = app;
+        refreshCards();
+        appendLog("[AAOW-Scan] Đang quét tương thích tĩnh cho " + app.label() + " (" + app.packageName() + ")...");
+        if (inspectorArea != null) {
+            inspectorArea.setText("Đang phân tích bytecode DEX của " + app.label() + "...\nVui lòng chờ trong giây lát.");
+        }
+        new javax.swing.SwingWorker<ApkCompatibilityScanner.ScanReport, Void>() {
+            @Override
+            protected ApkCompatibilityScanner.ScanReport doInBackground() throws Exception {
+                return ApkCompatibilityScanner.scan(app.apkPath(), repository.getDexCacheDir());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    ApkCompatibilityScanner.ScanReport report = get();
+                    if (inspectorArea != null) {
+                        inspectorArea.setText(report.formatReport());
+                        inspectorArea.setCaretPosition(0);
+                    }
+                    appendLog(String.format("[AAOW-Scan] Hoàn tất %s: Class %.1f%% | Method %.1f%% | Call-sites %.1f%%",
+                            app.packageName(),
+                            report.classCoveragePercent(),
+                            report.uniqueMethodCoveragePercent(),
+                            report.callSiteCoveragePercent()));
+                } catch (Exception ex) {
+                    appendLog("[AAOW-ERROR] Lỗi quét " + app.packageName() + ": " + ex.getMessage());
+                    if (inspectorArea != null) {
+                        inspectorArea.setText("Lỗi khi quét APK:\n" + ex);
+                    }
+                }
+            }
+        }.execute();
     }
 
     private void promptInstallApk() {
@@ -573,7 +613,7 @@ public final class AppHubWindow {
         btn.setBorderPainted(false);
         btn.setOpaque(false);
         btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btn.setBorder(new EmptyBorder(7, 13, 7, 13));
+        btn.setBorder(new EmptyBorder(6, 10, 6, 10));
         return btn;
     }
 

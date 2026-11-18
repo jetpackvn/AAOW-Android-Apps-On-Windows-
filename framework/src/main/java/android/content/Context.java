@@ -3,6 +3,7 @@ package android.content;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
@@ -27,6 +28,7 @@ public abstract class Context {
     public abstract AssetManager getAssets();
     public abstract Resources getResources();
     public abstract PackageManager getPackageManager();
+    public abstract ContentResolver getContentResolver();
     public abstract Looper getMainLooper();
     public abstract Context getApplicationContext();
     public abstract void setTheme(int resid);
@@ -41,6 +43,24 @@ public abstract class Context {
     public abstract void startActivity(Intent intent);
     public abstract void startActivity(Intent intent, Bundle options);
     public abstract Object getSystemService(String name);
+
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
+        return null;
+    }
+
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter, int flags) {
+        return registerReceiver(receiver, filter);
+    }
+
+    public void unregisterReceiver(BroadcastReceiver receiver) {
+    }
+
+    public void sendBroadcast(Intent intent) {
+    }
+
+    public Context createConfigurationContext(Configuration overrideConfiguration) {
+        return this;
+    }
 
     public final CharSequence getText(int resId) {
         return getResources().getText(resId);

@@ -3,7 +3,6 @@ package android.view;
 import android.content.Context;
 import android.content.res.Resources;
 import android.util.AttributeSet;
-import dev.aaow.apk.ResValue;
 import dev.aaow.apk.XmlElement;
 
 import java.lang.reflect.Constructor;
@@ -13,7 +12,17 @@ import java.lang.reflect.Constructor;
  * thành cây đối tượng View/ViewGroup sống.
  */
 public class LayoutInflater {
+    public interface Factory {
+        View onCreateView(String name, Context context, AttributeSet attrs);
+    }
+
+    public interface Factory2 extends Factory {
+        View onCreateView(View parent, String name, Context context, AttributeSet attrs);
+    }
+
     private final Context context;
+    private Factory factory;
+    private Factory2 factory2;
 
     public LayoutInflater(Context context) {
         this.context = context;
@@ -27,8 +36,32 @@ public class LayoutInflater {
         return new LayoutInflater(context);
     }
 
+    public LayoutInflater cloneInContext(Context newContext) {
+        LayoutInflater li = new LayoutInflater(newContext);
+        li.factory = this.factory;
+        li.factory2 = this.factory2;
+        return li;
+    }
+
     public Context getContext() {
         return context;
+    }
+
+    public final Factory getFactory() {
+        return factory;
+    }
+
+    public final Factory2 getFactory2() {
+        return factory2;
+    }
+
+    public void setFactory(Factory factory) {
+        this.factory = factory;
+    }
+
+    public void setFactory2(Factory2 factory) {
+        this.factory2 = factory;
+        this.factory = factory;
     }
 
     public View inflate(int resource, ViewGroup root) {
@@ -59,7 +92,7 @@ public class LayoutInflater {
         }
 
         AttributeSet attrs = new AttributeSet.XmlAttributeSet(el, res.getTable());
-        View view = createViewFromTag(el.name, attrs);
+        View view = createViewFromTag(parent, el.name, attrs);
         ViewGroup.LayoutParams lp = parent != null ? parent.generateLayoutParams(attrs) : null;
         if (lp != null) view.setLayoutParams(lp);
 
@@ -77,7 +110,15 @@ public class LayoutInflater {
         return view;
     }
 
-    private View createViewFromTag(String tagName, AttributeSet attrs) {
+    private View createViewFromTag(View parent, String tagName, AttributeSet attrs) {
+        if (factory2 != null) {
+            View v = factory2.onCreateView(parent, tagName, context, attrs);
+            if (v != null) return v;
+        } else if (factory != null) {
+            View v = factory.onCreateView(tagName, context, attrs);
+            if (v != null) return v;
+        }
+
         String mapped = mapTagName(tagName);
         ClassLoader cl = context.getClassLoader() != null ? context.getClassLoader() : getClass().getClassLoader();
         String[] prefixes = mapped.contains(".")

@@ -1,15 +1,20 @@
 package android.app;
 
+import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.util.AttributeSet;
+import android.view.ContextMenu;
 import android.view.ContextThemeWrapper;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -20,7 +25,9 @@ import javax.swing.SwingUtilities;
 /**
  * Cài đặt android.app.Activity với đầy đủ vòng đời và kết nối tới cửa sổ Windows.
  */
-public class Activity extends ContextThemeWrapper {
+public class Activity extends ContextThemeWrapper
+        implements ComponentCallbacks2, KeyEvent.Callback, LayoutInflater.Factory2,
+        View.OnCreateContextMenuListener, Window.Callback {
     public static final int RESULT_CANCELED = 0;
     public static final int RESULT_OK = -1;
     public static final int RESULT_FIRST_USER = 1;
@@ -36,6 +43,7 @@ public class Activity extends ContextThemeWrapper {
     private boolean destroyed;
     private Runnable onFinishCallback;
     private Runnable onHostRepaint;
+    private android.widget.Toolbar systemActionBarToolbar;
 
     public Activity() {
     }
@@ -49,7 +57,8 @@ public class Activity extends ContextThemeWrapper {
         this.onFinishCallback = onFinishCallback;
         this.onHostRepaint = onHostRepaint;
         this.window = new Window(this);
-        this.actionBar = new ActionBar(this.title, () -> {
+        this.window.setCallback(this);
+        this.actionBar = new ActionBar(this, this.title, () -> {
             if (this.onHostRepaint != null) this.onHostRepaint.run();
         });
         this.window.setOnContentChanged(() -> {
@@ -75,7 +84,24 @@ public class Activity extends ContextThemeWrapper {
     }
 
     public WindowManager getWindowManager() {
-        return null;
+        Object svc = getSystemService(WINDOW_SERVICE);
+        return svc instanceof WindowManager wm ? wm : null;
+    }
+
+    public void invalidateOptionsMenu() {
+        if (onHostRepaint != null) onHostRepaint.run();
+    }
+
+    public void requestPermissions(String[] permissions, int requestCode) {
+        if (permissions == null) return;
+        int[] grants = new int[permissions.length];
+        for (int i = 0; i < grants.length; i++) {
+            grants[i] = PackageManager.PERMISSION_GRANTED;
+        }
+        onRequestPermissionsResult(requestCode, permissions, grants);
+    }
+
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
     }
 
     public LayoutInflater getLayoutInflater() {
@@ -84,6 +110,14 @@ public class Activity extends ContextThemeWrapper {
 
     public ActionBar getActionBar() {
         return window != null && window.isNoTitle() ? null : actionBar;
+    }
+
+    public void setActionBar(android.widget.Toolbar toolbar) {
+        if (toolbar != null && actionBar != null) {
+            if (toolbar.getTitle() != null && toolbar.getTitle().length() > 0) {
+                actionBar.setTitle(toolbar.getTitle());
+            }
+        }
     }
 
     public void setContentView(int layoutResID) {
@@ -102,8 +136,18 @@ public class Activity extends ContextThemeWrapper {
         window.addContentView(view, params);
     }
 
+    @SuppressWarnings("unchecked")
     public <T extends View> T findViewById(int id) {
-        return window.findViewById(id);
+        T found = window.findViewById(id);
+        if (found == null && id == dev.aaow.rt.AndroidSystemResources.ID_ACTION_BAR) {
+            if (systemActionBarToolbar == null) {
+                systemActionBarToolbar = new android.widget.Toolbar(this);
+                systemActionBarToolbar.setId(id);
+                if (title != null) systemActionBarToolbar.setTitle(title);
+            }
+            return (T) systemActionBarToolbar;
+        }
+        return found;
     }
 
     public final boolean requestWindowFeature(int featureId) {
@@ -175,6 +219,17 @@ public class Activity extends ContextThemeWrapper {
     public void recreate() {
     }
 
+    public Object getLastNonConfigurationInstance() {
+        return null;
+    }
+
+    public Object onRetainNonConfigurationInstance() {
+        return null;
+    }
+
+    public final void setVolumeControlStream(int streamType) {
+    }
+
     // --------------------------------------------------------- Lifecycle hooks
 
     protected void onCreate(Bundle savedInstanceState) {
@@ -217,16 +272,58 @@ public class Activity extends ContextThemeWrapper {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
     }
 
+    @Override
     public void onContentChanged() {
     }
 
+    @Override
     public void onConfigurationChanged(Configuration newConfig) {
+    }
+
+    @Override
+    public void onLowMemory() {
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+    }
+
+    @Override
+    public View onCreateView(String name, Context context, AttributeSet attrs) {
+        return null;
+    }
+
+    @Override
+    public View onCreateView(View parent, String name, Context context, AttributeSet attrs) {
+        return null;
+    }
+
+    @Override
+    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
     }
 
     public void onBackPressed() {
         finish();
     }
 
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event != null && event.getAction() == KeyEvent.ACTION_DOWN) {
+            return onKeyDown(event.getKeyCode(), event);
+        }
+        if (event != null && event.getAction() == KeyEvent.ACTION_UP) {
+            return onKeyUp(event.getKeyCode(), event);
+        }
+        return false;
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev == null) return false;
+        return window != null && window.getDecorView().dispatchTouchEvent(ev);
+    }
+
+    @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             onBackPressed();
@@ -235,7 +332,18 @@ public class Activity extends ContextThemeWrapper {
         return false;
     }
 
+    @Override
+    public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+        return false;
+    }
+
+    @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        return false;
+    }
+
+    @Override
+    public boolean onKeyMultiple(int keyCode, int count, KeyEvent event) {
         return false;
     }
 

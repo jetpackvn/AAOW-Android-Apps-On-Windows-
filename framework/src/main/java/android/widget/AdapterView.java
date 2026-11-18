@@ -6,6 +6,9 @@ import android.view.View;
 import android.view.ViewGroup;
 
 public abstract class AdapterView<T extends Adapter> extends ViewGroup {
+    public static final int INVALID_POSITION = -1;
+    public static final long INVALID_ROW_ID = Long.MIN_VALUE;
+
     public interface OnItemClickListener {
         void onItemClick(AdapterView<?> parent, View view, int position, long id);
     }
@@ -23,6 +26,10 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
     public AdapterView(Context context, AttributeSet attrs) {
         super(context, attrs);
+    }
+
+    public AdapterView(Context context, AttributeSet attrs, int defStyleAttr) {
+        super(context, attrs, defStyleAttr);
     }
 
     public abstract T getAdapter();

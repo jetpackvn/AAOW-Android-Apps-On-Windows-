@@ -12,6 +12,9 @@ import java.util.Map;
  * và các hằng số resource hệ thống (android.R.*).
  */
 public final class AndroidSystemResources {
+    public static final int ID_ANDROID_CONTENT = 0x01020002;
+    public static final int ID_ACTION_BAR = 0x01020088;
+
     private static final Map<Integer, String> ATTR_ID_TO_NAME = new HashMap<>();
     private static final Map<String, Integer> ATTR_NAME_TO_ID = new HashMap<>();
 

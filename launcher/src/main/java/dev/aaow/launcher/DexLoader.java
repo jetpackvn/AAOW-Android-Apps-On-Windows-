@@ -42,11 +42,20 @@ public final class DexLoader {
     }
 
     public static ClassLoader loadApkDex(ApkFile apk, Path cacheDir, ClassLoader parent) throws IOException {
+        Path jarFile = ensureDexJar(apk, cacheDir);
+        return new URLClassLoader(new URL[]{jarFile.toUri().toURL()}, getSdkFallbackParent(parent));
+    }
+
+    /**
+     * Dịch toàn bộ classes*.dex trong APK ra file JAR JVM đã chuẩn hóa (có lưu đệm).
+     * Dùng chung cho cả việc chạy APK và công cụ quét tương thích tĩnh ApkCompatibilityScanner.
+     */
+    public static Path ensureDexJar(ApkFile apk, Path cacheDir) throws IOException {
         Files.createDirectories(cacheDir);
         Path apkPath = apk.getPath();
         long size = Files.size(apkPath);
         long mtime = Files.getLastModifiedTime(apkPath).toMillis();
-        String cacheKey = String.format("%s-%d-%d-v3.jar",
+        String cacheKey = String.format("%s-%d-%d-v6.jar",
                 apkPath.getFileName().toString().replaceAll("[^a-zA-Z0-9._-]", "_"), size, mtime);
         Path jarFile = cacheDir.resolve(cacheKey);
 
@@ -72,8 +81,7 @@ public final class DexLoader {
         } else {
             System.out.printf("[AAOW-DEX] Dùng bản dịch DEX đã lưu đệm: %s%n", jarFile.getFileName());
         }
-
-        return new URLClassLoader(new URL[]{jarFile.toUri().toURL()}, getSdkFallbackParent(parent));
+        return jarFile;
     }
 
     private static void normalizeJarForJvmVerifier(Path rawJar, Path outJar) throws IOException {
@@ -100,12 +108,28 @@ public final class DexLoader {
         ClassReader cr = new ClassReader(classBytes);
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         ClassVisitor cv = new ClassVisitor(Opcodes.ASM9, cw) {
+            private String currentInternal = "";
             private String currentClass = "";
 
             @Override
             public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
-                this.currentClass = name != null ? name.replace('/', '.') : "";
-                super.visit(Opcodes.V1_6, access, name, signature, superName, interfaces);
+                this.currentInternal = name != null ? name : "";
+                this.currentClass = this.currentInternal.replace('/', '.');
+                // JVM ClassFile không cho phép ACC_STATIC/ACC_PRIVATE/ACC_PROTECTED trên class header hay ACC_ABSTRACT | ACC_FINAL
+                int cleanAccess = access & ~(Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED);
+                if ((cleanAccess & Opcodes.ACC_ABSTRACT) != 0) {
+                    cleanAccess &= ~Opcodes.ACC_FINAL;
+                }
+                super.visit(Opcodes.V1_6, cleanAccess, name, signature, superName, interfaces);
+            }
+
+            @Override
+            public void visitInnerClass(String name, String outerName, String innerName, int access) {
+                int cleanAccess = access;
+                if ((cleanAccess & Opcodes.ACC_ABSTRACT) != 0) {
+                    cleanAccess &= ~Opcodes.ACC_FINAL;
+                }
+                super.visitInnerClass(name, outerName, innerName, cleanAccess);
             }
 
             @Override
@@ -118,7 +142,9 @@ public final class DexLoader {
                     mv.visitLdcInsn(currentClass + "." + name + descriptor);
                     mv.visitMethodInsn(Opcodes.INVOKESTATIC, "dev/aaow/rt/NativeBridge",
                             "onNativeCall", "(Ljava/lang/String;)V", false);
-                    AndroidSdkFallbackClassLoader.emitDefaultReturn(mv, Type.getReturnType(descriptor));
+                    boolean isStatic = (cleanAccess & Opcodes.ACC_STATIC) != 0;
+                    AndroidSdkFallbackClassLoader.emitSmartDefaultReturn(
+                            mv, Type.getReturnType(descriptor), currentInternal, isStatic);
                     mv.visitMaxs(0, 0);
                     mv.visitEnd();
                     return null;

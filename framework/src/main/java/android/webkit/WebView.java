@@ -4,10 +4,13 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.util.AttributeSet;
-import android.view.View;
+import android.view.ViewGroup;
+import android.widget.AbsoluteLayout;
 
-public class WebView extends View {
+public class WebView extends AbsoluteLayout implements ViewGroup.OnHierarchyChangeListener {
     private String currentUrl = "about:blank";
+    private final WebSettings settings = new WebSettings();
+    private WebViewClient webViewClient;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     public WebView(Context context) {
@@ -20,6 +23,43 @@ public class WebView extends View {
 
     public WebView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+    }
+
+    public WebSettings getSettings() {
+        return settings;
+    }
+
+    public void setWebViewClient(WebViewClient client) {
+        this.webViewClient = client;
+    }
+
+    public WebViewClient getWebViewClient() {
+        return webViewClient;
+    }
+
+    public boolean canGoBack() {
+        return false;
+    }
+
+    public void goBack() {
+    }
+
+    public void reload() {
+        invalidate();
+    }
+
+    public void clearCache(boolean includeDiskFiles) {
+    }
+
+    public void clearHistory() {
+    }
+
+    @Override
+    public void onChildViewAdded(android.view.View parent, android.view.View child) {
+    }
+
+    @Override
+    public void onChildViewRemoved(android.view.View parent, android.view.View child) {
     }
 
     public void loadUrl(String url) {

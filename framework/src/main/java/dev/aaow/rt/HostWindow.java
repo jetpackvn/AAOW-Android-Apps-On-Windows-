@@ -320,6 +320,19 @@ public final class HostWindow {
         return dot >= 0 ? fqcn.substring(dot + 1) : fqcn;
     }
 
+    private static String shortenSignature(String sig) {
+        int paren = sig.indexOf('(');
+        if (paren <= 0) return sig;
+        String prefix = sig.substring(0, paren);
+        int dot = prefix.lastIndexOf('.');
+        if (dot > 0) {
+            String owner = prefix.substring(0, dot);
+            String m = prefix.substring(dot + 1);
+            return simpleName(owner) + "." + m + "()";
+        }
+        return prefix + "()";
+    }
+
     /**
      * Dựng màn hình chẩn đoán tương tác khi một Activity bên thứ 3 gặp lỗi JNI/SDK
      * hoặc dừng ở màn hình Splash rỗng.
@@ -379,6 +392,8 @@ public final class HostWindow {
         var libs = NativeBridge.getInterceptedLibraries();
         var jniCalls = NativeBridge.getInterceptedNativeCalls();
         var stubs = NativeBridge.getStubbedClasses();
+        var stubMethodCalls = NativeBridge.getStubMethodCalls();
+        var topStubMethods = NativeBridge.getTopStubMethodCalls(5);
 
         StringBuilder diag = new StringBuilder();
         diag.append("• Kiến trúc .so trong APK : ").append(abis.isEmpty() ? "Không có" : abis).append('\n');
@@ -391,7 +406,18 @@ public final class HostWindow {
                 if (++c >= 4) break;
             }
         }
-        diag.append("• Class android.jar tự động gỡ Stub: ").append(stubs.size()).append(" class");
+        diag.append("• Class android.jar gỡ Stub: ").append(stubs.size()).append(" class\n");
+        diag.append("• Hàm Stub đã gọi lúc chạy : ").append(stubMethodCalls.size()).append(" hàm");
+        if (!topStubMethods.isEmpty()) {
+            diag.append('\n');
+            for (var entry : topStubMethods) {
+                diag.append("   - ").append(shortenSignature(entry.getKey()))
+                        .append(" (×").append(entry.getValue()).append(")\n");
+            }
+            if (diag.charAt(diag.length() - 1) == '\n') {
+                diag.deleteCharAt(diag.length() - 1);
+            }
+        }
 
         TextView tvDiagBody = new TextView(hostAct);
         tvDiagBody.setText(diag.toString());
@@ -536,7 +562,16 @@ public final class HostWindow {
         sb.append("Resources : ").append(runtimeContext.getResources().getTable().size()).append(" entries\n");
         Activity top = activityStack.peek();
         sb.append("Activity  : ").append(top != null ? top.getClass().getName() : "<none>").append("\n");
-        sb.append("Stack     : ").append(activityStack.size()).append(" activity\n\n");
+        sb.append("Stack     : ").append(activityStack.size()).append(" activity\n");
+        sb.append("Stubs     : ").append(NativeBridge.getStubbedClasses().size())
+                .append(" class, ").append(NativeBridge.getStubMethodCalls().size()).append(" method đã gọi\n\n");
+        if (!NativeBridge.getTopStubMethodCalls(5).isEmpty()) {
+            sb.append("=== TOP HÀM STUB ĐƯỢC GỌI ===\n");
+            for (var entry : NativeBridge.getTopStubMethodCalls(5)) {
+                sb.append(" • ").append(entry.getKey()).append(" (×").append(entry.getValue()).append(")\n");
+            }
+            sb.append('\n');
+        }
         sb.append("=== CÂY GIAO DIỆN ANDROID (VIEW TREE) ===\n");
         if (top != null) {
             dumpViewTree(top.getWindow().getDecorView(), 0, sb);

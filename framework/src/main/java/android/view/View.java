@@ -8,7 +8,9 @@ import android.graphics.Paint;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
+import android.os.IBinder;
 import android.util.AttributeSet;
+import android.util.SparseArray;
 import dev.aaow.apk.ResValue;
 import dev.aaow.apk.XmlElement;
 
@@ -18,11 +20,20 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Lớp cơ sở android.view.View chạy trên Windows: quản lý đo kích thước (measure),
  * bố cục (layout), vẽ bằng Java2D (draw), và xử lý chuột/bàn phím.
  */
-public class View {
+public class View implements Drawable.Callback, KeyEvent.Callback {
     public static final int NO_ID = -1;
     public static final int VISIBLE = 0x00000000;
     public static final int INVISIBLE = 0x00000004;
     public static final int GONE = 0x00000008;
+    public static final int LAYOUT_DIRECTION_LTR = 0;
+    public static final int LAYOUT_DIRECTION_RTL = 1;
+    public static final int IMPORTANT_FOR_ACCESSIBILITY_AUTO = 0;
+    public static final int IMPORTANT_FOR_ACCESSIBILITY_YES = 1;
+    public static final int IMPORTANT_FOR_ACCESSIBILITY_NO = 2;
+    public static final int IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS = 4;
+    public static final int MEASURED_SIZE_MASK = 0x00ffffff;
+    public static final int MEASURED_STATE_MASK = 0xff000000;
+    public static final int MEASURED_HEIGHT_STATE_SHIFT = 16;
 
     private static final AtomicInteger NEXT_GENERATED_ID = new AtomicInteger(1);
 
@@ -77,13 +88,25 @@ public class View {
         void onFocusChange(View v, boolean hasFocus);
     }
 
+    public interface OnCreateContextMenuListener {
+        void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo);
+    }
+
+    public interface OnScrollChangeListener {
+        void onScrollChange(View v, int scrollX, int scrollY, int oldScrollX, int oldScrollY);
+    }
+
     protected final Context context;
     ViewParent parent;
     private ViewGroup.LayoutParams layoutParams;
 
     private int id = NO_ID;
     private Object tag;
+    private SparseArray<Object> keyedTags;
     private int visibility = VISIBLE;
+    private int layoutDirection = LAYOUT_DIRECTION_LTR;
+    private int importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_AUTO;
+    private boolean willNotDraw;
     private boolean enabled = true;
     private boolean clickable;
     private boolean focusable;
@@ -119,7 +142,11 @@ public class View {
     protected OnTouchListener onTouchListener;
     protected OnKeyListener onKeyListener;
     protected OnFocusChangeListener onFocusChangeListener;
+    protected OnScrollChangeListener onScrollChangeListener;
     private Runnable invalidateCallback;
+    private final Handler viewHandler = new Handler();
+    private ViewTreeObserver viewTreeObserver;
+    private ViewPropertyAnimator animator;
 
     public View(Context context) {
         this(context, null, 0, 0);
@@ -198,6 +225,10 @@ public class View {
         return NEXT_GENERATED_ID.getAndIncrement();
     }
 
+    public static View inflate(Context context, int resource, ViewGroup root) {
+        return LayoutInflater.from(context).inflate(resource, root);
+    }
+
     public final Context getContext() {
         return context;
     }
@@ -220,6 +251,107 @@ public class View {
 
     public void setTag(Object tag) {
         this.tag = tag;
+    }
+
+    public Object getTag(int key) {
+        return keyedTags != null ? keyedTags.get(key) : null;
+    }
+
+    public void setTag(int key, Object tag) {
+        if (keyedTags == null) {
+            keyedTags = new SparseArray<>();
+        }
+        keyedTags.put(key, tag);
+    }
+
+    public int getLayoutDirection() {
+        return layoutDirection;
+    }
+
+    public void setLayoutDirection(int layoutDirection) {
+        this.layoutDirection = layoutDirection;
+    }
+
+    public int getImportantForAccessibility() {
+        return importantForAccessibility;
+    }
+
+    public void setImportantForAccessibility(int mode) {
+        this.importantForAccessibility = mode;
+    }
+
+    public boolean isAttachedToWindow() {
+        View cur = this;
+        while (cur.parent instanceof View p) {
+            cur = p;
+        }
+        return cur.invalidateCallback != null || cur.parent != null;
+    }
+
+    public IBinder getWindowToken() {
+        return null;
+    }
+
+    public ViewTreeObserver getViewTreeObserver() {
+        if (viewTreeObserver == null) {
+            viewTreeObserver = new ViewTreeObserver();
+        }
+        return viewTreeObserver;
+    }
+
+    public ViewPropertyAnimator animate() {
+        if (animator == null) {
+            animator = new ViewPropertyAnimator(this);
+        }
+        return animator;
+    }
+
+    public int[] getDrawableState() {
+        return new int[0];
+    }
+
+    public void getLocationOnScreen(int[] outLocation) {
+        getLocationInWindow(outLocation);
+    }
+
+    public void getLocationInWindow(int[] outLocation) {
+        if (outLocation == null || outLocation.length < 2) return;
+        int x = left;
+        int y = top;
+        ViewParent p = parent;
+        while (p instanceof View pv) {
+            x += pv.left - pv.scrollX;
+            y += pv.top - pv.scrollY;
+            p = pv.parent;
+        }
+        outLocation[0] = x;
+        outLocation[1] = y;
+    }
+
+    public boolean hasFocusable() {
+        return focusable && visibility == VISIBLE;
+    }
+
+    public boolean requestFocus() {
+        return requestFocus(0);
+    }
+
+    public boolean requestFocus(int direction) {
+        if (!focusable || !enabled || visibility != VISIBLE) return false;
+        setFocusedInternal(true);
+        return true;
+    }
+
+    public void clearFocus() {
+        setFocusedInternal(false);
+    }
+
+    public void setWillNotDraw(boolean willNotDraw) {
+        this.willNotDraw = willNotDraw;
+    }
+
+    public boolean willNotDraw() {
+        return willNotDraw;
     }
 
     public final ViewParent getParent() {
@@ -415,7 +547,13 @@ public class View {
     }
 
     public void setBackground(Drawable background) {
+        if (this.background != null) {
+            this.background.setCallback(null);
+        }
         this.background = background;
+        if (this.background != null) {
+            this.background.setCallback(this);
+        }
         invalidate();
     }
 
@@ -457,6 +595,10 @@ public class View {
 
     public void setOnFocusChangeListener(OnFocusChangeListener l) {
         this.onFocusChangeListener = l;
+    }
+
+    public void setOnScrollChangeListener(OnScrollChangeListener l) {
+        this.onScrollChangeListener = l;
     }
 
     public boolean performClick() {
@@ -532,6 +674,25 @@ public class View {
         };
     }
 
+    public static int resolveSizeAndState(int size, int measureSpec, int childMeasuredState) {
+        int specMode = MeasureSpec.getMode(measureSpec);
+        int specSize = MeasureSpec.getSize(measureSpec);
+        int result = switch (specMode) {
+            case MeasureSpec.AT_MOST -> Math.min(size, specSize);
+            case MeasureSpec.EXACTLY -> specSize;
+            default -> size;
+        };
+        return result | (childMeasuredState & MEASURED_STATE_MASK);
+    }
+
+    public static int combineMeasuredStates(int curState, int newState) {
+        return curState | newState;
+    }
+
+    public final int getMeasuredState() {
+        return 0;
+    }
+
     public final int getLeft() {
         return left;
     }
@@ -574,8 +735,13 @@ public class View {
 
     public void scrollTo(int x, int y) {
         if (scrollX != x || scrollY != y) {
+            int oldX = scrollX;
+            int oldY = scrollY;
             scrollX = x;
             scrollY = y;
+            if (onScrollChangeListener != null) {
+                onScrollChangeListener.onScrollChange(this, scrollX, scrollY, oldX, oldY);
+            }
             invalidate();
         }
     }
@@ -618,7 +784,9 @@ public class View {
             background.setBounds(0, 0, w, h);
             background.draw(canvas);
         }
-        onDraw(canvas);
+        if (!willNotDraw) {
+            onDraw(canvas);
+        }
         dispatchDraw(canvas);
 
         if (pressed && isClickable() && !(this instanceof ViewGroup)) {
@@ -658,13 +826,53 @@ public class View {
     }
 
     public boolean post(Runnable action) {
-        new Handler().post(action);
-        return true;
+        return viewHandler.post(action);
     }
 
     public boolean postDelayed(Runnable action, long delayMillis) {
-        new Handler().postDelayed(action, delayMillis);
+        return viewHandler.postDelayed(action, delayMillis);
+    }
+
+    public boolean removeCallbacks(Runnable action) {
+        viewHandler.removeCallbacks(action);
         return true;
+    }
+
+    @Override
+    public void invalidateDrawable(Drawable who) {
+        invalidate();
+    }
+
+    @Override
+    public void scheduleDrawable(Drawable who, Runnable what, long when) {
+        if (what != null) {
+            postDelayed(what, Math.max(0L, when - android.os.SystemClock.uptimeMillis()));
+        }
+    }
+
+    @Override
+    public void unscheduleDrawable(Drawable who, Runnable what) {
+        removeCallbacks(what);
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        return false;
+    }
+
+    @Override
+    public boolean onKeyLongPress(int keyCode, KeyEvent event) {
+        return false;
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        return false;
+    }
+
+    @Override
+    public boolean onKeyMultiple(int keyCode, int count, KeyEvent event) {
+        return false;
     }
 
     // --------------------------------------------------------- Touch & Keyboard

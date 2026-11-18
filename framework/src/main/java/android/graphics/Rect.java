@@ -1,6 +1,9 @@
 package android.graphics;
 
-public final class Rect {
+import android.os.Parcel;
+import android.os.Parcelable;
+
+public final class Rect implements Parcelable {
     public int left;
     public int top;
     public int right;
@@ -87,5 +90,18 @@ public final class Rect {
 
     public boolean contains(int x, int y) {
         return left < right && top < bottom && x >= left && x < right && y >= top && y < bottom;
+    }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel out, int flags) {
+        out.writeInt(left);
+        out.writeInt(top);
+        out.writeInt(right);
+        out.writeInt(bottom);
     }
 }

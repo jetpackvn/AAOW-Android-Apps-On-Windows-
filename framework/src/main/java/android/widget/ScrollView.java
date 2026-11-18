@@ -67,6 +67,23 @@ public class ScrollView extends FrameLayout {
         scrollY = Math.max(0, Math.min(scrollY, maxScrollY()));
     }
 
+    public final void smoothScrollTo(int x, int y) {
+        scrollTo(x, Math.max(0, Math.min(maxScrollY(), y)));
+    }
+
+    public final void smoothScrollBy(int dx, int dy) {
+        smoothScrollTo(scrollX + dx, scrollY + dy);
+    }
+
+    public boolean fullScroll(int direction) {
+        if (direction == View.VISIBLE || direction == 33) {
+            smoothScrollTo(0, 0);
+        } else {
+            smoothScrollTo(0, maxScrollY());
+        }
+        return true;
+    }
+
     @Override
     public boolean onMouseWheel(int wheelRotation, float x, float y) {
         if (super.onMouseWheel(wheelRotation, x, y)) return true;

@@ -6,7 +6,7 @@ import android.graphics.Paint;
 import android.util.AttributeSet;
 import android.view.View;
 
-public class ListView extends AdapterView<ListAdapter> {
+public class ListView extends AbsListView {
     private ListAdapter adapter;
     private final Paint dividerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 

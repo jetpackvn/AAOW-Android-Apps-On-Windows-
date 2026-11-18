@@ -1,9 +1,12 @@
 package android.graphics;
 
+import android.os.Parcel;
+import android.os.Parcelable;
+
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 
-public final class Bitmap {
+public final class Bitmap implements Parcelable {
     public enum Config {
         ALPHA_8,
         RGB_565,
@@ -63,5 +66,16 @@ public final class Bitmap {
 
     public boolean isRecycled() {
         return false;
+    }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel p, int flags) {
+        p.writeInt(getWidth());
+        p.writeInt(getHeight());
     }
 }

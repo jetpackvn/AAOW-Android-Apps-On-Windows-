@@ -5,7 +5,7 @@ import android.util.AttributeSet;
 import dev.aaow.apk.ResValue;
 import dev.aaow.apk.XmlElement;
 
-public abstract class CompoundButton extends Button {
+public abstract class CompoundButton extends Button implements Checkable {
     public interface OnCheckedChangeListener {
         void onCheckedChanged(CompoundButton buttonView, boolean isChecked);
     }

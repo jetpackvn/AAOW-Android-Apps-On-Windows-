@@ -57,4 +57,12 @@ public class Environment {
     public static boolean isExternalStorageRemovable() {
         return false;
     }
+
+    public static boolean isExternalStorageManager() {
+        return true;
+    }
+
+    public static boolean isExternalStorageManager(File path) {
+        return true;
+    }
 }

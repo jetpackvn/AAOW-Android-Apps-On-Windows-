@@ -1,8 +1,11 @@
 package android.content;
 
+import android.os.Parcel;
+import android.os.Parcelable;
+
 import java.util.Objects;
 
-public final class ComponentName implements Cloneable, Comparable<ComponentName> {
+public final class ComponentName implements Cloneable, Comparable<ComponentName>, Parcelable {
     private final String pkg;
     private final String cls;
 
@@ -59,6 +62,17 @@ public final class ComponentName implements Cloneable, Comparable<ComponentName>
     public int compareTo(ComponentName o) {
         int v = pkg.compareTo(o.pkg);
         return v != 0 ? v : cls.compareTo(o.cls);
+    }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel out, int flags) {
+        out.writeString(pkg);
+        out.writeString(cls);
     }
 
     @Override

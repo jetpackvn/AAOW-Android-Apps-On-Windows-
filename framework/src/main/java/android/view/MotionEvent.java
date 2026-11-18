@@ -1,13 +1,19 @@
 package android.view;
 
-public final class MotionEvent {
+import android.os.Parcel;
+
+public final class MotionEvent extends InputEvent {
     public static final int ACTION_MASK = 0xff;
     public static final int ACTION_DOWN = 0;
     public static final int ACTION_UP = 1;
     public static final int ACTION_MOVE = 2;
     public static final int ACTION_CANCEL = 3;
     public static final int ACTION_OUTSIDE = 4;
+    public static final int ACTION_POINTER_DOWN = 5;
+    public static final int ACTION_POINTER_UP = 6;
     public static final int ACTION_SCROLL = 8;
+    public static final int ACTION_POINTER_INDEX_SHIFT = 8;
+    public static final int ACTION_POINTER_INDEX_MASK = 0xff00;
 
     private int action;
     private float x;
@@ -31,12 +37,20 @@ public final class MotionEvent {
         return new MotionEvent(action, x, y, x, y, downTime, eventTime);
     }
 
+    public static MotionEvent obtain(MotionEvent other) {
+        return new MotionEvent(other.action, other.x, other.y, other.rawX, other.rawY, other.downTime, other.eventTime);
+    }
+
     public int getAction() {
         return action;
     }
 
     public int getActionMasked() {
         return action & ACTION_MASK;
+    }
+
+    public int getActionIndex() {
+        return (action & ACTION_POINTER_INDEX_MASK) >> ACTION_POINTER_INDEX_SHIFT;
     }
 
     public void setAction(int action) {
@@ -71,10 +85,19 @@ public final class MotionEvent {
         return 1;
     }
 
+    public int getPointerId(int pointerIndex) {
+        return 0;
+    }
+
+    public int findPointerIndex(int pointerId) {
+        return pointerId == 0 ? 0 : -1;
+    }
+
     public long getDownTime() {
         return downTime;
     }
 
+    @Override
     public long getEventTime() {
         return eventTime;
     }
@@ -89,6 +112,10 @@ public final class MotionEvent {
         this.y = y;
     }
 
-    public void recycle() {
+    @Override
+    public void writeToParcel(Parcel out, int flags) {
+        out.writeInt(action);
+        out.writeFloat(x);
+        out.writeFloat(y);
     }
 }
