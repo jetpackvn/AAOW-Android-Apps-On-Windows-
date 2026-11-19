@@ -244,6 +244,18 @@ public final class Parcel {
         return o instanceof Serializable s ? s : null;
     }
 
+    public <T> T readSerializable(ClassLoader loader, Class<T> clazz) {
+        Object o = readItem();
+        if (o == null || clazz == null) return null;
+        return clazz.isInstance(o) ? clazz.cast(o) : null;
+    }
+
+    public <T> T readParcelable(ClassLoader loader, Class<T> clazz) {
+        Object o = readItem();
+        if (o == null || clazz == null) return null;
+        return clazz.isInstance(o) ? clazz.cast(o) : null;
+    }
+
     public void writeList(List<?> val) {
         writeItem(val != null ? new ArrayList<>(val) : null);
     }

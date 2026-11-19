@@ -6,6 +6,8 @@ import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.VectorDrawable;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
@@ -16,6 +18,7 @@ import dev.aaow.apk.ResourceTable;
 import dev.aaow.apk.XmlElement;
 import dev.aaow.rt.AndroidSystemResources;
 import dev.aaow.rt.AxmlXmlResourceParser;
+import dev.aaow.rt.ResourceCache;
 import dev.aaow.rt.XmlDrawableLoader;
 
 import java.io.ByteArrayInputStream;
@@ -103,6 +106,7 @@ public class Resources {
     private final AssetManager assets;
     private final DisplayMetrics metrics = new DisplayMetrics();
     private final Configuration config = new Configuration();
+    private ResourceCache resourceCache = new ResourceCache();
 
     private static final Resources SYSTEM_RESOURCES = new Resources(null);
 
@@ -110,6 +114,26 @@ public class Resources {
         this.apk = apk;
         this.table = apk != null ? apk.getResources() : ResourceTable.empty();
         this.assets = new AssetManager(apk);
+    }
+
+    public ResourceCache getResourceCache() {
+        return resourceCache;
+    }
+
+    public void setResourceCache(ResourceCache cache) {
+        if (cache != null) this.resourceCache = cache;
+    }
+
+    public ResourceCache.CacheStats getCacheStats() {
+        return resourceCache.getStats();
+    }
+
+    public void trimMemory(int level) {
+        resourceCache.trimMemory(level);
+    }
+
+    public void clearCaches() {
+        resourceCache.clear();
     }
 
     public static Resources getSystem() {
@@ -248,20 +272,35 @@ public class Resources {
         Integer sysColor = AndroidSystemResources.systemColor(id);
         if (sysColor != null) return new ColorDrawable(sysColor);
 
+        Drawable.ConstantState cachedState = resourceCache.getDrawableState(id);
+        if (cachedState != null) {
+            return cachedState.newDrawable(this, theme);
+        }
+
         ResValue v = table.getValue(id);
         if (v == null) return null;
-        if (v.isColor()) return new ColorDrawable(v.data());
+        if (v.isColor()) {
+            ColorDrawable cd = new ColorDrawable(v.data());
+            resourceCache.putDrawableState(id, cd.getConstantState());
+            return cd;
+        }
         if (v.isString() && v.string() != null && apk != null) {
             String path = v.string();
             try {
-                byte[] bytes = apk.read(path);
-                if (bytes == null) return null;
                 if (path.endsWith(".xml")) {
-                    XmlElement xml = AxmlParser.parse(bytes);
-                    return XmlDrawableLoader.fromXml(xml, this);
+                    XmlElement xml = loadXmlElement(id);
+                    Drawable d = XmlDrawableLoader.fromXml(xml, this);
+                    if (d != null && (d instanceof VectorDrawable || d instanceof GradientDrawable || d instanceof ColorDrawable)) {
+                        resourceCache.putDrawableState(id, d.getConstantState());
+                    }
+                    return d;
                 } else {
-                    Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                    if (bmp != null) return new BitmapDrawable(this, bmp);
+                    Bitmap bmp = loadBitmap(id);
+                    if (bmp != null) {
+                        BitmapDrawable bd = new BitmapDrawable(this, bmp);
+                        resourceCache.putDrawableState(id, bd.getConstantState());
+                        return bd;
+                    }
                 }
             } catch (Exception ignored) {
             }
@@ -270,12 +309,17 @@ public class Resources {
     }
 
     public Bitmap loadBitmap(int id) {
+        Bitmap cached = resourceCache.getBitmap(id);
+        if (cached != null) return cached;
+
         ResValue v = table.getValue(id);
         if (v != null && v.isString() && v.string() != null && apk != null) {
             try {
                 byte[] bytes = apk.read(v.string());
                 if (bytes != null && !v.string().endsWith(".xml")) {
-                    return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    if (bmp != null) resourceCache.putBitmap(id, bmp);
+                    return bmp;
                 }
             } catch (Exception ignored) {
             }
@@ -289,13 +333,16 @@ public class Resources {
             android.graphics.Canvas c = new android.graphics.Canvas(bmp);
             d.setBounds(0, 0, w, h);
             d.draw(c);
+            resourceCache.putBitmap(id, bmp);
             return bmp;
         }
         return null;
     }
 
-    /** Đọc một file XML nhị phân (layout, menu, drawable...) theo ID resource. */
+    /** Đọc một file XML nhị phân (layout, menu, drawable...) theo ID resource (có bộ nhớ đệm). */
     public XmlElement loadXmlElement(int id) {
+        XmlElement cached = resourceCache.getXml(id);
+        if (cached != null) return cached;
         ResValue v = table.getValue(id);
         if (v == null || !v.isString() || v.string() == null || apk == null) {
             throw new NotFoundException("XML resource ID #0x" + Integer.toHexString(id));
@@ -303,7 +350,9 @@ public class Resources {
         try {
             byte[] bytes = apk.read(v.string());
             if (bytes == null) throw new NotFoundException(v.string());
-            return AxmlParser.parse(bytes);
+            XmlElement parsed = AxmlParser.parse(bytes);
+            resourceCache.putXml(id, parsed);
+            return parsed;
         } catch (NotFoundException e) {
             throw e;
         } catch (Exception e) {
@@ -377,6 +426,25 @@ public class Resources {
         if (metrics != null) {
             this.metrics.setTo(metrics);
         }
+    }
+
+    /** Đồng bộ DisplayMetrics và Configuration khi cửa sổ Windows phóng to/thu nhỏ hoặc xoay ngang/dọc. */
+    public boolean updateViewportMetrics(int widthPx, int heightPx, boolean landscape) {
+        int safeW = Math.max(1, widthPx);
+        int safeH = Math.max(1, heightPx);
+        int newOrientation = landscape ? Configuration.ORIENTATION_LANDSCAPE : Configuration.ORIENTATION_PORTRAIT;
+        boolean orientationChanged = config.orientation != newOrientation;
+
+        metrics.widthPixels = safeW;
+        metrics.heightPixels = safeH;
+        float density = metrics.density > 0 ? metrics.density : 1.0f;
+        int wDp = Math.max(1, Math.round(safeW / density));
+        int hDp = Math.max(1, Math.round(safeH / density));
+        config.orientation = newOrientation;
+        config.screenWidthDp = wDp;
+        config.screenHeightDp = hDp;
+        config.smallestScreenWidthDp = Math.min(wDp, hDp);
+        return orientationChanged;
     }
 
     public InputStream openRawResource(int id) {

@@ -7,6 +7,7 @@ public class Display {
     public static final int DEFAULT_DISPLAY = 0;
 
     private final DisplayMetrics metrics;
+    private volatile int rotation = Surface.ROTATION_0;
 
     public Display(DisplayMetrics metrics) {
         this.metrics = metrics != null ? metrics : new DisplayMetrics();
@@ -17,7 +18,11 @@ public class Display {
     }
 
     public int getRotation() {
-        return Surface.ROTATION_0;
+        return rotation;
+    }
+
+    public void setRotation(int rotation) {
+        this.rotation = rotation;
     }
 
     public void getMetrics(DisplayMetrics outMetrics) {

@@ -8,6 +8,7 @@ import dev.aaow.apk.ApkFile;
 import dev.aaow.rt.AndroidRuntimeContext;
 import dev.aaow.rt.HostWindow;
 
+import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -240,34 +241,54 @@ public final class AppRepository {
 
     public static Application createAndInitializeApplication(
             AndroidManifest mf, ClassLoader cl, AndroidRuntimeContext ctx, java.util.function.Consumer<String> warnLog) {
-        Application app = null;
-        if (mf.applicationClass != null && !mf.applicationClass.isEmpty()) {
+        java.util.concurrent.atomic.AtomicReference<Application> ref = new java.util.concurrent.atomic.AtomicReference<>();
+        Runnable initTask = () -> {
+            ClassLoader prevCl = Thread.currentThread().getContextClassLoader();
+            Thread.currentThread().setContextClassLoader(cl);
             try {
-                Class<?> cls = Class.forName(mf.applicationClass, true, cl);
-                if (Application.class.isAssignableFrom(cls)) {
-                    app = (Application) cls.getDeclaredConstructor().newInstance();
+                Application app = null;
+                if (mf.applicationClass != null && !mf.applicationClass.isEmpty()) {
+                    try {
+                        Class<?> cls = Class.forName(mf.applicationClass, true, cl);
+                        if (Application.class.isAssignableFrom(cls)) {
+                            app = (Application) cls.getDeclaredConstructor().newInstance();
+                            app.attach(ctx);
+                        }
+                    } catch (Throwable t) {
+                        if (warnLog != null) {
+                            warnLog.accept("Không khởi tạo được Application tuỳ chỉnh (" + mf.applicationClass + "), dùng mặc định: " + t);
+                        }
+                    }
+                }
+                if (app == null) {
+                    app = new Application();
                     app.attach(ctx);
                 }
-            } catch (Throwable t) {
-                if (warnLog != null) {
-                    warnLog.accept("Không khởi tạo được Application tuỳ chỉnh (" + mf.applicationClass + "), dùng mặc định: " + t);
+                ctx.setApplicationContext(app);
+                ctx.installManifestContentProviders();
+                try {
+                    app.onCreate();
+                } catch (Throwable t) {
+                    if (warnLog != null) {
+                        warnLog.accept("[AAOW-Warn] Application.onCreate() gặp ngoại lệ (đã bỏ qua để tiếp tục mở Activity): " + t);
+                    }
                 }
+                ref.set(app);
+            } finally {
+                Thread.currentThread().setContextClassLoader(prevCl);
+            }
+        };
+
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) {
+            initTask.run();
+        } else {
+            try {
+                javax.swing.SwingUtilities.invokeAndWait(initTask);
+            } catch (Exception e) {
+                initTask.run();
             }
         }
-        if (app == null) {
-            app = new Application();
-            app.attach(ctx);
-        }
-        ctx.setApplicationContext(app);
-        ctx.installManifestContentProviders();
-        try {
-            app.onCreate();
-        } catch (Throwable t) {
-            if (warnLog != null) {
-                warnLog.accept("[AAOW-Warn] Application.onCreate() gặp ngoại lệ (đã bỏ qua để tiếp tục mở Activity): " + t);
-            }
-        }
-        return app;
+        return ref.get();
     }
 
     private InstalledApp inspectApk(Path apkPath) throws IOException {
@@ -285,7 +306,7 @@ public final class AppRepository {
                 acts.add(a.toString());
             }
 
-            BufferedImage iconImg = renderAppIcon(res, mf.iconRes, label, pkg);
+            BufferedImage iconImg = loadOrRenderAppIcon(apkPath, res, mf.iconRes, label, pkg);
             String xmlDump = mf.xml != null ? mf.xml.dump() : "";
             long fileSize = Files.size(apkPath);
 
@@ -306,6 +327,25 @@ public final class AppRepository {
                     xmlDump,
                     iconImg
             );
+        }
+    }
+
+    private BufferedImage loadOrRenderAppIcon(Path apkPath, Resources res, int iconRes, String label, String pkg) {
+        try {
+            long size = Files.size(apkPath);
+            long mtime = Files.getLastModifiedTime(apkPath).toMillis();
+            Path iconsDir = dexCacheDir.resolve("icons");
+            Path cacheFile = iconsDir.resolve(pkg.replaceAll("[^a-zA-Z0-9._-]", "_") + "-" + size + "-" + mtime + ".png");
+            if (Files.isRegularFile(cacheFile)) {
+                BufferedImage cached = ImageIO.read(cacheFile.toFile());
+                if (cached != null) return cached;
+            }
+            BufferedImage rendered = renderAppIcon(res, iconRes, label, pkg);
+            Files.createDirectories(iconsDir);
+            ImageIO.write(rendered, "png", cacheFile.toFile());
+            return rendered;
+        } catch (Exception ignored) {
+            return renderAppIcon(res, iconRes, label, pkg);
         }
     }
 

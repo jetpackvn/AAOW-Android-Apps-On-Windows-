@@ -240,6 +240,11 @@ public class Intent implements Cloneable, Parcelable {
         return this;
     }
 
+    public Intent putExtra(String name, Parcelable[] value) {
+        extras.putParcelableArray(name, value);
+        return this;
+    }
+
     public Intent putExtra(String name, Serializable value) {
         extras.putSerializable(name, value);
         return this;
@@ -349,8 +354,24 @@ public class Intent implements Cloneable, Parcelable {
         return extras.getParcelable(name);
     }
 
+    public <T> T getParcelableExtra(String name, Class<T> clazz) {
+        return extras.getParcelable(name, clazz);
+    }
+
+    public Parcelable[] getParcelableArrayExtra(String name) {
+        return extras.getParcelableArray(name);
+    }
+
+    public <T> T[] getParcelableArrayExtra(String name, Class<T> clazz) {
+        return extras.getParcelableArray(name, clazz);
+    }
+
     public <T extends Parcelable> ArrayList<T> getParcelableArrayListExtra(String name) {
         return extras.getParcelableArrayList(name);
+    }
+
+    public <T> ArrayList<T> getParcelableArrayListExtra(String name, Class<? extends T> clazz) {
+        return extras.getParcelableArrayList(name, clazz);
     }
 
     public ArrayList<String> getStringArrayListExtra(String name) {
@@ -359,6 +380,10 @@ public class Intent implements Cloneable, Parcelable {
 
     public Serializable getSerializableExtra(String name) {
         return extras.getSerializable(name);
+    }
+
+    public <T extends Serializable> T getSerializableExtra(String name, Class<T> clazz) {
+        return extras.getSerializable(name, clazz);
     }
 
     public String[] getStringArrayExtra(String name) {

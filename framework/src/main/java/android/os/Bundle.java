@@ -1,6 +1,8 @@
 package android.os;
 
+import android.util.SparseArray;
 import java.io.Serializable;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 
 public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
@@ -145,10 +147,73 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         return o instanceof Parcelable ? (T) o : null;
     }
 
+    public <T> T getParcelable(String key, Class<T> clazz) {
+        Object o = map.get(key);
+        if (o == null || clazz == null) return null;
+        return clazz.isInstance(o) ? clazz.cast(o) : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T[] getParcelableArray(String key, Class<T> clazz) {
+        Object o = map.get(key);
+        if (o == null || clazz == null) return null;
+        if (o.getClass().isArray()) {
+            int len = Array.getLength(o);
+            T[] out = (T[]) Array.newInstance(clazz, len);
+            for (int i = 0; i < len; i++) {
+                Object elem = Array.get(o, i);
+                if (elem != null && !clazz.isInstance(elem)) {
+                    return null;
+                }
+                out[i] = clazz.cast(elem);
+            }
+            return out;
+        }
+        return null;
+    }
+
     @SuppressWarnings("unchecked")
     public <T extends Parcelable> ArrayList<T> getParcelableArrayList(String key) {
         Object o = map.get(key);
         return o instanceof ArrayList<?> list ? (ArrayList<T>) list : null;
+    }
+
+    public <T> ArrayList<T> getParcelableArrayList(String key, Class<? extends T> clazz) {
+        Object o = map.get(key);
+        if (!(o instanceof ArrayList<?> list) || clazz == null) return null;
+        ArrayList<T> out = new ArrayList<>(list.size());
+        for (Object item : list) {
+            if (item == null) {
+                out.add(null);
+            } else if (clazz.isInstance(item)) {
+                out.add(clazz.cast(item));
+            } else {
+                return null;
+            }
+        }
+        return out;
+    }
+
+    public void putSparseParcelableArray(String key, SparseArray<? extends Parcelable> value) {
+        map.put(key, value);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T extends Parcelable> SparseArray<T> getSparseParcelableArray(String key) {
+        Object o = map.get(key);
+        return o instanceof SparseArray<?> sa ? (SparseArray<T>) sa : null;
+    }
+
+    public <T> SparseArray<T> getSparseParcelableArray(String key, Class<? extends T> clazz) {
+        Object o = map.get(key);
+        if (!(o instanceof SparseArray<?> sa) || clazz == null) return null;
+        SparseArray<T> out = new SparseArray<>(sa.size());
+        for (int i = 0; i < sa.size(); i++) {
+            Object val = sa.valueAt(i);
+            if (val != null && !clazz.isInstance(val)) return null;
+            out.put(sa.keyAt(i), clazz.cast(val));
+        }
+        return out;
     }
 
     @SuppressWarnings("unchecked")
@@ -176,6 +241,12 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     public Serializable getSerializable(String key) {
         Object o = map.get(key);
         return o instanceof Serializable s ? s : null;
+    }
+
+    public <T extends Serializable> T getSerializable(String key, Class<T> clazz) {
+        Object o = map.get(key);
+        if (o == null || clazz == null) return null;
+        return clazz.isInstance(o) ? clazz.cast(o) : null;
     }
 
     @Override

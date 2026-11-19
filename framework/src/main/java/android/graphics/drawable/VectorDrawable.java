@@ -1,22 +1,42 @@
 package android.graphics.drawable;
 
+import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Rect;
 
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
+import java.awt.Composite;
 import java.awt.Graphics2D;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Cài đặt android.graphics.drawable.VectorDrawable vẽ &lt;vector&gt; drawable của Android
- * (SVG pathData) bằng Java2D.
+ * (SVG pathData) bằng Java2D, chia sẻ PathSpec qua ConstantState để tiết kiệm CPU/RAM.
  */
 public class VectorDrawable extends Drawable {
     public record PathSpec(Path2D.Float path, int fillColor, int strokeColor, float strokeWidth) {
+    }
+
+    private static final class CachedRenderSpec {
+        final PathSpec spec;
+        final java.awt.Color fillAwt;
+        final java.awt.Color strokeAwt;
+        final BasicStroke stroke;
+
+        CachedRenderSpec(PathSpec spec) {
+            this.spec = spec;
+            this.fillAwt = (spec.fillColor >>> 24) != 0 ? Color.toAwt(spec.fillColor) : null;
+            this.strokeAwt = (spec.strokeColor >>> 24) != 0 ? Color.toAwt(spec.strokeColor) : null;
+            this.stroke = (spec.strokeWidth > 0 && strokeAwt != null)
+                    ? new BasicStroke(spec.strokeWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+                    : null;
+        }
     }
 
     private final float viewportWidth;
@@ -24,7 +44,9 @@ public class VectorDrawable extends Drawable {
     private final int intrinsicWidth;
     private final int intrinsicHeight;
     private final int tintColor;
-    private final List<PathSpec> paths = new ArrayList<>();
+    private final java.awt.Color tintAwt;
+    private final List<PathSpec> paths;
+    private final List<CachedRenderSpec> renderSpecs;
 
     public VectorDrawable() {
         this(24f, 24f, 24, 24, 0);
@@ -36,11 +58,27 @@ public class VectorDrawable extends Drawable {
         this.intrinsicWidth = intrinsicWidth > 0 ? intrinsicWidth : 24;
         this.intrinsicHeight = intrinsicHeight > 0 ? intrinsicHeight : 24;
         this.tintColor = tintColor;
+        this.tintAwt = tintColor != 0 ? Color.toAwt(tintColor) : null;
+        this.paths = new ArrayList<>();
+        this.renderSpecs = new ArrayList<>();
+    }
+
+    private VectorDrawable(VectorDrawable src) {
+        this.viewportWidth = src.viewportWidth;
+        this.viewportHeight = src.viewportHeight;
+        this.intrinsicWidth = src.intrinsicWidth;
+        this.intrinsicHeight = src.intrinsicHeight;
+        this.tintColor = src.tintColor;
+        this.tintAwt = src.tintAwt;
+        this.paths = Collections.unmodifiableList(new ArrayList<>(src.paths));
+        this.renderSpecs = Collections.unmodifiableList(new ArrayList<>(src.renderSpecs));
     }
 
     public void addPath(String pathData, int fillColor, int strokeColor, float strokeWidth) {
         if (pathData == null || pathData.isEmpty()) return;
-        paths.add(new PathSpec(parseSvgPath(pathData), fillColor, strokeColor, strokeWidth));
+        PathSpec spec = new PathSpec(parseSvgPath(pathData), fillColor, strokeColor, strokeWidth);
+        paths.add(spec);
+        renderSpecs.add(new CachedRenderSpec(spec));
     }
 
     @Override
@@ -60,21 +98,44 @@ public class VectorDrawable extends Drawable {
         Graphics2D g = canvas.getAwtGraphics();
         if (g == null) return;
         AffineTransform old = g.getTransform();
+        Composite oldComp = null;
+        int alpha = getAlpha();
+        if (alpha < 255) {
+            oldComp = g.getComposite();
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Math.max(0f, Math.min(1f, alpha / 255f))));
+        }
         g.translate(b.left, b.top);
         g.scale(b.width() / viewportWidth, b.height() / viewportHeight);
-        for (PathSpec ps : paths) {
-            int fill = tintColor != 0 && (ps.fillColor >>> 24) != 0 ? tintColor : ps.fillColor;
-            if ((fill >>> 24) != 0) {
-                g.setColor(Color.toAwt(fill));
-                g.fill(ps.path);
+        for (int i = 0, n = renderSpecs.size(); i < n; i++) {
+            CachedRenderSpec rs = renderSpecs.get(i);
+            if (rs.fillAwt != null) {
+                g.setColor(tintAwt != null ? tintAwt : rs.fillAwt);
+                g.fill(rs.spec.path);
             }
-            if (ps.strokeWidth > 0 && (ps.strokeColor >>> 24) != 0) {
-                g.setColor(Color.toAwt(ps.strokeColor));
-                g.setStroke(new BasicStroke(ps.strokeWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                g.draw(ps.path);
+            if (rs.stroke != null && rs.strokeAwt != null) {
+                g.setColor(rs.strokeAwt);
+                g.setStroke(rs.stroke);
+                g.draw(rs.spec.path);
             }
         }
+        if (oldComp != null) g.setComposite(oldComp);
         g.setTransform(old);
+    }
+
+    @Override
+    public ConstantState getConstantState() {
+        final VectorDrawable snapshot = new VectorDrawable(this);
+        return new ConstantState() {
+            @Override
+            public Drawable newDrawable() {
+                return new VectorDrawable(snapshot);
+            }
+
+            @Override
+            public Drawable newDrawable(Resources res) {
+                return new VectorDrawable(snapshot);
+            }
+        };
     }
 
     /** Bộ đọc lệnh SVG pathData cơ bản (M, L, H, V, C, Q, Z và bản chữ thường tương đối). */

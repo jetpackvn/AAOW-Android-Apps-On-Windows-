@@ -46,6 +46,86 @@ public class PackageManager {
         }
     }
 
+    public static final class PackageInfoFlags {
+        private final long value;
+
+        PackageInfoFlags() {
+            this(0L);
+        }
+
+        private PackageInfoFlags(long value) {
+            this.value = value;
+        }
+
+        public long getValue() {
+            return value;
+        }
+
+        public static PackageInfoFlags of(long value) {
+            return new PackageInfoFlags(value);
+        }
+    }
+
+    public static final class ApplicationInfoFlags {
+        private final long value;
+
+        ApplicationInfoFlags() {
+            this(0L);
+        }
+
+        private ApplicationInfoFlags(long value) {
+            this.value = value;
+        }
+
+        public long getValue() {
+            return value;
+        }
+
+        public static ApplicationInfoFlags of(long value) {
+            return new ApplicationInfoFlags(value);
+        }
+    }
+
+    public static final class ComponentInfoFlags {
+        private final long value;
+
+        ComponentInfoFlags() {
+            this(0L);
+        }
+
+        private ComponentInfoFlags(long value) {
+            this.value = value;
+        }
+
+        public long getValue() {
+            return value;
+        }
+
+        public static ComponentInfoFlags of(long value) {
+            return new ComponentInfoFlags(value);
+        }
+    }
+
+    public static final class ResolveInfoFlags {
+        private final long value;
+
+        ResolveInfoFlags() {
+            this(0L);
+        }
+
+        private ResolveInfoFlags(long value) {
+            this.value = value;
+        }
+
+        public long getValue() {
+            return value;
+        }
+
+        public static ResolveInfoFlags of(long value) {
+            return new ResolveInfoFlags(value);
+        }
+    }
+
     private final AndroidManifest manifest;
     private final ApplicationInfo appInfo;
     private final Resources resources;
@@ -119,6 +199,18 @@ public class PackageManager {
         throw new NameNotFoundException(packageName);
     }
 
+    public PackageInfo getPackageInfo(String packageName, PackageInfoFlags flags) throws NameNotFoundException {
+        return getPackageInfo(packageName, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public PackageInfo getPackageArchiveInfo(String archiveFilePath, PackageInfoFlags flags) {
+        return getPackageArchiveInfo(archiveFilePath, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public List<PackageInfo> getInstalledPackages(PackageInfoFlags flags) {
+        return getInstalledPackages(flags != null ? (int) flags.getValue() : 0);
+    }
+
     public PackageInfo getPackageArchiveInfo(String archiveFilePath, int flags) {
         if (archiveFilePath == null || archiveFilePath.isEmpty())
             return null;
@@ -187,6 +279,10 @@ public class PackageManager {
             return appInfo;
         }
         throw new NameNotFoundException(packageName);
+    }
+
+    public ApplicationInfo getApplicationInfo(String packageName, ApplicationInfoFlags flags) throws NameNotFoundException {
+        return getApplicationInfo(packageName, flags != null ? (int) flags.getValue() : 0);
     }
 
     public CharSequence getApplicationLabel(ApplicationInfo info) {
@@ -276,6 +372,26 @@ public class PackageManager {
     public ResolveInfo resolveActivity(Intent intent, int flags) {
         List<ResolveInfo> list = queryIntentActivities(intent, flags);
         return list.isEmpty() ? null : list.get(0);
+    }
+
+    public List<ResolveInfo> queryIntentActivities(Intent intent, ResolveInfoFlags flags) {
+        return queryIntentActivities(intent, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public ResolveInfo resolveActivity(Intent intent, ResolveInfoFlags flags) {
+        return resolveActivity(intent, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public List<ResolveInfo> queryIntentServices(Intent intent, ResolveInfoFlags flags) {
+        return queryIntentServices(intent, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public ResolveInfo resolveService(Intent intent, ResolveInfoFlags flags) {
+        return resolveService(intent, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public List<ResolveInfo> queryBroadcastReceivers(Intent intent, ResolveInfoFlags flags) {
+        return queryBroadcastReceivers(intent, flags != null ? (int) flags.getValue() : 0);
     }
 
     public List<ResolveInfo> queryIntentServices(Intent intent, int flags) {
@@ -388,6 +504,26 @@ public class PackageManager {
             }
         }
         throw new NameNotFoundException(component != null ? component.flattenToString() : "null");
+    }
+
+    public ActivityInfo getActivityInfo(ComponentName component, ComponentInfoFlags flags) throws NameNotFoundException {
+        return getActivityInfo(component, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public ServiceInfo getServiceInfo(ComponentName component, ComponentInfoFlags flags) throws NameNotFoundException {
+        return getServiceInfo(component, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public ActivityInfo getReceiverInfo(ComponentName component, ComponentInfoFlags flags) throws NameNotFoundException {
+        return getReceiverInfo(component, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public ProviderInfo getProviderInfo(ComponentName component, ComponentInfoFlags flags) throws NameNotFoundException {
+        return getProviderInfo(component, flags != null ? (int) flags.getValue() : 0);
+    }
+
+    public ProviderInfo resolveContentProvider(String name, ComponentInfoFlags flags) {
+        return resolveContentProvider(name, flags != null ? (int) flags.getValue() : 0);
     }
 
     private ResolveInfo toResolveActivity(AndroidManifest.Activity act) {

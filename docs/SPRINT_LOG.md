@@ -276,3 +276,97 @@ Nâng cấp lớp tương thích AAOW từ chạy UI/lưu trữ cơ bản lên h
 ### 4. Chuẩn bị cho Sprint 8
 - Đóng gói AAOW thành bộ cài Windows độc lập (`.exe`/`.msi`) qua `jpackage` không cần cài JDK sẵn.
 - Tích hợp liên kết đuôi file `.apk` trên Windows (nhấp đúp mở thẳng bằng AAOW) và tối ưu tốc độ khung hình render / dung lượng RAM.
+
+---
+
+## Sprint 8: Tối ưu Hiệu năng, Đóng gói Bộ cài Windows (`.exe`) & Phát hành
+**Trạng thái:** ✅ Đã hoàn thành & Nghiệm thu (18/11/2026)
+
+### 1. Các hạng mục đã hoàn thành
+1. **Tối ưu Bộ nhớ đệm, Đồ họa 60fps, Giảm RAM & Cửa sổ Đáp ứng (`:framework`):**
+   - Xây dựng bộ nhớ đệm LRU giới hạn theo dung lượng byte [ResourceCache.java](../framework/src/main/java/dev/aaow/rt/ResourceCache.java) (mặc định tối đa 24 MB cho `Bitmap` đã giải mã, 512 cây XML nhị phân và 512 `Drawable.ConstantState`), tích hợp vào [Resources.java](../framework/src/main/java/android/content/res/Resources.java) kèm `trimMemory()` / `clearCaches()` / `getCacheStats()`.
+   - Nâng cấp [Bitmap.java](../framework/src/main/java/android/graphics/Bitmap.java) (`getByteCount()`, `getAllocationByteCount()`, `isMutable()`, `recycle()` giải phóng bề mặt native Java2D + `isRecycled()`), [WebpHelper.java](../framework/src/main/java/dev/aaow/rt/jni/WebpHelper.java) (`inJustDecodeBounds` đọc header không nạp pixel vào RAM và hỗ trợ `inSampleSize` giảm mẫu ảnh), [Canvas.java](../framework/src/main/java/android/graphics/Canvas.java), [BitmapDrawable.java](../framework/src/main/java/android/graphics/drawable/BitmapDrawable.java), [ColorDrawable.java](../framework/src/main/java/android/graphics/drawable/ColorDrawable.java), [GradientDrawable.java](../framework/src/main/java/android/graphics/drawable/GradientDrawable.java) và [VectorDrawable.java](../framework/src/main/java/android/graphics/drawable/VectorDrawable.java) (chia sẻ `PathSpec` qua `ConstantState`, tái sử dụng `BasicStroke`/`Color`).
+   - Tối ưu vòng vẽ 60fps: [View.java](../framework/src/main/java/android/view/View.java) áp dụng thực `alpha`, `rotation`, `scaleX`/`scaleY` quanh tâm pivot; [ViewGroup.java](../framework/src/main/java/android/view/ViewGroup.java) cắt bỏ (cull) các View con nằm ngoài vùng nhìn thấy khi cuộn; [ValueAnimator.java](../framework/src/main/java/android/animation/ValueAnimator.java) dùng `CopyOnWriteArrayList` tránh cấp phát bản sao mỗi khung hình.
+   - Nâng cấp [HostWindow.java](../framework/src/main/java/dev/aaow/rt/HostWindow.java): bỏ qua đo/dàn trang (`measure`/`layout`) dư thừa khi cây View không bẩn (`layoutSkips`), đệm sẵn `Font`/`Color`/`BasicStroke`/icon, tiết lưu cập nhật Inspector (250 ms), bổ sung thống kê `FrameStats` (FPS, ms/khung hình, heap MB, cache hit%), thanh điều khiển desktop có nút **Xoay Dọc ↔ Ngang** (`Ctrl+R`), **Phóng to / Thu nhỏ / Tự do 1:1** (`75%`, `100%`, `125%`, `150%`, `Ctrl+±/0`), cập nhật [Configuration.java](../framework/src/main/java/android/content/res/Configuration.java) & [Display.java](../framework/src/main/java/android/view/Display.java) (`getRotation()`) và gọi `onConfigurationChanged()`.
+2. **Tối ưu Tốc độ Dịch DEX & Khởi động Nóng (`:launcher`):**
+   - Nâng cấp [DexLoader.java](../launcher/src/main/java/dev/aaow/launcher/DexLoader.java) (`-v8.jar`) dịch trực tiếp từ DEX sang luồng bộ nhớ qua `Dex2jar.doTranslate(ByteArrayOutputStream)` (loại bỏ tệp `.raw.jar` trung gian trên đĩa), biến đổi bytecode ASM song song đa nhân (`.parallelStream()`) đồng thời thu thập tham chiếu ngoại lai trong 1 lượt duyệt duy nhất, nén nhanh `Deflater.BEST_SPEED` và xuất chỉ mục nhị phân `.refs`.
+   - Nâng cấp [ApkDexClassLoader.java](../launcher/src/main/java/dev/aaow/launcher/ApkDexClassLoader.java) nạp tức thì tệp chỉ mục `.refs` khi khởi động nóng và dùng chung cache `microg-lite.jar` giữa các cửa sổ ứng dụng; nâng cấp [AppRepository.java](../launcher/src/main/java/dev/aaow/launcher/AppRepository.java) lưu đệm icon 64×64 xuống `dex-cache/icons/`.
+3. **Liên kết đuôi `.apk`, Chế độ Cài đặt Độc lập & Đóng gói Bộ cài Windows (`jpackage` + `jlink`):**
+   - Tạo [IconAssetGenerator.java](../launcher/src/main/java/dev/aaow/launcher/IconAssetGenerator.java) sinh bộ icon Windows đa độ phân giải (`16/32/48/64/256px`: `aaow.ico`, `apk-file.ico`) và [WindowsIntegration.java](../launcher/src/main/java/dev/aaow/launcher/WindowsIntegration.java) phân giải thư mục dữ liệu chuẩn (`%LOCALAPPDATA%\AAOW\data` khi chạy bản cài đặt độc lập, kết hợp [Environment.java](../framework/src/main/java/android/os/Environment.java) `setDataRoot`), đồng thời đăng ký/gỡ liên kết đuôi `.apk` qua `reg.exe import` dưới `HKCU\Software\Classes` (không cần quyền Admin).
+   - Cập nhật [Main.java](../launcher/src/main/java/dev/aaow/launcher/Main.java) và [AppHubWindow.java](../launcher/src/main/java/dev/aaow/launcher/AppHubWindow.java) thêm nút **"Liên kết .apk"**, lệnh `--install` / `--install-silent`, `--associate-apk` / `--unassociate-apk`, `--data-dir`.
+   - Xây dựng quy trình đóng gói [scripts/package-windows.ps1](../scripts/package-windows.ps1), bộ cài & gỡ cài đặt native Windows [scripts/AaowSetup.cs](../scripts/AaowSetup.cs) và task Gradle `:launcher:packageWindows` trong [launcher/build.gradle.kts](../launcher/build.gradle.kts).
+
+### 2. Kết quả Nghiệm thu Thực tế (Đã chạy sau chỉnh sửa cuối cùng)
+- **Kiểm thử tự động JUnit 5 (`.\gradlew.bat test --rerun-tasks --console=plain`):**
+  - **31/31 tests PASS (0 failed, 0 errors, 0 skipped)** trong `:launcher:test`:
+    - `AndroidSdkFallbackClassLoaderTest` (2), `ApkCompatibilityScannerTest` (2), `FrameworkHierarchyTest` (2 — **0 `SUPER_MISMATCH`** đối chiếu `android.jar`), `Sprint4FrameworkTest` (6), `Sprint5FrameworkTest` (5), `Sprint6FrameworkTest` (4), `Sprint7FrameworkTest` (5), `Sprint8FrameworkTest` (5).
+- **Đóng gói Bộ cài Windows độc lập (`powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`):**
+  - JRE Java 21 rút gọn bởi `jlink` (`build/packaging/runtime`): **59,8 MB** (gồm đủ `java.desktop`, `java.sql`, `java.net.http`, `java.scripting`, `jdk.jsobject`, `jdk.unsupported`, `jdk.xml.dom`, `jdk.crypto.ec`…).
+  - Bản thực thi `jpackage --type app-image` (`build/jpackage/AAOW`): **117,0 MB**, tạo ra **`AAOW.exe`** (GUI), **`aaow-cli.exe`** (Console), `runtime/`, `app/`, `samples/`, `apk-file.ico`.
+  - Bản di động ZIP (`build/release/AAOW-Portable-1.0.0.zip`): **99,2 MB**.
+  - Bộ cài Windows (`build/release/AAOW-Setup-1.0.0.exe`): **99,3 MB** (biên dịch qua `csc.exe`, tích hợp GUI chọn thư mục, liên kết `.apk`, shortcut Start Menu/Desktop, cài/gỡ im lặng `/S` & `/UNINSTALL` và đăng ký Windows Apps & Features).
+- **Kiểm thử cài đặt & chạy độc lập không cần JDK (`JAVA_HOME=""`, `AAOW_HOME=""`):**
+  - Cài thử `AAOW-Setup-1.0.0.exe /S /NOASSOC /NOSHORTCUT` vào thư mục tạm cô lập → chạy thành công cả `AAOW.exe` lẫn `aaow-cli.exe` để cài APK, mở App Hub (`build/sprint8-final/hub-standalone.png`), kết xuất JavaFX WebView (`notes-webview.png`), Room SQLite (`pfnotes-main.png`), `showcase.png`, `game2048.png`, `editor.png`, `level.png`, `apkpure.png` → gỡ sạch bằng `Uninstall-AAOW.exe /UNINSTALL /S` (xác nhận xóa hết tệp cài đặt và khóa Registry Uninstall).
+  - Đo hiệu năng chạy thực tế từ tiến trình độc lập `aaow-cli.exe --screenshot`:
+    - Dịch DEX lạnh: `aaow-2048.apk` (13 class) `202 ms`; `editor_198` (319 class) `606–651 ms`; `notes_142` (449 class) `716–799 ms`; `level_35` (1.988 class) `2.077 ms`.
+    - Thời gian khởi động lạnh → nóng (trọn vòng đời JVM + nạp APK + render): `org.secuso.privacyfriendlynotes_105` giảm từ **15.269 ms → 1.999 ms** (~7,6× nhanh hơn); `com.apkpure.aegon.apk` giảm từ **60.637 ms → 7.712 ms** (~7,9× nhanh hơn).
+
+### 3. Đánh giá Trung thực (Chạy thật vs. Giới hạn hiện tại)
+- **Chạy thật:** toàn bộ lớp tối ưu bộ nhớ đệm `ResourceCache`, `Bitmap.recycle`/`inSampleSize`, culling `ViewGroup`, bỏ qua layout thừa `HostWindow`, xoay ngang/dọc + Zoom + Resize đáp ứng, dịch DEX trên bộ nhớ song song + `.refs`, liên kết đuôi `.apk` trên `HKCU\Software\Classes`, bộ thực thi `AAOW.exe` / `aaow-cli.exe` từ `jpackage` + `jlink`, và bộ cài/gỡ cài đặt `AAOW-Setup-1.0.0.exe` đều chạy thật trên Windows không cần cài JDK.
+- **Giới hạn hiện tại:** máy đóng gói hiện tại không cài sẵn WiX Toolset (`wix.exe` / `candle.exe` + `light.exe`), nên `package-windows.ps1` bỏ qua bước `jpackage --type msi` và xuất bộ cài `.exe` qua `AAOW-Setup-1.0.0.exe` (logic gọi `jpackage --type msi` sẽ tự kích hoạt nếu máy có WiX). Ngoài ra các giới hạn tương thích tầng Framework/Native `.so` phức tạp của APK thương mại (đã ghi nhận từ Sprint 7) giữ nguyên ngoài phạm vi Sprint 8.
+
+---
+
+## Sprint 9 (Phase A): Phá rào `VerifyError` Bytecode & Lấp lỗ hổng Core Runtime
+**Trạng thái:** ✅ Đã hoàn thành & Nghiệm thu (19/11/2026)
+
+### 1. Các hạng mục đã hoàn thành
+1. **Xử lý tận gốc `VerifyError` do R8 Constructor Inlining & Dead Constructor Removal (`:launcher`):**
+   - Chẩn đoán sâu bytecode của `com.jarsilio.android.scrambledeggsif_88.apk` (targetSdk 37, Kotlin + R8 + AndroidX) bằng `javap`: phát hiện nguyên nhân gốc rễ là R8 xóa constructor `<init>` trên các lớp con như `androidx.activity.contextaware.ContextAwareHelper`, `androidx.startup.StartupException` rồi gọi thẳng `invoke-direct Super.<init>()` trong DEX — khiến `dex2jar` dịch sai thành `new java/lang/Object` (`VerifyError: Bad type on operand stack in putfield`) hoặc `invokespecial Super.<init>` trên `uninitialized(Sub)` (`VerifyError: Expecting a stackmap frame`).
+   - Xây dựng [DexR8Sanitizer.java](../launcher/src/main/java/dev/aaow/launcher/DexR8Sanitizer.java) + [R8CtorMarker.java](../framework/src/main/java/dev/aaow/rt/R8CtorMarker.java) chạy trực tiếp trên AST DEX (`DexFileNode`) **trước** `Dex2jar`: dùng phân tích dataflow theo dõi mọi đối tượng `uninitialized` (từ `NEW_INSTANCE` lẫn `this` trong `<init>`), tự động tổng hợp chuỗi bridge constructor hợp lệ trên từng lớp trung gian (dùng `R8CtorMarker` nếu trùng chữ ký constructor sẵn có) và viết lại lệnh `invoke-direct` về đúng lớp đích.
+   - Tích hợp vào [DexLoader.java](../launcher/src/main/java/dev/aaow/launcher/DexLoader.java) (`-v9.jar`), đồng thời tối ưu bộ nhớ đỉnh bằng cách giải phóng từng `DexClassNode` ngay trong quá trình `dex2jar` tiêu thụ và giải phóng sớm buffer trung gian.
+   - Trên `com.jarsilio.android.scrambledeggsif_88.apk`, `DexR8Sanitizer` tự động sửa **1.281 điểm gọi constructor R8** và tổng hợp **645 bridge constructor**, xóa sạch 100% lỗi `VerifyError`.
+2. **Đưa Khởi tạo `Application` & `ContentProvider` lên đúng Main Thread (Swing EDT):**
+   - Cập nhật [AppRepository.java](../launcher/src/main/java/dev/aaow/launcher/AppRepository.java) chạy `app.attach`, `installManifestContentProviders()` và `app.onCreate()` trên Swing EDT (`Looper.getMainLooper().getThread()`), khắc phục triệt để `IllegalStateException: Method handleLifecycleEvent must be called on the main thread` trong `androidx.startup.InitializationProvider` / `ProcessLifecycleInitializer`.
+3. **Cài đặt thật các lớp Core Runtime & API 33 hiện đại (`:framework`):**
+   - [LruCache.java](../framework/src/main/java/android/util/LruCache.java) (`LinkedHashMap` access-order, `sizeOf`, `create`, `entryRemoved`, `trimToSize`, `evictAll`, `resize`, `snapshot`).
+   - [Choreographer.java](../framework/src/main/java/android/view/Choreographer.java) (nhịp 60fps thật qua `Handler`/Main Looper, `FrameCallback`, `VsyncCallback`, `FrameData`, `FrameTimeline`).
+   - [Base64InputStream.java](../framework/src/main/java/android/util/Base64InputStream.java), [Base64OutputStream.java](../framework/src/main/java/android/util/Base64OutputStream.java) (hỗ trợ đầy đủ cờ `NO_CLOSE`, `URL_SAFE`, `NO_WRAP`), [LogPrinter.java](../framework/src/main/java/android/util/LogPrinter.java).
+   - [SystemProperties.java](../framework/src/main/java/android/os/SystemProperties.java) (API ẩn của AOSP cho AndroidX/Firebase/SDK), [Debug.java](../framework/src/main/java/android/os/Debug.java) (kèm `Debug.MemoryInfo` implements `Parcelable`).
+   - Bổ sung overload API 33 type-safe trên [Bundle.java](../framework/src/main/java/android/os/Bundle.java), [Intent.java](../framework/src/main/java/android/content/Intent.java), [Parcel.java](../framework/src/main/java/android/os/Parcel.java) (`getParcelable(String, Class)`, `getSerializable(String, Class)`...) và 4 lớp `*Flags` API 33 trên [PackageManager.java](../framework/src/main/java/android/content/pm/PackageManager.java).
+   - Cài đặt thật [TableLayout.java](../framework/src/main/java/android/widget/TableLayout.java), [TableRow.java](../framework/src/main/java/android/widget/TableRow.java), hoàn thiện vòng đời [Dialog.java](../framework/src/main/java/android/app/Dialog.java) (`Dialog(Context, int)`, `Window.Callback`, `OnShowListener`/`OnKeyListener`, `getOnBackInvokedDispatcher()`) và chuẩn hóa bất đồng bộ `Activity.requestPermissions()` + `shouldShowRequestPermissionRationale()` trong [Activity.java](../framework/src/main/java/android/app/Activity.java).
+
+### 2. Kết quả Nghiệm thu Thực tế (Đã chạy sau chỉnh sửa cuối cùng)
+- **Kiểm thử tự động JUnit 5 (`.\gradlew.bat test --rerun-tasks --console=plain`):**
+  - **36/36 tests PASS (0 failures, 0 errors, 0 skipped)** trong `:launcher:test`:
+    - `AndroidSdkFallbackClassLoaderTest` (2), `ApkCompatibilityScannerTest` (2), `FrameworkHierarchyTest` (2 — giữ vững **0 `SUPER_MISMATCH`** đối chiếu `android.jar` API 37 cho toàn bộ lớp mới), `Sprint4FrameworkTest` (6), `Sprint5FrameworkTest` (5), `Sprint6FrameworkTest` (4), `Sprint7FrameworkTest` (5), `Sprint8FrameworkTest` (5), `Sprint9FrameworkTest` (5).
+- **Quét tương thích tĩnh (`.\aaow.bat --scan`) sau Sprint 9:**
+  - `com.jarsilio.android.scrambledeggsif_88.apk`: **66,5%** class (335/504), **65,3%** method (2.113/3.235), **90,4%** call sites (18.150/20.067).
+  - `org.secuso.privacyfriendlynotes_105.apk`: **58,0%** class (435/750), **60,3%** method (2.937/4.870), **91,4%** call sites (32.648/35.719).
+  - `org.woheller69.level_35.apk`: **75,1%** class (305/406), **71,7%** method (1.693/2.361), **90,3%** call sites (8.864/9.816).
+  - `com.apkpure.aegon.apk`: **61,2%** class (465/760), **69,4%** method (3.250/4.683), **96,1%** call sites (71.763/74.675).
+- **Kiểm thử chạy thật & xuất ảnh (`build/sprint9-final/*.png`):**
+  - **`com.jarsilio.android.scrambledeggsif_88.apk` (Mở khóa thành công lần đầu!):** Vượt qua hoàn toàn `App` → `InitializationProvider` → `MainActivity.onCreate()` → `onStart()` → `onResume()` với **0 lỗi, 0 exception, 0 stub warning**, hiển thị trọn vẹn logo vector quả trứng và hướng dẫn *"Instructions"* trên cửa sổ Windows!
+  - Toàn bộ 6 APK khác (`aaow-showcase`, `aaow-2048`, `Editor`, `Notes` WebView, `Bubble` Level, `Privacy Friendly Notes MainActivity`) tiếp tục chạy ổn định, không hồi quy.
+
+### 3. Đánh giá Trung thực (Chạy thật vs. Hạn chế dành cho Sprint 10)
+- **Chạy thật:** `DexR8Sanitizer` xử lý triệt để R8 Constructor Inlining (diệt `VerifyError` trên `Scrambled Exif` và các APK AndroidX/Kotlin R8 hiện đại); `LruCache`, `Choreographer`, `Base64*Stream`, `LogPrinter`, `SystemProperties`, `Debug`, `TableLayout`/`TableRow`, API 33 `Bundle`/`Intent`/`PackageManager`, `Dialog` lifecycle và async `requestPermissions` đều chạy thật trên JVM Windows.
+- **Hạn chế chuyển sang Sprint 10 (Phase B):**
+  - `androidx.appcompat.app.AlertDialog` / `MaterialAlertDialogBuilder` (kế thừa trực tiếp `android.app.Dialog`, không qua `android.app.AlertDialog`) đã chạy sạch không crash nhưng `HostWindow` mới gắn cầu nối vẽ overlay cho `android.app.AlertDialog` — cần nối thêm vẽ lớp phủ `Dialog` chung trên `HostWindow` ở Sprint 10 để hiển thị trực tiếp các hộp thoại AndroidX/Material.
+  - Luồng tương tác đầu-cuối (bấm nút tạo/lưu/xem lại ghi chú, vuốt `ViewPager`, mở `DrawerLayout`, xóa EXIF ảnh thật qua `ExifInterface`, và tô màu nền `MaterialToolbar`) sẽ được hoàn thiện và kiểm thử tương tác thực tế trong **Sprint 10 (Phase B)**.
+
+### 4. Chuẩn bị cho Sprint 10 (Phase B — Chạy & Tương tác Trọn vẹn Offline Apps) — Bắt đầu ở chat mới
+Khi mở phiên hội thoại mới cho **Sprint 10**, triển khai theo thứ tự sau trên 5 APK Offline tại `build/benchmark-apks/`:
+1. **Bước 10.1 — Vẽ lớp phủ `android.app.Dialog` & Thanh tiêu đề Material/AppCompat trên `HostWindow`:**
+   - Nối `Dialog.show()` / `dismiss()` (bao gồm `androidx.appcompat.app.AlertDialog`, `ComponentDialog`, `MaterialAlertDialogBuilder`) vào `HostWindow` để hiển thị và nhận click trực tiếp trên nội dung `Window` của Dialog.
+   - Xử lý màu nền/chữ trên `androidx.appcompat.widget.Toolbar` / `MaterialToolbar` để tiêu đề & nút điều hướng hiển thị rõ nét trên `Scrambled Exif` và `Privacy Friendly Notes`.
+2. **Bước 10.2 — Hoàn thiện tương tác đầu-cuối cho 5 APK Offline thật:**
+   - `org.billthefarmer.editor_198.apk`: tạo file, gõ văn bản, mở Options Menu, lưu & mở lại file trong `sdcard/`.
+   - `org.billthefarmer.notes_142.apk`: chuyển chế độ sửa/xem, lưu ghi chú Markdown và kết xuất lại trên JavaFX `WebView`.
+   - `org.woheller69.level_35.apk`: đóng dialog `FreeDroidWarn`, tương tác giao diện chính thước thủy và màn hình Settings.
+   - `com.jarsilio.android.scrambledeggsif_88.apk`: đóng dialog Material nếu có, cài đặt `android.media.ExifInterface` + `Bitmap.compress()` để xóa metadata EXIF ảnh JPEG/PNG qua Windows File Picker / `ACTION_SEND`.
+   - `org.secuso.privacyfriendlynotes_105.apk`: mở từ `SplashActivity` → bấm Skip/Next trên `TutorialActivity` (`CompatViewPager`) → `MainActivity` (`DrawerLayout`, `FAB +`, `CompatRecyclerView`) → mở `TextNoteActivity` / `ChecklistNoteActivity`, nhập chữ, bấm Lưu vào Room SQLite → quay lại `MainActivity` hiển thị danh sách ghi chú và bấm mở lại được.
+3. **Bước 10.3 — Đưa Offline Apps vào `AppHubWindow` & Viết `Sprint10FrameworkTest`:**
+   - Viết bộ test tương tác tự động (mô phỏng sự kiện chuột/bàn phím trên `HostWindow` cho từng luồng chính của 5 APK Offline) và hỗ trợ cài/mở nhanh các APK kiểm thử trong `AppHubWindow`.
+   - Nghiệm thu cuối Sprint 10: giữ 100% test JUnit 5 PASS (0 `SUPER_MISMATCH`), cập nhật `SPRINT_LOG.md`, `ROADMAP.md`, `GEMINI.md` và commit Git trước khi sang chat Sprint 11.
+

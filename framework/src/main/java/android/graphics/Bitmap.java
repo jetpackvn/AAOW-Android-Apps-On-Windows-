@@ -26,19 +26,26 @@ public final class Bitmap implements Parcelable {
         HARDWARE
     }
 
-    private final BufferedImage image;
+    private BufferedImage image;
+    private final int width;
+    private final int height;
     private int density = 480;
     private boolean hasAlpha = true;
+    private boolean mutable = true;
+    private boolean hasMipMap;
+    private volatile boolean recycled;
 
     public Bitmap(BufferedImage image) {
         this.image = image;
+        this.width = image != null ? image.getWidth() : 0;
+        this.height = image != null ? image.getHeight() : 0;
         if (image != null && image.getColorModel() != null) {
             this.hasAlpha = image.getColorModel().hasAlpha();
         }
     }
 
     public BufferedImage getAwtImage() {
-        return image;
+        return recycled ? null : image;
     }
 
     public static Bitmap createBitmap(int width, int height, Config config) {
@@ -46,30 +53,66 @@ public final class Bitmap implements Parcelable {
     }
 
     public static Bitmap createScaledBitmap(Bitmap src, int dstWidth, int dstHeight, boolean filter) {
-        BufferedImage dst = new BufferedImage(Math.max(1, dstWidth), Math.max(1, dstHeight), BufferedImage.TYPE_INT_ARGB);
+        if (src == null || src.isRecycled() || src.image == null) {
+            return createBitmap(dstWidth, dstHeight, Config.ARGB_8888);
+        }
+        int dw = Math.max(1, dstWidth);
+        int dh = Math.max(1, dstHeight);
+        BufferedImage dst = new BufferedImage(dw, dh, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = dst.createGraphics();
-        g.drawImage(src.image, 0, 0, dstWidth, dstHeight, null);
+        if (filter) {
+            g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        }
+        g.drawImage(src.image, 0, 0, dw, dh, null);
         g.dispose();
         return new Bitmap(dst);
     }
 
     public int getWidth() {
-        return image.getWidth();
+        return width;
     }
 
     public int getHeight() {
-        return image.getHeight();
+        return height;
+    }
+
+    public int getByteCount() {
+        return width * height * 4;
+    }
+
+    public int getAllocationByteCount() {
+        return getByteCount();
+    }
+
+    public int getRowBytes() {
+        return width * 4;
+    }
+
+    public boolean isMutable() {
+        return mutable && !recycled;
+    }
+
+    public boolean hasMipMap() {
+        return hasMipMap;
+    }
+
+    public void setHasMipMap(boolean hasMipMap) {
+        this.hasMipMap = hasMipMap;
     }
 
     public int getPixel(int x, int y) {
-        return image.getRGB(x, y);
+        return (recycled || image == null) ? 0 : image.getRGB(x, y);
     }
 
     public void setPixel(int x, int y, int color) {
-        image.setRGB(x, y, color);
+        if (!recycled && image != null) {
+            image.setRGB(x, y, color);
+        }
     }
 
     public void eraseColor(int c) {
+        if (recycled || image == null) return;
         Graphics2D g = image.createGraphics();
         g.setBackground(Color.toAwt(c));
         g.clearRect(0, 0, image.getWidth(), image.getHeight());
@@ -97,7 +140,7 @@ public final class Bitmap implements Parcelable {
     }
 
     public Bitmap copy(Config config, boolean isMutable) {
-        if (image == null) return null;
+        if (recycled || image == null) return null;
         BufferedImage copy = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = copy.createGraphics();
         g.drawImage(image, 0, 0, null);
@@ -105,11 +148,12 @@ public final class Bitmap implements Parcelable {
         Bitmap b = new Bitmap(copy);
         b.setDensity(density);
         b.setHasAlpha(hasAlpha);
+        b.mutable = isMutable;
         return b;
     }
 
     public boolean compress(CompressFormat format, int quality, OutputStream stream) {
-        if (stream == null || image == null) return false;
+        if (stream == null || recycled || image == null) return false;
         String fmt = format == CompressFormat.JPEG ? "jpg" : "png";
         try {
             return ImageIO.write(image, fmt, stream);
@@ -119,10 +163,17 @@ public final class Bitmap implements Parcelable {
     }
 
     public void recycle() {
+        if (!recycled) {
+            recycled = true;
+            if (image != null) {
+                image.flush();
+                image = null;
+            }
+        }
     }
 
     public boolean isRecycled() {
-        return false;
+        return recycled;
     }
 
     @Override

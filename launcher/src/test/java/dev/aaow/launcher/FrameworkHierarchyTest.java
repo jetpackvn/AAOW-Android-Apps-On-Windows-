@@ -70,12 +70,20 @@ import android.util.Base64;
 import android.util.JsonReader;
 import android.util.JsonToken;
 import android.util.JsonWriter;
+import android.os.Debug;
 import android.os.PowerManager;
 import android.os.StatFs;
 import android.os.StrictMode;
+import android.util.Base64InputStream;
+import android.util.Base64OutputStream;
+import android.util.LogPrinter;
+import android.util.LruCache;
+import android.util.Printer;
+import android.view.Choreographer;
 import android.view.InputEvent;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.Window;
 import android.webkit.WebView;
 import android.widget.AbsListView;
 import android.widget.AbsSeekBar;
@@ -83,10 +91,13 @@ import android.widget.AbsoluteLayout;
 import android.widget.BaseAdapter;
 import android.widget.Checkable;
 import android.widget.CompoundButton;
+import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.RemoteViews;
 import android.widget.SeekBar;
 import android.widget.SpinnerAdapter;
+import android.widget.TableLayout;
+import android.widget.TableRow;
 import dev.aaow.rt.HostWindow;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
@@ -146,6 +157,15 @@ class FrameworkHierarchyTest {
         assertNotNull(StatFs.class);
         assertNotNull(PowerManager.class);
         assertNotNull(StrictMode.class);
+        assertTrue(java.io.FilterInputStream.class.isAssignableFrom(Base64InputStream.class));
+        assertTrue(java.io.FilterOutputStream.class.isAssignableFrom(Base64OutputStream.class));
+        assertTrue(Printer.class.isAssignableFrom(LogPrinter.class));
+        assertTrue(LinearLayout.class.isAssignableFrom(TableLayout.class));
+        assertTrue(LinearLayout.class.isAssignableFrom(TableRow.class));
+        assertTrue(Window.Callback.class.isAssignableFrom(android.app.Dialog.class));
+        assertNotNull(LruCache.class);
+        assertNotNull(Choreographer.class);
+        assertNotNull(Debug.class);
 
         Class<?>[] parcelables = {
                 Intent.class, IntentFilter.class, Bundle.class, PersistableBundle.class,
@@ -154,6 +174,7 @@ class FrameworkHierarchyTest {
                 PackageInfo.class, ActivityInfo.class, ApplicationInfo.class, ProviderInfo.class,
                 ServiceInfo.class, ResolveInfo.class, Signature.class,
                 ActivityManager.RunningAppProcessInfo.class, ActivityManager.MemoryInfo.class,
+                Debug.MemoryInfo.class,
                 ColorStateList.class, KeyEvent.class, MotionEvent.class,
                 Message.class, ParcelFileDescriptor.class, AssetFileDescriptor.class,
                 Network.class, NetworkInfo.class, NetworkCapabilities.class, NetworkRequest.class,

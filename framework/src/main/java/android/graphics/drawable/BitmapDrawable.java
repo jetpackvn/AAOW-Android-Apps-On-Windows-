@@ -3,9 +3,11 @@ package android.graphics.drawable;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Paint;
 
 public class BitmapDrawable extends Drawable {
     private final Bitmap bitmap;
+    private Paint drawPaint;
 
     public BitmapDrawable(Bitmap bitmap) {
         this.bitmap = bitmap;
@@ -31,8 +33,30 @@ public class BitmapDrawable extends Drawable {
 
     @Override
     public void draw(Canvas canvas) {
-        if (bitmap != null) {
-            canvas.drawBitmap(bitmap, null, getBounds(), null);
+        if (bitmap != null && !bitmap.isRecycled()) {
+            Paint p = null;
+            int a = getAlpha();
+            if (a < 255) {
+                if (drawPaint == null) drawPaint = new Paint();
+                drawPaint.setAlpha(a);
+                p = drawPaint;
+            }
+            canvas.drawBitmap(bitmap, null, getBounds(), p);
         }
+    }
+
+    @Override
+    public ConstantState getConstantState() {
+        return new ConstantState() {
+            @Override
+            public Drawable newDrawable() {
+                return new BitmapDrawable(bitmap);
+            }
+
+            @Override
+            public Drawable newDrawable(Resources res) {
+                return new BitmapDrawable(res, bitmap);
+            }
+        };
     }
 }

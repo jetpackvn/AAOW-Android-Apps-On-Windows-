@@ -132,6 +132,7 @@ public final class AndroidRuntimeContext extends Context {
     public AndroidRuntimeContext(ApkFile apk, ClassLoader classLoader, Path dataRoot) {
         this.apk = apk;
         this.manifest = apk.getManifest();
+        android.os.Environment.setDataRoot(dataRoot);
         this.resources = new Resources(apk);
         this.theme = resources.newTheme();
         if (manifest.themeRes != 0) {

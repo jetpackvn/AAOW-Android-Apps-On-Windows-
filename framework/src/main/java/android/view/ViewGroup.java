@@ -432,12 +432,34 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
 
     @Override
     protected void dispatchDraw(Canvas canvas) {
-        for (View child : children) {
-            if (child.getVisibility() != VISIBLE) continue;
+        java.awt.Graphics2D g2 = canvas.getAwtGraphics();
+        java.awt.Rectangle clipBounds = g2 != null ? g2.getClipBounds() : null;
+        int selfW = getWidth();
+        int selfH = getHeight();
+        for (int i = 0, n = children.size(); i < n; i++) {
+            View child = children.get(i);
+            if (child.getVisibility() != VISIBLE || child.getAlpha() <= 0f) continue;
+            int cw = child.getWidth();
+            int ch = child.getHeight();
+            if (cw <= 0 || ch <= 0) continue;
+            float dx = child.getLeft() - scrollX + child.getTranslationX();
+            float dy = child.getTop() - scrollY + child.getTranslationY();
+            if (clipChildren && child.getRotation() == 0f && child.getScaleX() == 1f && child.getScaleY() == 1f) {
+                if (selfW > 0 && selfH > 0) {
+                    if (dx + cw <= 0 || dx >= selfW || dy + ch <= 0 || dy >= selfH) continue;
+                }
+                if (clipBounds != null) {
+                    if (dx + cw <= clipBounds.x || dx >= clipBounds.x + clipBounds.width
+                            || dy + ch <= clipBounds.y || dy >= clipBounds.y + clipBounds.height) {
+                        continue;
+                    }
+                }
+            }
             int save = canvas.save();
-            canvas.translate(child.getLeft() - scrollX + child.getTranslationX(),
-                    child.getTop() - scrollY + child.getTranslationY());
-            canvas.clipRect(0, 0, child.getWidth(), child.getHeight());
+            canvas.translate(dx, dy);
+            if (clipChildren) {
+                canvas.clipRect(0, 0, cw, ch);
+            }
             child.draw(canvas);
             canvas.restoreToCount(save);
         }

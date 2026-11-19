@@ -16,17 +16,17 @@
 Vì dự án lớn không thể làm hết trong một cửa sổ ngữ cảnh (context window), AI phải tuân thủ quy trình sau:
 1. **Đầu mỗi cuộc trò chuyện mới:**
    - Đọc file này (`GEMINI.md`) cùng với [docs/ROADMAP.md](file:///d:/Project/AAOW%20%28Android%20Apps%20On%20Windows%29/docs/ROADMAP.md) và [docs/SPRINT_LOG.md](file:///d:/Project/AAOW%20%28Android%20Apps%20On%20Windows%29/docs/SPRINT_LOG.md) để nắm chính xác dự án đang ở Sprint nào, đã làm xong gì và bước tiếp theo là gì.
-2. **Trong mỗi Sprint:**
-   - Chỉ tập trung giải quyết mục tiêu của Sprint hiện tại.
+2. **Trong mỗi Sprint (1 Sprint = 1 đoạn chat riêng):**
+   - Chỉ tập trung giải quyết trọn vẹn mục tiêu của **1 Sprint duy nhất** trong mỗi phiên hội thoại; không tự động nhảy sang code Sprint tiếp theo trong cùng đoạn chat.
    - Kiểm thử thực tế bằng lệnh chạy/chụp màn hình (`.\aaow.bat` hoặc `gradlew`) trước khi báo cáo.
-3. **Cuối mỗi Sprint (Nghiệm thu & Bàn giao):**
-   - Chạy kiểm thử nghiệm thu thực tế, đánh giá trung thực những gì **chạy thật** và những gì **đang giả lập/stub**.
-   - Cập nhật kết quả nghiệm thu và mục tiêu chuẩn bị cho Sprint kế tiếp vào [docs/SPRINT_LOG.md](file:///d:/Project/AAOW%20%28Android%20Apps%20On%20Windows%29/docs/SPRINT_LOG.md).
-   - Cập nhật bảng trạng thái Sprint bên dưới trong `GEMINI.md`.
+3. **Cuối mỗi Sprint (Nghiệm thu, Lưu mốc & Bàn giao cho chat mới):**
+   - Chạy kiểm thử nghiệm thu thực tế (`.\gradlew.bat test --rerun-tasks`, `.\aaow.bat --rebuild`, chụp ảnh/chạy APK thực tế), đánh giá trung thực những gì **chạy thật** và những gì **đang giả lập/stub**.
+   - Cập nhật kết quả nghiệm thu và checklist chuẩn bị chi tiết cho Sprint kế tiếp vào [docs/SPRINT_LOG.md](file:///d:/Project/AAOW%20%28Android%20Apps%20On%20Windows%29/docs/SPRINT_LOG.md).
+   - Cập nhật bảng trạng thái Sprint bên dưới trong `GEMINI.md` (và [docs/ROADMAP.md](file:///d:/Project/AAOW%20%28Android%20Apps%20On%20Windows%29/docs/ROADMAP.md)), commit mốc Git sạch sẽ và dừng lại bàn giao để người dùng mở đoạn chat mới cho Sprint tiếp theo.
 
 ---
 
-## 3. Tổng quan Lộ trình 8 Sprint (Từ đầu đến cuối)
+## 3. Tổng quan Lộ trình Dự án (Giai đoạn 1: Sprint 1–8 & Giai đoạn 2: Sprint 9–13)
 
 Chi tiết từng Sprint xem tại [docs/ROADMAP.md](file:///d:/Project/AAOW%20%28Android%20Apps%20On%20Windows%29/docs/ROADMAP.md).
 
@@ -39,15 +39,23 @@ Chi tiết từng Sprint xem tại [docs/ROADMAP.md](file:///d:/Project/AAOW%20%
 | **Sprint 5** | **Dữ liệu, Lưu trữ, Mạng & Đa luồng Hệ thống** | Cài đặt thật `SQLiteDatabase` (qua JDBC SQLite), `ContentResolver`/`ContentProvider`, `AsyncTask`/`HandlerThread`, `HttpURLConnection`/OkHttp, `ConnectivityManager`, `BroadcastReceiver`, `Service`. | ✅ **Đã hoàn thành & Nghiệm thu** |
 | **Sprint 6** | **Đa phương tiện, WebView & Tích hợp Sâu Windows** | Tích hợp `WebView` thật (JavaFX WebView / JCEF), âm thanh `MediaPlayer`/`SoundPool`/`AudioTrack` qua Windows Audio, `NotificationManager` đẩy thông báo ra Windows System Tray, đồng bộ Clipboard & File Picker. | ✅ **Đã hoàn thành & Nghiệm thu** |
 | **Sprint 7** | **Tầng Thư viện Native (`.so` / JNI) & Dịch vụ thay thế GMS** | Hỗ trợ nạp thư viện native `x86_64` (hoặc cầu nối JNI/FEX/Unicorn cho các hàm `.so` phổ biến) và lớp giả lập nhẹ các API Google Play Services / Firebase cơ bản (giống hướng microG) để app thương mại không bị chặn lúc khởi động. | ✅ **Đã hoàn thành & Nghiệm thu** |
-| **Sprint 8** | **Tối ưu Hiệu năng, Đóng gói Bộ cài Windows (`.exe`/`.msi`) & Phát hành** | Tối ưu tốc độ khung hình (60fps), giảm RAM, liên kết đuôi file `.apk` trên Windows (nhấp đúp file `.apk` mở thẳng bằng AAOW), đóng gói bằng `jpackage` thành bộ cài `.exe` độc lập không cần cài JDK. | ⏳ **SPRINT TIẾP THEO (Đang chờ triển khai)** |
+| **Sprint 8** | **Tối ưu Hiệu năng, Đóng gói Bộ cài Windows (`.exe`/`.msi`) & Phát hành** | Tối ưu tốc độ khung hình (60fps), giảm RAM, liên kết đuôi file `.apk` trên Windows (nhấp đúp file `.apk` mở thẳng bằng AAOW), đóng gói bằng `jpackage` thành bộ cài `.exe` độc lập không cần cài JDK. | ✅ **Đã hoàn thành & Nghiệm thu** |
+| **Sprint 9** | **Phase A: Phá rào `VerifyError` Bytecode & Lấp Core Runtime** | Viết bộ chuẩn hóa DEX `DexR8Sanitizer` diệt `VerifyError` trên Kotlin/R8/AndroidX (`ComponentActivity`, `InitializationProvider`); cài đặt thật `LruCache`, `Choreographer`, `Base64*Stream`, `LogPrinter`, `Debug`, `SystemProperties`, `TableLayout`/`TableRow`, `Dialog`, API 33 `Bundle`/`PackageManager`; chuẩn hóa Main-Thread init & async `requestPermissions`. | ✅ **Đã hoàn thành & Nghiệm thu** |
+| **Sprint 10** | **Phase B: Chạy & Tương tác Trọn vẹn Offline Apps** | Mở và bấm dùng đầu-cuối 5 APK Offline thật (`Editor`, `Notes`, `Bubble Level`, `Scrambled Exif`, `Privacy Friendly Notes`), vẽ `Dialog` Material/AppCompat, cài `ExifInterface`, hoàn thiện `ViewPager`/`DrawerLayout`/`RecyclerView`/`TextInputLayout` & đưa vào App Hub. | ⏳ Sẵn sàng bắt đầu |
+| **Sprint 11** | **Phase C: Non-GMS Online & Media Apps** | Chạy các APK có mạng không dùng GMS: `ConnectivityManager` callbacks, `WifiManager`, `TrafficStats`, `NetworkSecurityPolicy`, `ImageDecoder`/`Glide`/`MediaStore`, nối `ACTION_VIEW` web ra Windows. | ⏳ Chưa bắt đầu |
+| **Sprint 12** | **Phase D1: Hạ tầng GMS Khởi động Sớm, X.509 Cert & AIDL `microG-lite`** | Khởi tạo sớm `FirebaseApp` & `Process.myProcessName()`, trích xuất chứng chỉ X.509 DER thật từ `META-INF/*.RSA` của APK, hoàn thiện AIDL Binder descriptor của `microG-lite`. | ⏳ Chưa bắt đầu |
+| **Sprint 13** | **Phase D2: Thực chiến Commercial Apps & Native JNI HLE** | Gỡ lỗi dây chuyền `NoSuchMethodError`/`NoSuchFieldError`, reflection `mNativePtr`, mở rộng JNI HLE để đưa APK thương mại (như `com.apkpure.aegon.apk`) vượt Splash vào màn hình chính. | ⏳ Chưa bắt đầu |
 
 ---
 
 ## 4. Lệnh Chạy Nhanh Dành Cho AI & Người Dùng
 - Mở **AAOW App Hub**: `.\aaow.bat`
 - Chạy thẳng 1 file APK: `.\aaow.bat <duong-dan.apk>`
+- Cài APK vào kho & mở Hub / liên kết đuôi `.apk`: `.\aaow.bat --install <duong-dan.apk>` | `.\aaow.bat --associate-apk`
 - Quét độ tương thích API tĩnh của APK: `.\aaow.bat --scan <duong-dan.apk>`
 - Biên dịch lại bản chạy nhanh (`installDist`) sau khi sửa mã nguồn: `.\aaow.bat --rebuild`
+- Đóng gói bản độc lập `AAOW.exe` (`jlink` + `jpackage`) & bộ cài `AAOW-Setup-1.0.0.exe`:
+  `powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`
 - Chạy toàn bộ bộ kiểm thử tự động JUnit 5: `.\gradlew.bat test`
 - Xem thông tin & giải mã Manifest của APK: `.\aaow.bat --info <duong-dan.apk> --xml`
 - Xuất ảnh chụp màn hình tự động để kiểm thử:

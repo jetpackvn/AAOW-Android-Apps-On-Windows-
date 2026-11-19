@@ -241,11 +241,20 @@ public class Activity extends ContextThemeWrapper
 
     public void requestPermissions(String[] permissions, int requestCode) {
         if (permissions == null) return;
-        int[] grants = new int[permissions.length];
+        final String[] copy = permissions.clone();
+        final int[] grants = new int[copy.length];
         for (int i = 0; i < grants.length; i++) {
             grants[i] = PackageManager.PERMISSION_GRANTED;
         }
-        onRequestPermissionsResult(requestCode, permissions, grants);
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            if (!isDestroyed() && !isFinishing()) {
+                onRequestPermissionsResult(requestCode, copy, grants);
+            }
+        });
+    }
+
+    public boolean shouldShowRequestPermissionRationale(String permission) {
+        return false;
     }
 
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {

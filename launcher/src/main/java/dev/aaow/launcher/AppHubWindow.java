@@ -84,6 +84,7 @@ public final class AppHubWindow {
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
             frame.setSize(1080, 720);
             frame.setMinimumSize(new Dimension(920, 600));
+            frame.setIconImage(IconAssetGenerator.renderAaowAppLogo(64));
             frame.setContentPane(buildRootPanel());
             installDragAndDrop(frame);
             refreshCards();
@@ -92,6 +93,12 @@ public final class AppHubWindow {
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
         });
+    }
+
+    public void selectApp(AppRepository.InstalledApp app) {
+        if (app != null) {
+            this.selectedApp = app;
+        }
     }
 
     /** Chụp ảnh giao diện App Hub phục vụ kiểm thử trực tiếp từ CLI. */
@@ -194,7 +201,7 @@ public final class AppHubWindow {
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 4));
         actions.setOpaque(false);
 
-        searchField = new JTextField(18);
+        searchField = new JTextField(15);
         searchField.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         searchField.setBackground(BG_CARD);
         searchField.setForeground(TEXT_PRIMARY);
@@ -228,12 +235,54 @@ public final class AppHubWindow {
         JButton btnInstall = createStyledButton("+ Cài đặt APK...", ACCENT_BLUE, Color.WHITE);
         btnInstall.addActionListener(e -> promptInstallApk());
 
+        JButton btnAssoc = createStyledButton("", new Color(0x252A3E), new Color(0xD8DAE8));
+        updateAssocButtonLabel(btnAssoc);
+        btnAssoc.addActionListener(e -> toggleApkAssociation(btnAssoc));
+
         actions.add(searchLbl);
         actions.add(searchField);
+        actions.add(btnAssoc);
         actions.add(btnInstall);
         header.add(actions, BorderLayout.EAST);
 
         return header;
+    }
+
+    private void updateAssocButtonLabel(JButton btnAssoc) {
+        boolean linked = WindowsIntegration.isApkAssociationRegistered();
+        btnAssoc.setText(linked ? "✓ Đã liên kết .apk" : "Liên kết .apk");
+        btnAssoc.setToolTipText(linked
+                ? "Đang liên kết: nhấp đúp file .apk trong Windows Explorer sẽ mở bằng AAOW (bấm để gỡ)"
+                : "Đăng ký mở file .apk bằng cách nhấp đúp trong Windows Explorer (HKCU)");
+    }
+
+    private void toggleApkAssociation(JButton btnAssoc) {
+        try {
+            if (WindowsIntegration.isApkAssociationRegistered()) {
+                WindowsIntegration.unregisterApkAssociation();
+                appendLog("[AAOW-Win] Đã gỡ liên kết đuôi file .apk khỏi Windows Explorer.");
+                JOptionPane.showMessageDialog(frame,
+                        "Đã gỡ liên kết mở file .apk bằng AAOW.",
+                        "Liên kết file .apk", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                Path home = WindowsIntegration.resolveAaowHome();
+                Path launcher = WindowsIntegration.resolveSelfLauncher(home);
+                Path icon = WindowsIntegration.resolveApkIconPath(home);
+                WindowsIntegration.registerApkAssociation(launcher, icon);
+                appendLog("[AAOW-Win] Đã liên kết đuôi .apk -> " + launcher.toAbsolutePath());
+                JOptionPane.showMessageDialog(frame,
+                        "Đã đăng ký liên kết thành công!\nTừ giờ bạn có thể nhấp đúp bất kỳ file .apk nào trong Windows Explorer để mở bằng AAOW.\nLauncher: "
+                                + launcher.toAbsolutePath(),
+                        "Liên kết file .apk", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (Exception ex) {
+            appendLog("[AAOW-ERROR] Lỗi cấu hình liên kết .apk: " + ex.getMessage());
+            JOptionPane.showMessageDialog(frame,
+                    "Không thể cập nhật liên kết .apk:\n" + ex.getMessage(),
+                    "Lỗi Windows Registry", JOptionPane.ERROR_MESSAGE);
+        } finally {
+            updateAssocButtonLabel(btnAssoc);
+        }
     }
 
     private JPanel buildDropHintBanner() {

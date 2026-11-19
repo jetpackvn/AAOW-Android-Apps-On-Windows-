@@ -13,8 +13,22 @@ public class Environment {
     public static final String DIRECTORY_MOVIES = "Movies";
     public static final String DIRECTORY_DOCUMENTS = "Documents";
 
+    private static volatile Path dataRoot = Path.of("build", "aaow-data");
+
+    public static void setDataRoot(Path root) {
+        if (root != null) {
+            dataRoot = root;
+        }
+    }
+
+    public static Path getDataRoot() {
+        return dataRoot;
+    }
+
     private static File ensureDir(String sub) {
-        Path p = Path.of("build", "aaow-data", "sdcard", sub);
+        Path p = (sub == null || sub.isEmpty())
+                ? dataRoot.resolve("sdcard")
+                : dataRoot.resolve("sdcard").resolve(sub);
         try {
             Files.createDirectories(p);
         } catch (Exception ignored) {

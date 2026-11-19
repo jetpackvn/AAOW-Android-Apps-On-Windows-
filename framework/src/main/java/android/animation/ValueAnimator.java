@@ -3,7 +3,6 @@ package android.animation;
 import android.view.animation.AccelerateDecelerateInterpolator;
 
 import javax.swing.Timer;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -34,7 +33,7 @@ public class ValueAnimator extends Animator {
     private int repeatMode = RESTART;
     private TimeInterpolator interpolator = new AccelerateDecelerateInterpolator();
     private PropertyValuesHolder[] values = new PropertyValuesHolder[0];
-    private final List<AnimatorUpdateListener> updateListeners = new ArrayList<>();
+    private final List<AnimatorUpdateListener> updateListeners = new CopyOnWriteArrayList<>();
 
     private boolean started;
     private boolean running;
@@ -254,7 +253,7 @@ public class ValueAnimator extends Animator {
         for (PropertyValuesHolder h : values) {
             h.calculateValue(interp);
         }
-        for (AnimatorUpdateListener l : List.copyOf(updateListeners)) {
+        for (AnimatorUpdateListener l : updateListeners) {
             l.onAnimationUpdate(this);
         }
     }

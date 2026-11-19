@@ -114,4 +114,29 @@ public class GradientDrawable extends Drawable {
             }
         }
     }
+
+    @Override
+    public ConstantState getConstantState() {
+        final int fShape = shape;
+        final Orientation fOrientation = orientation;
+        final int[] fColors = colors != null ? colors.clone() : null;
+        final int fSolid = solidColor;
+        final float fCorner = cornerRadius;
+        final int fStrokeW = strokeWidth;
+        final int fStrokeCol = strokeColor;
+        return new ConstantState() {
+            @Override
+            public Drawable newDrawable() {
+                GradientDrawable copy = new GradientDrawable();
+                copy.shape = fShape;
+                copy.orientation = fOrientation;
+                copy.colors = fColors != null ? fColors.clone() : null;
+                copy.solidColor = fSolid;
+                copy.cornerRadius = fCorner;
+                copy.strokeWidth = fStrokeW;
+                copy.strokeColor = fStrokeCol;
+                return copy;
+            }
+        };
+    }
 }

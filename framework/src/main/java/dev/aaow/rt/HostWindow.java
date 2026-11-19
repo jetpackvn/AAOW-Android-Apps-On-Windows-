@@ -7,6 +7,7 @@ import android.app.Application;
 import android.content.ComponentName;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -18,6 +19,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.SubMenu;
+import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -35,7 +37,12 @@ import dev.aaow.apk.ResValue;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JFrame;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -43,12 +50,17 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -67,14 +79,52 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Cửa sổ Windows (Win32/Swing + Java2D) trực tiếp hiển thị và điều phối ứng dụng Android.
+ * Cửa sổ Windows (Win32/Swing + Java2D) trực tiếp hiển thị và điều phối ứng
+ * dụng Android.
  * Không sử dụng máy ảo hay trình giả lập.
  */
 public final class HostWindow {
     private static final int STATUS_BAR_H = 28;
     private static final int ACTION_BAR_H = 52;
     private static final int NAV_BAR_H = 44;
+    private static final int DEFAULT_PORTRAIT_W = 420;
+    private static final int DEFAULT_PORTRAIT_H = 820;
     private static final DateTimeFormatter CLOCK_FMT = DateTimeFormatter.ofPattern("HH:mm");
+
+    // Bộ đệm Font, Stroke & Color tái sử dụng giữa các khung hình (giảm cấp phát ở
+    // 60fps)
+    private static final Font FONT_STATUS_TIME = new Font("Segoe UI", Font.BOLD, 12);
+    private static final Font FONT_STATUS_BADGE = new Font("Segoe UI", Font.PLAIN, 11);
+    private static final Font FONT_ACTION_TITLE = new Font("Segoe UI", Font.BOLD, 17);
+    private static final Font FONT_ACTION_BTN = new Font("Segoe UI", Font.BOLD, 12);
+    private static final Font FONT_MENU_ITEM = new Font("Segoe UI", Font.PLAIN, 13);
+    private static final Font FONT_DIALOG_TITLE = new Font("Segoe UI", Font.BOLD, 17);
+    private static final Font FONT_DIALOG_BODY = new Font("Segoe UI", Font.PLAIN, 14);
+    private static final Font FONT_DIALOG_BTN = new Font("Segoe UI", Font.BOLD, 14);
+    private static final Font FONT_TOAST = new Font("Segoe UI", Font.PLAIN, 13);
+    private static final BasicStroke STROKE_AB_BACK = new BasicStroke(2.2f, BasicStroke.CAP_ROUND,
+            BasicStroke.JOIN_ROUND);
+    private static final BasicStroke STROKE_NAV = new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+    private static final java.awt.Color COL_VIEWPORT_BG = new java.awt.Color(0xFAFAFC);
+    private static final java.awt.Color COL_NAV_BG = new java.awt.Color(0x14151B);
+    private static final java.awt.Color COL_NAV_FG = new java.awt.Color(0xD8DAE8);
+    private static final java.awt.Color COL_NAV_ACTIVE = new java.awt.Color(0x7C8CFF);
+    private static final java.awt.Color COL_STATUS_DARK = new java.awt.Color(0x1C1B1F);
+    private static final java.awt.Color COL_TOAST_BG = new java.awt.Color(0xE6303036, true);
+
+    public record FrameStats(
+            int fps,
+            double lastFrameMs,
+            long totalFrames,
+            long layoutPasses,
+            long layoutSkips,
+            long heapUsedMb,
+            double cacheHitPercent,
+            int logicalWidth,
+            int logicalHeight,
+            boolean landscape,
+            float zoomScale) {
+    }
 
     private final AndroidRuntimeContext runtimeContext;
     private final Application application;
@@ -88,9 +138,34 @@ public final class HostWindow {
     private DeviceViewport viewport;
     private JPanel inspectorPanel;
     private JTextArea inspectorArea;
+    private JButton rotateButton;
+    private JComboBox<String> zoomCombo;
+    private JLabel perfLabel;
+    private Timer perfStatsTimer;
+    private Timer inspectorThrottleTimer;
+    private long lastInspectorRefreshMs;
     private boolean inspectorVisible = false;
     private boolean exitProcessOnClose = true;
     private Runnable onWindowClosedCallback;
+
+    private boolean landscape = false;
+    private float viewportZoom = 0f; // 0f = Tự do (Responsive 1:1 theo kích thước cửa sổ)
+    private int logicalWidth = DEFAULT_PORTRAIT_W;
+    private int logicalHeight = DEFAULT_PORTRAIT_H;
+    private boolean updatingZoomCombo = false;
+
+    private Activity lastLayoutActivity;
+    private int lastLayoutW = -1;
+    private int lastLayoutH = -1;
+    private boolean forceNextLayout = true;
+
+    private long frameWindowStartNs = System.nanoTime();
+    private int framesInWindow = 0;
+    private volatile int currentFps = 0;
+    private volatile double lastFrameMs = 0.0;
+    private volatile long totalFrames = 0;
+    private volatile long layoutPasses = 0;
+    private volatile long layoutSkips = 0;
 
     private View focusedView;
     private AlertDialog activeDialog;
@@ -103,12 +178,14 @@ public final class HostWindow {
     private long toastExpireAt;
     private Timer toastTimer;
 
-    private record ActionBarHit(int left, int right, boolean isHome, boolean isOverflow, SimpleMenu.SimpleMenuItem item) {
+    private record ActionBarHit(int left, int right, boolean isHome, boolean isOverflow,
+            SimpleMenu.SimpleMenuItem item) {
     }
 
     private int themePrimaryColor = 0xFF3949AB;
     private int themeStatusBarColor = 0xFF283593;
     private boolean themeNoTitle = false;
+    private Drawable cachedAppIconDrawable;
 
     public HostWindow(AndroidRuntimeContext runtimeContext, Application application) {
         this.runtimeContext = runtimeContext;
@@ -117,6 +194,10 @@ public final class HostWindow {
         this.runtimeContext.setActivityForResultStarter(this::startActivityForResult);
 
         resolveThemeColors(runtimeContext.getManifest().themeRes);
+        if (runtimeContext.getManifest().iconRes != 0) {
+            this.cachedAppIconDrawable = runtimeContext.getResources()
+                    .getDrawable(runtimeContext.getManifest().iconRes);
+        }
         Toast.setHostToastBridge(this::showToast);
         AlertDialog.setHostDialogBridge(d -> {
             this.activeDialog = d;
@@ -129,16 +210,21 @@ public final class HostWindow {
     }
 
     private void resolveThemeColors(int themeRes) {
-        if (themeRes == 0) return;
+        if (themeRes == 0)
+            return;
         var res = runtimeContext.getResources();
         ResValue cp = res.resolveStyleAttr(themeRes, 0x01010433); // android:colorPrimary
-        if (cp != null && cp.isColor()) themePrimaryColor = cp.data();
+        if (cp != null && cp.isColor())
+            themePrimaryColor = cp.data();
         ResValue cpd = res.resolveStyleAttr(themeRes, 0x01010434); // android:colorPrimaryDark
-        if (cpd != null && cpd.isColor()) themeStatusBarColor = cpd.data();
-        else themeStatusBarColor = darken(themePrimaryColor, 0.82f);
+        if (cpd != null && cpd.isColor())
+            themeStatusBarColor = cpd.data();
+        else
+            themeStatusBarColor = darken(themePrimaryColor, 0.82f);
 
         ResValue noTitle = res.resolveStyleAttr(themeRes, 0x01010056); // android:windowNoTitle
-        if (noTitle != null && noTitle.data() != 0) themeNoTitle = true;
+        if (noTitle != null && noTitle.data() != 0)
+            themeNoTitle = true;
     }
 
     private static int darken(int color, float factor) {
@@ -182,6 +268,18 @@ public final class HostWindow {
     }
 
     private void cleanupAllActivities() {
+        if (perfStatsTimer != null) {
+            perfStatsTimer.stop();
+            perfStatsTimer = null;
+        }
+        if (inspectorThrottleTimer != null) {
+            inspectorThrottleTimer.stop();
+            inspectorThrottleTimer = null;
+        }
+        if (toastTimer != null) {
+            toastTimer.stop();
+            toastTimer = null;
+        }
         while (!activityStack.isEmpty()) {
             Activity act = activityStack.pop();
             try {
@@ -206,6 +304,245 @@ public final class HostWindow {
         }
     }
 
+    public Activity getCurrentActivity() {
+        return activityStack.peek();
+    }
+
+    public boolean isLandscape() {
+        return landscape;
+    }
+
+    public float getViewportZoom() {
+        return viewportZoom;
+    }
+
+    public FrameStats getFrameStats() {
+        Runtime rt = Runtime.getRuntime();
+        long usedMb = Math.max(0L, (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L));
+        double cacheHit = runtimeContext.getResources().getCacheStats().hitRatioPercent();
+        return new FrameStats(
+                currentFps,
+                lastFrameMs,
+                totalFrames,
+                layoutPasses,
+                layoutSkips,
+                usedMb,
+                cacheHit,
+                logicalWidth,
+                logicalHeight,
+                landscape,
+                viewportZoom <= 0f ? 1.0f : viewportZoom);
+    }
+
+    public void forceRelayout() {
+        forceNextLayout = true;
+        Activity top = activityStack.peek();
+        if (top != null) {
+            top.getWindow().getDecorView().requestLayout();
+        }
+        repaintViewport();
+    }
+
+    public void setOrientationLandscape(boolean targetLandscape) {
+        if (this.landscape == targetLandscape)
+            return;
+        this.landscape = targetLandscape;
+        if (viewportZoom <= 0f) {
+            int curW = viewport != null && viewport.getWidth() > 0 ? viewport.getWidth() : logicalWidth;
+            int curH = viewport != null && viewport.getHeight() > 0 ? viewport.getHeight() : logicalHeight;
+            int newW = targetLandscape ? Math.max(curW, curH) : Math.min(curW, curH);
+            int newH = targetLandscape ? Math.min(curW, curH) : Math.max(curW, curH);
+            if (newW == newH) {
+                newW = targetLandscape ? DEFAULT_PORTRAIT_H : DEFAULT_PORTRAIT_W;
+                newH = targetLandscape ? DEFAULT_PORTRAIT_W : DEFAULT_PORTRAIT_H;
+            }
+            logicalWidth = newW;
+            logicalHeight = newH;
+        } else {
+            logicalWidth = targetLandscape ? DEFAULT_PORTRAIT_H : DEFAULT_PORTRAIT_W;
+            logicalHeight = targetLandscape ? DEFAULT_PORTRAIT_W : DEFAULT_PORTRAIT_H;
+        }
+        applyWindowViewportSize();
+        syncConfigurationAndRelayout(targetLandscape, true);
+        updateControlBarLabels();
+    }
+
+    public void setViewportZoom(float zoom) {
+        float cleanZoom = zoom <= 0f ? 0f : Math.max(0.5f, Math.min(2.5f, zoom));
+        if (Float.compare(this.viewportZoom, cleanZoom) == 0)
+            return;
+        this.viewportZoom = cleanZoom;
+        if (cleanZoom > 0f) {
+            logicalWidth = landscape ? DEFAULT_PORTRAIT_H : DEFAULT_PORTRAIT_W;
+            logicalHeight = landscape ? DEFAULT_PORTRAIT_W : DEFAULT_PORTRAIT_H;
+        }
+        applyWindowViewportSize();
+        syncConfigurationAndRelayout(landscape, true);
+        updateControlBarLabels();
+    }
+
+    public void resizeLogicalViewport(int width, int height) {
+        this.logicalWidth = Math.max(240, width);
+        this.logicalHeight = Math.max(240, height);
+        boolean isLand = this.logicalWidth > this.logicalHeight;
+        if (viewport != null && viewportZoom <= 0f) {
+            viewport.setSize(this.logicalWidth, this.logicalHeight);
+            viewport.setPreferredSize(new Dimension(this.logicalWidth, this.logicalHeight));
+        }
+        syncConfigurationAndRelayout(isLand, true);
+        updateControlBarLabels();
+    }
+
+    private void applyWindowViewportSize() {
+        if (viewport == null)
+            return;
+        float scale = viewportZoom <= 0f ? 1.0f : viewportZoom;
+        int prefW = Math.max(240, Math.round(logicalWidth * scale));
+        int prefH = Math.max(240, Math.round(logicalHeight * scale));
+        viewport.setPreferredSize(new Dimension(prefW, prefH));
+        if (frame != null) {
+            boolean wasMaximized = (frame.getExtendedState() & JFrame.MAXIMIZED_BOTH) == JFrame.MAXIMIZED_BOTH;
+            if (!wasMaximized) {
+                frame.pack();
+                frame.setLocationRelativeTo(null);
+            } else {
+                frame.revalidate();
+            }
+        } else {
+            viewport.setSize(prefW, prefH);
+        }
+    }
+
+    private void syncConfigurationAndRelayout(boolean targetLandscape, boolean forceLayout) {
+        this.landscape = targetLandscape;
+        Activity top = activityStack.peek();
+        int topOff = viewport != null ? viewport.contentTopOffset(top) : (STATUS_BAR_H + ACTION_BAR_H);
+        int ch = Math.max(0, logicalHeight - topOff - NAV_BAR_H);
+
+        var res = runtimeContext.getResources();
+        boolean orientationChanged = res.updateViewportMetrics(logicalWidth, ch, targetLandscape);
+        if (runtimeContext.getDisplay() != null) {
+            runtimeContext.getDisplay().setRotation(
+                    targetLandscape ? Surface.ROTATION_90 : Surface.ROTATION_0);
+        }
+        if (orientationChanged) {
+            Configuration cfg = new Configuration(res.getConfiguration());
+            try {
+                application.onConfigurationChanged(cfg);
+            } catch (Throwable ignored) {
+            }
+            if (top != null) {
+                try {
+                    top.onConfigurationChanged(cfg);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        if (forceLayout) {
+            forceNextLayout = true;
+            if (top != null) {
+                top.getWindow().getDecorView().requestLayout();
+            }
+        }
+        repaintViewport();
+    }
+
+    private void updateControlBarLabels() {
+        if (rotateButton != null) {
+            rotateButton.setText(landscape ? "↻ Dọc" : "↻ Ngang");
+        }
+        if (zoomCombo != null) {
+            updatingZoomCombo = true;
+            try {
+                String target = viewportZoom <= 0f ? "Tự do (1:1)" : Math.round(viewportZoom * 100) + "%";
+                zoomCombo.setSelectedItem(target);
+            } finally {
+                updatingZoomCombo = false;
+            }
+        }
+    }
+
+    private JPanel buildControlBar() {
+        JPanel bar = new JPanel(new BorderLayout(8, 0));
+        bar.setBackground(new java.awt.Color(0x161822));
+        bar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, new java.awt.Color(0x2D334D)),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        left.setOpaque(false);
+
+        JButton btnBack = createToolbarButton("◀", "Quay lại (Esc)");
+        btnBack.addActionListener(e -> {
+            Activity act = activityStack.peek();
+            if (act != null)
+                act.onBackPressed();
+            if (viewport != null)
+                viewport.requestFocusInWindow();
+        });
+
+        rotateButton = createToolbarButton(landscape ? "↻ Ngang" : "↻ Dọc", "Xoay dọc / ngang (Ctrl+R)");
+        rotateButton.addActionListener(e -> {
+            setOrientationLandscape(!landscape);
+            if (viewport != null)
+                viewport.requestFocusInWindow();
+        });
+
+        zoomCombo = new JComboBox<>(new String[] { "Tự do (1:1)", "75%", "100%", "125%", "150%" });
+        zoomCombo.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        zoomCombo.setToolTipText("Phóng to / thu nhỏ hoặc kéo giãn tự do");
+        zoomCombo.setFocusable(false);
+        zoomCombo.addActionListener(e -> {
+            if (updatingZoomCombo)
+                return;
+            Object sel = zoomCombo.getSelectedItem();
+            if (sel == null)
+                return;
+            String s = sel.toString();
+            switch (s) {
+                case "75%" -> setViewportZoom(0.75f);
+                case "100%" -> setViewportZoom(1.0f);
+                case "125%" -> setViewportZoom(1.25f);
+                case "150%" -> setViewportZoom(1.5f);
+                default -> setViewportZoom(0f);
+            }
+            if (viewport != null)
+                viewport.requestFocusInWindow();
+        });
+
+        JButton btnInspector = createToolbarButton("Soi View", "Mở/đóng cây View & Chẩn đoán (F12)");
+        btnInspector.addActionListener(e -> {
+            toggleInspector();
+            if (viewport != null)
+                viewport.requestFocusInWindow();
+        });
+
+        left.add(btnBack);
+        left.add(rotateButton);
+        left.add(zoomCombo);
+        left.add(btnInspector);
+        bar.add(left, BorderLayout.WEST);
+
+        perfLabel = new JLabel("60 fps");
+        perfLabel.setFont(new Font("Consolas", Font.PLAIN, 11));
+        perfLabel.setForeground(new java.awt.Color(0x9CE7B8));
+        bar.add(perfLabel, BorderLayout.EAST);
+        return bar;
+    }
+
+    private static JButton createToolbarButton(String text, String tooltip) {
+        JButton btn = new JButton(text);
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        btn.setForeground(new java.awt.Color(0xE8EAF6));
+        btn.setBackground(new java.awt.Color(0x252A3E));
+        btn.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        btn.setFocusPainted(false);
+        btn.setFocusable(false);
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btn.setToolTipText(tooltip);
+        return btn;
+    }
+
     public void showWindow(String initialActivityClass) {
         SwingUtilities.invokeLater(() -> {
             String appLabel = runtimeContext.getManifest().label != null
@@ -214,6 +551,7 @@ public final class HostWindow {
             frame = new JFrame(appLabel + " — AAOW");
             frame.setDefaultCloseOperation(exitProcessOnClose ? JFrame.EXIT_ON_CLOSE : JFrame.DISPOSE_ON_CLOSE);
             frame.setLayout(new BorderLayout());
+            frame.setMinimumSize(new Dimension(340, 420));
             frame.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosed(java.awt.event.WindowEvent e) {
@@ -224,12 +562,29 @@ public final class HostWindow {
             Bitmap iconBmp = runtimeContext.getManifest().iconRes != 0
                     ? runtimeContext.getResources().loadBitmap(runtimeContext.getManifest().iconRes)
                     : null;
-            if (iconBmp != null) {
+            if (iconBmp != null && !iconBmp.isRecycled()) {
                 frame.setIconImage(iconBmp.getAwtImage());
             }
 
+            frame.add(buildControlBar(), BorderLayout.NORTH);
+
             viewport = new DeviceViewport();
-            viewport.setPreferredSize(new Dimension(420, 820));
+            viewport.setPreferredSize(new Dimension(logicalWidth, logicalHeight));
+            viewport.addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    if (viewportZoom <= 0f && viewport.getWidth() > 0 && viewport.getHeight() > 0) {
+                        int nw = viewport.getWidth();
+                        int nh = viewport.getHeight();
+                        if (nw != logicalWidth || nh != logicalHeight) {
+                            logicalWidth = nw;
+                            logicalHeight = nh;
+                            syncConfigurationAndRelayout(nw > nh, true);
+                            updateControlBarLabels();
+                        }
+                    }
+                }
+            });
             frame.add(viewport, BorderLayout.CENTER);
 
             inspectorPanel = buildInspectorPanel();
@@ -241,6 +596,15 @@ public final class HostWindow {
             mainIntent.setClassName(runtimeContext.getPackageName(), initialActivityClass);
             startActivity(mainIntent);
 
+            perfStatsTimer = new Timer(500, e -> {
+                if (perfLabel != null && frame != null && frame.isDisplayable()) {
+                    FrameStats st = getFrameStats();
+                    perfLabel.setText(String.format("%d fps • %.1f ms • %d MB",
+                            st.fps(), st.lastFrameMs(), st.heapUsedMb()));
+                }
+            });
+            perfStatsTimer.start();
+
             frame.pack();
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
@@ -251,6 +615,12 @@ public final class HostWindow {
     /** Chế độ kết xuất ảnh chụp màn hình tự động (kiểm thử trực tiếp từ CLI). */
     public void renderHeadlessScreenshot(String activityClass, File outFile, int width, int height) throws Exception {
         Runnable launch = () -> {
+            this.viewportZoom = 0f;
+            this.logicalWidth = width;
+            this.logicalHeight = height;
+            this.landscape = width > height;
+            this.forceNextLayout = true;
+
             Intent mainIntent = new Intent(Intent.ACTION_MAIN);
             mainIntent.addCategory(Intent.CATEGORY_LAUNCHER);
             mainIntent.setClassName(runtimeContext.getPackageName(), activityClass);
@@ -261,10 +631,16 @@ public final class HostWindow {
             if (top != null) {
                 View decor = top.getWindow().getDecorView();
                 int ch = Math.max(0, height - viewport.contentTopOffset(top) - NAV_BAR_H);
+                runtimeContext.getResources().updateViewportMetrics(width, ch, landscape);
                 decor.measure(
                         View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY));
                 decor.layout(0, 0, width, ch);
+                lastLayoutW = width;
+                lastLayoutH = ch;
+                lastLayoutActivity = top;
+                forceNextLayout = false;
+                layoutPasses++;
             }
         };
         if (SwingUtilities.isEventDispatchThread()) {
@@ -273,7 +649,8 @@ public final class HostWindow {
             SwingUtilities.invokeAndWait(launch);
         }
 
-        // Cho phép luồng nền (Room/AsyncTask/MarkdownView) và WebView tải xong nội dung trước khi chụp:
+        // Cho phép luồng nền (Room/AsyncTask/MarkdownView) và WebView tải xong nội dung
+        // trước khi chụp:
         try {
             Thread.sleep(300);
             if (!SwingUtilities.isEventDispatchThread()) {
@@ -292,6 +669,38 @@ public final class HostWindow {
 
         BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Runnable paint = () -> {
+            Graphics2D g2 = img.createGraphics();
+            viewport.paintComponent(g2);
+            g2.dispose();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            paint.run();
+        } else {
+            SwingUtilities.invokeAndWait(paint);
+        }
+        File parentDir = outFile.getParentFile();
+        if (parentDir != null) {
+            parentDir.mkdirs();
+        }
+        ImageIO.write(img, "png", outFile);
+    }
+
+    /**
+     * Chụp lại khung hình hiện tại của viewport mà không khởi tạo lại Activity hay
+     * ép re-layout.
+     */
+    public void renderCurrentViewportSnapshot(File outFile) throws Exception {
+        if (viewport == null) {
+            throw new IllegalStateException("Viewport chưa được khởi tạo");
+        }
+        float scale = viewportZoom > 0f ? viewportZoom : 1.0f;
+        int w = Math.max(1, viewport.getWidth() > 0 ? viewport.getWidth() : Math.round(logicalWidth * scale));
+        int h = Math.max(1, viewport.getHeight() > 0 ? viewport.getHeight() : Math.round(logicalHeight * scale));
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Runnable paint = () -> {
+            if (viewport.getWidth() != w || viewport.getHeight() != h) {
+                viewport.setSize(w, h);
+            }
             Graphics2D g2 = img.createGraphics();
             viewport.paintComponent(g2);
             g2.dispose();
@@ -349,18 +758,22 @@ public final class HostWindow {
         AndroidManifest.Activity actMeta = runtimeContext.getManifest().findActivity(clsName);
         String title = (actMeta != null && actMeta.label != null)
                 ? actMeta.label
-                : (runtimeContext.getManifest().label != null ? runtimeContext.getManifest().label : simpleName(clsName));
+                : (runtimeContext.getManifest().label != null ? runtimeContext.getManifest().label
+                        : simpleName(clsName));
         if (actMeta != null && actMeta.themeRes != 0) {
             resolveThemeColors(actMeta.themeRes);
         }
 
         final Activity finalAct = act;
         try {
-            finalAct.attach(runtimeContext, application, intent, title, () -> finishActivity(finalAct), this::repaintViewport);
+            finalAct.attach(runtimeContext, application, intent, title, () -> finishActivity(finalAct),
+                    this::repaintViewport);
         } catch (Throwable t) {
-            if (launchError == null) launchError = t;
+            if (launchError == null)
+                launchError = t;
             Activity fallbackAct = new Activity();
-            fallbackAct.attach(runtimeContext, application, intent, title, () -> finishActivity(fallbackAct), this::repaintViewport);
+            fallbackAct.attach(runtimeContext, application, intent, title, () -> finishActivity(fallbackAct),
+                    this::repaintViewport);
             act = fallbackAct;
         }
         final Activity activeAct = act;
@@ -397,7 +810,8 @@ public final class HostWindow {
             boolean needFallback = (decor.getChildCount() == 0);
             if (needFallback) {
                 decor.addView(buildDiagnosticFallbackView(activeAct, clsName, launchError),
-                        new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                        new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT));
             }
             if (activeAct == activityStack.peek()) {
                 showingDiagnosticFallback = needFallback;
@@ -415,7 +829,8 @@ public final class HostWindow {
 
     private static String shortenSignature(String sig) {
         int paren = sig.indexOf('(');
-        if (paren <= 0) return sig;
+        if (paren <= 0)
+            return sig;
         String prefix = sig.substring(0, paren);
         int dot = prefix.lastIndexOf('.');
         if (dot > 0) {
@@ -501,14 +916,16 @@ public final class HostWindow {
             int c = 0;
             for (var entry : emulatedJni.entrySet()) {
                 diag.append("   + ").append(entry.getKey()).append(" (×").append(entry.getValue()).append(")\n");
-                if (++c >= 3) break;
+                if (++c >= 3)
+                    break;
             }
         }
         if (!jniCalls.isEmpty()) {
             int c = 0;
             for (String call : jniCalls) {
                 diag.append("   - ").append(call).append('\n');
-                if (++c >= 3) break;
+                if (++c >= 3)
+                    break;
             }
         }
         diag.append("• Class android.jar gỡ Stub: ").append(stubs.size())
@@ -546,7 +963,8 @@ public final class HostWindow {
 
         int shown = 0;
         for (AndroidManifest.Activity actItem : runtimeContext.getManifest().activities) {
-            if (actItem.name == null || actItem.name.equals(attemptedClass)) continue;
+            if (actItem.name == null || actItem.name.equals(attemptedClass))
+                continue;
             final String targetActName = actItem.name;
             Button btn = new Button(hostAct);
             btn.setText("Mở " + simpleName(targetActName) + " →");
@@ -560,7 +978,8 @@ public final class HostWindow {
                     ViewGroup.LayoutParams.MATCH_PARENT, 40);
             blp.setMargins(0, 0, 0, 6);
             card3.addView(btn, blp);
-            if (++shown >= 12) break;
+            if (++shown >= 12)
+                break;
         }
         root.addView(card3, createCardLp());
 
@@ -589,7 +1008,8 @@ public final class HostWindow {
     }
 
     private void finishActivity(Activity act) {
-        if (!activityStack.contains(act)) return;
+        if (!activityStack.contains(act))
+            return;
         act.performPause();
         act.performStop();
         act.performDestroy();
@@ -619,7 +1039,8 @@ public final class HostWindow {
     private void showToast(String msg, int durationMs) {
         this.toastMessage = msg;
         this.toastExpireAt = System.currentTimeMillis() + durationMs;
-        if (toastTimer != null) toastTimer.stop();
+        if (toastTimer != null)
+            toastTimer.stop();
         toastTimer = new Timer(durationMs, e -> {
             if (System.currentTimeMillis() >= toastExpireAt) {
                 toastMessage = null;
@@ -632,7 +1053,8 @@ public final class HostWindow {
     }
 
     private void toggleInspector() {
-        if (frame == null || inspectorPanel == null) return;
+        if (frame == null || inspectorPanel == null)
+            return;
         inspectorVisible = !inspectorVisible;
         inspectorPanel.setVisible(inspectorVisible);
         if (inspectorVisible) {
@@ -656,13 +1078,14 @@ public final class HostWindow {
         inspectorArea.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
 
         JScrollPane sp = new JScrollPane(inspectorArea);
-        sp.setBorder( null);
+        sp.setBorder(null);
         p.add(sp, BorderLayout.CENTER);
         return p;
     }
 
     private void refreshInspectorText() {
-        if (!inspectorVisible || inspectorArea == null) return;
+        if (!inspectorVisible || inspectorArea == null)
+            return;
         StringBuilder sb = new StringBuilder();
         AndroidManifest mf = runtimeContext.getManifest();
         sb.append("=== AAOW LIVE INSPECTOR ===\n");
@@ -690,7 +1113,8 @@ public final class HostWindow {
     }
 
     private void dumpViewTree(View v, int depth, StringBuilder sb) {
-        if (v == null) return;
+        if (v == null)
+            return;
         sb.append("  ".repeat(depth))
                 .append(v.getClass().getSimpleName());
         if (v.getId() != View.NO_ID) {
@@ -704,7 +1128,8 @@ public final class HostWindow {
         sb.append(String.format(" [%d,%d %dx%d]", v.getLeft(), v.getTop(), v.getWidth(), v.getHeight()));
         if (v instanceof TextView tv && tv.getText() != null && tv.getText().length() > 0) {
             String t = tv.getText().toString().replace("\n", " ");
-            if (t.length() > 24) t = t.substring(0, 24) + "…";
+            if (t.length() > 24)
+                t = t.substring(0, 24) + "…";
             sb.append(" \"").append(t).append("\"");
         }
         sb.append('\n');
@@ -716,7 +1141,8 @@ public final class HostWindow {
     }
 
     private void openOptionsMenuOverlay(Activity act, SimpleMenu menu, List<SimpleMenu.SimpleMenuItem> customItems) {
-        if (act == null || menu == null) return;
+        if (act == null || menu == null)
+            return;
         this.activeOptionsMenu = menu;
         this.activeOverflowItems.clear();
         if (customItems != null) {
@@ -731,46 +1157,66 @@ public final class HostWindow {
     }
 
     public void repaintViewport() {
-        if (viewport != null) {
-            if (inspectorVisible) refreshInspectorText();
-            viewport.repaint();
+        if (viewport == null)
+            return;
+        if (inspectorVisible) {
+            long now = System.currentTimeMillis();
+            if (now - lastInspectorRefreshMs >= 250L) {
+                lastInspectorRefreshMs = now;
+                refreshInspectorText();
+            } else if (inspectorThrottleTimer == null || !inspectorThrottleTimer.isRunning()) {
+                inspectorThrottleTimer = new Timer(250, e -> {
+                    if (inspectorVisible) {
+                        lastInspectorRefreshMs = System.currentTimeMillis();
+                        refreshInspectorText();
+                    }
+                });
+                inspectorThrottleTimer.setRepeats(false);
+                inspectorThrottleTimer.start();
+            }
         }
+        viewport.repaint();
     }
 
-    // --------------------------------------------------------- Khung vẽ chính của thiết bị
+    // --------------------------------------------------------- Khung vẽ chính của
+    // thiết bị
 
     private final class DeviceViewport extends JPanel {
         private long touchDownTime;
 
         DeviceViewport() {
             setFocusable(true);
+            setDoubleBuffered(true);
             setBackground(java.awt.Color.WHITE);
 
             MouseAdapter mouse = new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
                     requestFocusInWindow();
-                    handleMouse(MotionEvent.ACTION_DOWN, e.getX(), e.getY());
+                    handleMouse(MotionEvent.ACTION_DOWN, toLogicalCoord(e.getX()), toLogicalCoord(e.getY()));
                 }
 
                 @Override
                 public void mouseDragged(MouseEvent e) {
-                    handleMouse(MotionEvent.ACTION_MOVE, e.getX(), e.getY());
+                    handleMouse(MotionEvent.ACTION_MOVE, toLogicalCoord(e.getX()), toLogicalCoord(e.getY()));
                 }
 
                 @Override
                 public void mouseReleased(MouseEvent e) {
-                    handleMouse(MotionEvent.ACTION_UP, e.getX(), e.getY());
+                    handleMouse(MotionEvent.ACTION_UP, toLogicalCoord(e.getX()), toLogicalCoord(e.getY()));
                 }
 
                 @Override
                 public void mouseWheelMoved(MouseWheelEvent e) {
                     Activity act = activityStack.peek();
-                    if (act == null || activeDialog != null) return;
+                    if (act == null || activeDialog != null)
+                        return;
+                    int lx = toLogicalCoord(e.getX());
+                    int ly = toLogicalCoord(e.getY());
                     int contentTop = contentTopOffset(act);
-                    float cy = e.getY() - contentTop;
+                    float cy = ly - contentTop;
                     if (cy >= 0 && cy < contentHeight(act)) {
-                        act.getWindow().getDecorView().onMouseWheel(e.getWheelRotation(), e.getX(), cy);
+                        act.getWindow().getDecorView().onMouseWheel(e.getWheelRotation(), lx, cy);
                     }
                 }
             };
@@ -788,6 +1234,25 @@ public final class HostWindow {
 
                 @Override
                 public void keyPressed(KeyEvent e) {
+                    boolean ctrl = (e.getModifiersEx() & InputEvent.CTRL_DOWN_MASK) != 0;
+                    if (ctrl && e.getKeyCode() == KeyEvent.VK_R) {
+                        setOrientationLandscape(!landscape);
+                        return;
+                    }
+                    if (ctrl && (e.getKeyCode() == KeyEvent.VK_EQUALS || e.getKeyCode() == KeyEvent.VK_ADD)) {
+                        float next = viewportZoom <= 0f ? 1.25f : Math.min(2.0f, viewportZoom + 0.25f);
+                        setViewportZoom(next);
+                        return;
+                    }
+                    if (ctrl && (e.getKeyCode() == KeyEvent.VK_MINUS || e.getKeyCode() == KeyEvent.VK_SUBTRACT)) {
+                        float next = viewportZoom <= 0f ? 0.75f : Math.max(0.5f, viewportZoom - 0.25f);
+                        setViewportZoom(next);
+                        return;
+                    }
+                    if (ctrl && e.getKeyCode() == KeyEvent.VK_0) {
+                        setViewportZoom(0f);
+                        return;
+                    }
                     if (e.getKeyCode() == KeyEvent.VK_F12) {
                         toggleInspector();
                         return;
@@ -818,12 +1283,30 @@ public final class HostWindow {
                             default -> 0;
                         };
                         if (androidCode != 0) {
-                            act.onKeyDown(androidCode, new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, androidCode));
+                            act.onKeyDown(androidCode,
+                                    new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, androidCode));
                             repaint();
                         }
                     }
                 }
             });
+        }
+
+        private float effectiveScale() {
+            return viewportZoom > 0f ? viewportZoom : 1.0f;
+        }
+
+        private int toLogicalCoord(int screenCoord) {
+            float s = effectiveScale();
+            return s == 1.0f ? screenCoord : Math.round(screenCoord / s);
+        }
+
+        private int logicalW() {
+            return effectiveScale() == 1.0f ? Math.max(1, getWidth()) : logicalWidth;
+        }
+
+        private int logicalH() {
+            return effectiveScale() == 1.0f ? Math.max(1, getHeight()) : logicalHeight;
         }
 
         private int contentTopOffset(Activity act) {
@@ -832,11 +1315,12 @@ public final class HostWindow {
         }
 
         private int contentHeight(Activity act) {
-            return Math.max(0, getHeight() - contentTopOffset(act) - NAV_BAR_H);
+            return Math.max(0, logicalH() - contentTopOffset(act) - NAV_BAR_H);
         }
 
         private boolean isActionBarVisible(Activity act) {
-            if (act == null || themeNoTitle) return false;
+            if (act == null || themeNoTitle)
+                return false;
             if (!showingDiagnosticFallback && hasAppCompatDecorBar(act.getWindow().getDecorView())) {
                 return false;
             }
@@ -845,7 +1329,8 @@ public final class HostWindow {
         }
 
         private static boolean hasAppCompatDecorBar(View root) {
-            if (!(root instanceof ViewGroup vg)) return false;
+            if (!(root instanceof ViewGroup vg))
+                return false;
             String name = vg.getClass().getName();
             if ("androidx.appcompat.widget.ActionBarOverlayLayout".equals(name)
                     || "androidx.appcompat.widget.Toolbar".equals(name)) {
@@ -864,10 +1349,11 @@ public final class HostWindow {
 
         private void handleMouse(int action, int mx, int my) {
             Activity act = activityStack.peek();
-            if (act == null) return;
+            if (act == null)
+                return;
 
-            int w = getWidth();
-            int h = getHeight();
+            int w = logicalW();
+            int h = logicalH();
 
             // 1. Nếu đang mở menu dropdown (ActionBar Overflow / SubMenu)
             if (activeOptionsMenu != null) {
@@ -901,7 +1387,8 @@ public final class HostWindow {
                         // Nút Home: quay về Activity gốc
                         while (activityStack.size() > 1) {
                             Activity top = activityStack.peek();
-                            if (top != null) top.finish();
+                            if (top != null)
+                                top.finish();
                         }
                         showToast("Đã về màn hình chính của ứng dụng", 1500);
                     } else {
@@ -919,7 +1406,8 @@ public final class HostWindow {
                 }
                 return;
             }
-            if (my < contentTop) return;
+            if (my < contentTop)
+                return;
 
             float vx = mx;
             float vy = my - contentTop;
@@ -936,14 +1424,18 @@ public final class HostWindow {
         }
 
         private void setFocusedView(View v) {
-            if (focusedView == v) return;
-            if (focusedView != null) focusedView.setFocusedInternal(false);
+            if (focusedView == v)
+                return;
+            if (focusedView != null)
+                focusedView.setFocusedInternal(false);
             focusedView = v;
-            if (focusedView != null) focusedView.setFocusedInternal(true);
+            if (focusedView != null)
+                focusedView.setFocusedInternal(true);
         }
 
         private View findFocusableAt(View root, float x, float y) {
-            if (root == null || root.getVisibility() != View.VISIBLE || !root.isEnabled()) return null;
+            if (root == null || root.getVisibility() != View.VISIBLE || !root.isEnabled())
+                return null;
             if (root instanceof ViewGroup vg) {
                 float sx = x + vg.getScrollX();
                 float sy = y + vg.getScrollY();
@@ -953,7 +1445,8 @@ public final class HostWindow {
                     float cy = sy - c.getTop();
                     if (cx >= 0 && cx < c.getWidth() && cy >= 0 && cy < c.getHeight()) {
                         View found = findFocusableAt(c, cx, cy);
-                        if (found != null) return found;
+                        if (found != null)
+                            return found;
                     }
                 }
             }
@@ -962,42 +1455,63 @@ public final class HostWindow {
 
         @Override
         protected void paintComponent(Graphics g) {
+            long frameStartNs = System.nanoTime();
             super.paintComponent(g);
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
 
-            int w = getWidth();
-            int h = getHeight();
+            float scale = effectiveScale();
+            int swingW = getWidth();
+            int swingH = getHeight();
+            int w = logicalW();
+            int h = logicalH();
+            if (scale != 1.0f) {
+                g2.setColor(COL_NAV_BG);
+                g2.fillRect(0, 0, swingW, swingH);
+                g2.scale(scale, scale);
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            }
+
             Activity act = activityStack.peek();
 
             // Nền mặc định sáng sạch của Android
-            g2.setColor(new java.awt.Color(0xFAFAFC));
+            g2.setColor(COL_VIEWPORT_BG);
             g2.fillRect(0, 0, w, h);
 
             if (act != null) {
-                runtimeContext.getResources().getDisplayMetrics().widthPixels = w;
-                runtimeContext.getResources().getDisplayMetrics().heightPixels = contentHeight(act);
+                int topY = STATUS_BAR_H;
+                boolean showAb = isActionBarVisible(act);
+                int contentTop = topY + (showAb ? ACTION_BAR_H : 0);
+                int ch = Math.max(0, h - contentTop - NAV_BAR_H);
+                runtimeContext.getResources().updateViewportMetrics(w, ch, landscape);
 
                 drawStatusBar(g2, w, act);
-                int topY = STATUS_BAR_H;
-                if (isActionBarVisible(act)) {
+                if (showAb) {
                     drawActionBar(g2, w, topY, act);
-                    topY += ACTION_BAR_H;
                 }
 
-                // Đo, dàn trang và vẽ decorView của Activity
-                int ch = Math.max(0, h - topY - NAV_BAR_H);
+                // Chỉ đo & dàn trang lại khi cây View yêu cầu hoặc kích thước/Activity thay đổi
                 View decor = act.getWindow().getDecorView();
                 if (!decor.isAttachedToWindow()) {
                     decor.dispatchAttachedToWindow();
                 }
-                int wSpec = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY);
-                int hSpec = View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY);
-                decor.measure(wSpec, hSpec);
-                decor.layout(0, 0, w, ch);
+                if (forceNextLayout || decor.isLayoutRequested() || !decor.isLaidOut()
+                        || w != lastLayoutW || ch != lastLayoutH || act != lastLayoutActivity) {
+                    int wSpec = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY);
+                    int hSpec = View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY);
+                    decor.measure(wSpec, hSpec);
+                    decor.layout(0, 0, w, ch);
+                    lastLayoutW = w;
+                    lastLayoutH = ch;
+                    lastLayoutActivity = act;
+                    forceNextLayout = false;
+                    layoutPasses++;
+                } else {
+                    layoutSkips++;
+                }
 
-                Graphics2D contentG = (Graphics2D) g2.create(0, topY, w, ch);
+                Graphics2D contentG = (Graphics2D) g2.create(0, contentTop, w, ch);
                 Canvas androidCanvas = new Canvas(contentG);
                 decor.draw(androidCanvas);
                 contentG.dispose();
@@ -1018,11 +1532,23 @@ public final class HostWindow {
 
             drawNavigationBar(g2, w, h);
             g2.dispose();
+
+            long nowNs = System.nanoTime();
+            lastFrameMs = (nowNs - frameStartNs) / 1_000_000.0;
+            totalFrames++;
+            framesInWindow++;
+            long elapsedNs = nowNs - frameWindowStartNs;
+            if (elapsedNs >= 500_000_000L) {
+                currentFps = (int) Math.round(framesInWindow * 1_000_000_000.0 / elapsedNs);
+                framesInWindow = 0;
+                frameWindowStartNs = nowNs;
+            }
         }
 
         private void drawStatusBar(Graphics2D g2, int w, Activity act) {
             int sbColor = act.getWindow().getStatusBarColor();
-            if (((sbColor >>> 24) & 0xFF) < 20) sbColor = 0xFF283593;
+            if (((sbColor >>> 24) & 0xFF) < 20)
+                sbColor = 0xFF283593;
             g2.setColor(Color.toAwt(sbColor));
             g2.fillRect(0, 0, w, STATUS_BAR_H);
 
@@ -1030,11 +1556,11 @@ public final class HostWindow {
             int g = (sbColor >> 8) & 0xFF;
             int b = sbColor & 0xFF;
             boolean lightBar = (0.299 * r + 0.587 * g + 0.114 * b) > 180;
-            g2.setColor(lightBar ? new java.awt.Color(0x1C1B1F) : java.awt.Color.WHITE);
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            g2.setColor(lightBar ? COL_STATUS_DARK : java.awt.Color.WHITE);
+            g2.setFont(FONT_STATUS_TIME);
             g2.drawString(LocalTime.now().format(CLOCK_FMT), 14, 19);
 
-            g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            g2.setFont(FONT_STATUS_BADGE);
             String badge = "AAOW Direct • No VM";
             FontMetrics fm = g2.getFontMetrics();
             g2.drawString(badge, w - fm.stringWidth(badge) - 14, 19);
@@ -1049,23 +1575,20 @@ public final class HostWindow {
             int textX = 16;
             if (ab != null && ab.isDisplayHomeAsUp()) {
                 g2.setColor(java.awt.Color.WHITE);
-                g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setStroke(STROKE_AB_BACK);
                 int cy = topY + ACTION_BAR_H / 2;
                 g2.drawLine(16, cy, 30, cy);
                 g2.drawLine(16, cy, 22, cy - 6);
                 g2.drawLine(16, cy, 22, cy + 6);
                 actionBarHits.add(new ActionBarHit(0, 44, true, false, null));
                 textX = 44;
-            } else if (runtimeContext.getManifest().iconRes != 0) {
-                Drawable icon = runtimeContext.getResources().getDrawable(runtimeContext.getManifest().iconRes);
-                if (icon != null) {
-                    Canvas c = new Canvas(g2);
-                    int iy = topY + (ACTION_BAR_H - 28) / 2;
-                    icon.setBounds(14, iy, 14 + 28, iy + 28);
-                    icon.draw(c);
-                    actionBarHits.add(new ActionBarHit(0, 48, true, false, null));
-                    textX = 52;
-                }
+            } else if (cachedAppIconDrawable != null) {
+                Canvas c = new Canvas(g2);
+                int iy = topY + (ACTION_BAR_H - 28) / 2;
+                cachedAppIconDrawable.setBounds(14, iy, 14 + 28, iy + 28);
+                cachedAppIconDrawable.draw(c);
+                actionBarHits.add(new ActionBarHit(0, 48, true, false, null));
+                textX = 52;
             }
 
             // Phía phải: vẽ tối đa 3 nút Action + nút Overflow (⋮) nếu có
@@ -1107,8 +1630,9 @@ public final class HostWindow {
                     rightCursor = left - 4;
                 } else {
                     String label = item.getTitleCondensed().toString();
-                    if (label.length() > 10) label = label.substring(0, 9) + "…";
-                    g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                    if (label.length() > 10)
+                        label = label.substring(0, 9) + "…";
+                    g2.setFont(FONT_ACTION_BTN);
                     int tw = g2.getFontMetrics().stringWidth(label) + 14;
                     int left = rightCursor - tw;
                     g2.setColor(new java.awt.Color(255, 255, 255, 36));
@@ -1125,7 +1649,7 @@ public final class HostWindow {
                     : act.getTitle().toString();
             int maxTitleW = Math.max(40, rightCursor - textX - 8);
             g2.setColor(java.awt.Color.WHITE);
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 17));
+            g2.setFont(FONT_ACTION_TITLE);
             FontMetrics fm = g2.getFontMetrics();
             while (title.length() > 1 && fm.stringWidth(title) > maxTitleW) {
                 title = title.substring(0, title.length() - 2) + "…";
@@ -1140,8 +1664,10 @@ public final class HostWindow {
                     if (hit.isHome()) {
                         SimpleMenu.SimpleMenuItem homeItem = new SimpleMenu(act)
                                 .add(Menu.NONE, 0x0102002c, Menu.NONE, "Home") instanceof SimpleMenu.SimpleMenuItem smi
-                                ? smi : null;
-                        if (homeItem != null) act.dispatchOptionsItemSelected(homeItem);
+                                        ? smi
+                                        : null;
+                        if (homeItem != null)
+                            act.dispatchOptionsItemSelected(homeItem);
                         repaintViewport();
                         return;
                     }
@@ -1173,7 +1699,8 @@ public final class HostWindow {
 
         private void drawOptionsMenuOverlay(Graphics2D g2, int w, int h, Activity act) {
             int itemCount = activeOverflowItems.size();
-            if (itemCount == 0) return;
+            if (itemCount == 0)
+                return;
             int rowH = 40;
             int menuW = 216;
             int menuH = Math.min(h - 120, itemCount * rowH + 12);
@@ -1188,9 +1715,10 @@ public final class HostWindow {
             g2.draw(new RoundRectangle2D.Float(mx, my, menuW, menuH, 12, 12));
 
             int y = my + 6;
-            g2.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+            g2.setFont(FONT_MENU_ITEM);
             for (SimpleMenu.SimpleMenuItem item : activeOverflowItems) {
-                if (y + rowH > my + menuH) break;
+                if (y + rowH > my + menuH)
+                    break;
                 g2.setColor(item.isEnabled() ? new java.awt.Color(0x1C1B1F) : new java.awt.Color(0x9CA3AF));
                 String text = item.getTitle().toString();
                 if (item.isCheckable()) {
@@ -1234,14 +1762,17 @@ public final class HostWindow {
 
         private void drawPopupOverlay(Graphics2D g2, int w, int h, PopupWindow pw) {
             View cv = pw.getContentView();
-            if (cv == null) return;
+            if (cv == null)
+                return;
             int maxW = w - 24;
             int maxH = h - 100;
             int pwW = pw.getWidth() > 0 ? Math.min(pw.getWidth(), maxW) : maxW;
             int pwH = pw.getHeight() > 0 ? Math.min(pw.getHeight(), maxH) : maxH;
             cv.measure(
-                    View.MeasureSpec.makeMeasureSpec(pwW, pw.getWidth() > 0 ? View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST),
-                    View.MeasureSpec.makeMeasureSpec(pwH, pw.getHeight() > 0 ? View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST));
+                    View.MeasureSpec.makeMeasureSpec(pwW,
+                            pw.getWidth() > 0 ? View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST),
+                    View.MeasureSpec.makeMeasureSpec(pwH,
+                            pw.getHeight() > 0 ? View.MeasureSpec.EXACTLY : View.MeasureSpec.AT_MOST));
             int mw = Math.max(80, cv.getMeasuredWidth());
             int mh = Math.max(40, cv.getMeasuredHeight());
             int px = Math.max(8, Math.min(pw.getAnchorX(), w - mw - 8));
@@ -1286,9 +1817,10 @@ public final class HostWindow {
             if (itemCount > 0) {
                 return Math.min(460, 110 + Math.min(itemCount, 8) * 38);
             }
-            java.awt.image.BufferedImage dummy = new java.awt.image.BufferedImage(1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.image.BufferedImage dummy = new java.awt.image.BufferedImage(1, 1,
+                    java.awt.image.BufferedImage.TYPE_INT_ARGB);
             Graphics2D dg = dummy.createGraphics();
-            dg.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            dg.setFont(FONT_DIALOG_BODY);
             List<String> lines = wrapDialogLines(d.getMessageText().toString(), dw - 44, dg.getFontMetrics());
             dg.dispose();
             return Math.min(460, Math.max(170, 110 + lines.size() * 20));
@@ -1296,7 +1828,8 @@ public final class HostWindow {
 
         private static List<String> wrapDialogLines(String msg, int maxWidth, FontMetrics fm) {
             List<String> out = new ArrayList<>();
-            if (msg == null || msg.isEmpty()) return out;
+            if (msg == null || msg.isEmpty())
+                return out;
             for (String para : msg.split("\n", -1)) {
                 if (para.isEmpty() || fm.stringWidth(para) <= maxWidth) {
                     out.add(para);
@@ -1312,14 +1845,17 @@ public final class HostWindow {
                         cur = new StringBuilder(cand);
                     }
                 }
-                if (!cur.isEmpty()) out.add(cur.toString());
+                if (!cur.isEmpty())
+                    out.add(cur.toString());
             }
             return out;
         }
 
         private static int getDialogItemCount(AlertDialog d) {
-            if (d.getItems() != null) return d.getItems().length;
-            if (d.getListAdapter() != null) return d.getListAdapter().getCount();
+            if (d.getItems() != null)
+                return d.getItems().length;
+            if (d.getListAdapter() != null)
+                return d.getListAdapter().getCount();
             return 0;
         }
 
@@ -1347,8 +1883,8 @@ public final class HostWindow {
             g2.setColor(java.awt.Color.WHITE);
             g2.fill(new RoundRectangle2D.Float(dx, dy, dw, dh, 24, 24));
 
-            g2.setColor(new java.awt.Color(0x1C1B1F));
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 17));
+            g2.setColor(COL_STATUS_DARK);
+            g2.setFont(FONT_DIALOG_TITLE);
             g2.drawString(d.getTitleText().toString(), dx + 22, dy + 36);
 
             int itemCount = getDialogItemCount(d);
@@ -1361,12 +1897,12 @@ public final class HostWindow {
                 cv.draw(new Canvas(cg));
                 cg.dispose();
             } else if (itemCount > 0) {
-                g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+                g2.setFont(FONT_DIALOG_BODY);
                 int maxShow = Math.min(itemCount, 8);
                 int ly = dy + 58;
                 for (int i = 0; i < maxShow; i++) {
                     String prefix = (d.getCheckedItem() == i) ? "◉ " : "";
-                    g2.setColor(new java.awt.Color(0x1C1B1F));
+                    g2.setColor(COL_STATUS_DARK);
                     g2.drawString(prefix + getDialogItemLabel(d, i), dx + 22, ly + 22);
                     g2.setColor(new java.awt.Color(0xECEFF5));
                     g2.drawLine(dx + 22, ly + 36, dx + dw - 22, ly + 36);
@@ -1374,7 +1910,7 @@ public final class HostWindow {
                 }
             } else {
                 g2.setColor(new java.awt.Color(0x49454F));
-                g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+                g2.setFont(FONT_DIALOG_BODY);
                 List<String> lines = wrapDialogLines(d.getMessageText().toString(), dw - 44, g2.getFontMetrics());
                 int ly = dy + 68;
                 for (String line : lines) {
@@ -1383,7 +1919,7 @@ public final class HostWindow {
                 }
             }
 
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
+            g2.setFont(FONT_DIALOG_BTN);
             g2.setColor(new java.awt.Color(0x4F5BD5));
             int btnY = dy + dh - 22;
             if (d.getPositiveText() != null) {
@@ -1399,7 +1935,8 @@ public final class HostWindow {
         }
 
         private void handleDialogClick(int mx, int my, int w, int h) {
-            if (activeDialog == null) return;
+            if (activeDialog == null)
+                return;
             AlertDialog d = activeDialog;
             int dw = Math.min(w - 48, 340);
             int dh = computeDialogHeight(d, dw);
@@ -1423,9 +1960,11 @@ public final class HostWindow {
             }
             if (d.getCustomView() != null && my >= dy + 52 && my < dy + dh - 52) {
                 long now = SystemClock.uptimeMillis();
-                MotionEvent ev = new MotionEvent(MotionEvent.ACTION_DOWN, mx - (dx + 22), my - (dy + 52), mx, my, now, now);
+                MotionEvent ev = new MotionEvent(MotionEvent.ACTION_DOWN, mx - (dx + 22), my - (dy + 52), mx, my, now,
+                        now);
                 d.getCustomView().dispatchTouchEvent(ev);
-                MotionEvent evUp = new MotionEvent(MotionEvent.ACTION_UP, mx - (dx + 22), my - (dy + 52), mx, my, now, now);
+                MotionEvent evUp = new MotionEvent(MotionEvent.ACTION_UP, mx - (dx + 22), my - (dy + 52), mx, my, now,
+                        now);
                 d.getCustomView().dispatchTouchEvent(evUp);
                 repaintViewport();
                 return;
@@ -1446,14 +1985,14 @@ public final class HostWindow {
         }
 
         private void drawToastOverlay(Graphics2D g2, int w, int bottomY, String msg) {
-            g2.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+            g2.setFont(FONT_TOAST);
             FontMetrics fm = g2.getFontMetrics();
             int tw = Math.min(w - 40, fm.stringWidth(msg) + 36);
             int th = 38;
             int tx = (w - tw) / 2;
             int ty = bottomY - th - 20;
 
-            g2.setColor(new java.awt.Color(0xE6303036, true));
+            g2.setColor(COL_TOAST_BG);
             g2.fill(new RoundRectangle2D.Float(tx, ty, tw, th, 19, 19));
 
             g2.setColor(java.awt.Color.WHITE);
@@ -1462,11 +2001,11 @@ public final class HostWindow {
 
         private void drawNavigationBar(Graphics2D g2, int w, int h) {
             int top = h - NAV_BAR_H;
-            g2.setColor(new java.awt.Color(0x14151B));
+            g2.setColor(COL_NAV_BG);
             g2.fillRect(0, top, w, NAV_BAR_H);
 
-            g2.setColor(new java.awt.Color(0xD8DAE8));
-            g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.setColor(COL_NAV_FG);
+            g2.setStroke(STROKE_NAV);
             int cy = top + NAV_BAR_H / 2;
 
             // Nút Back (tam giác trái)
@@ -1482,7 +2021,7 @@ public final class HostWindow {
             // Nút Inspector / Overview (hình vuông phải)
             int rx = w * 5 / 6;
             if (inspectorVisible) {
-                g2.setColor(new java.awt.Color(0x7C8CFF));
+                g2.setColor(COL_NAV_ACTIVE);
             }
             g2.drawRoundRect(rx - 8, cy - 8, 16, 16, 4, 4);
         }

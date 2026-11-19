@@ -247,17 +247,40 @@ public class Canvas {
     }
 
     public void drawBitmap(Bitmap bitmap, float left, float top, Paint paint) {
-        if (g == null || bitmap == null) return;
-        g.drawImage(bitmap.getAwtImage(), Math.round(left), Math.round(top), null);
+        if (g == null || bitmap == null || bitmap.isRecycled()) return;
+        java.awt.image.BufferedImage awt = bitmap.getAwtImage();
+        if (awt == null) return;
+        java.awt.Composite oldComp = null;
+        if (paint != null && paint.getAlpha() < 255) {
+            oldComp = g.getComposite();
+            g.setComposite(java.awt.AlphaComposite.getInstance(
+                    java.awt.AlphaComposite.SRC_OVER, Math.max(0f, Math.min(1f, paint.getAlpha() / 255f))));
+        }
+        g.drawImage(awt, Math.round(left), Math.round(top), null);
+        if (oldComp != null) g.setComposite(oldComp);
     }
 
     public void drawBitmap(Bitmap bitmap, Rect src, Rect dst, Paint paint) {
-        if (g == null || bitmap == null || dst == null) return;
+        if (g == null || bitmap == null || dst == null || bitmap.isRecycled()) return;
+        java.awt.image.BufferedImage awt = bitmap.getAwtImage();
+        if (awt == null) return;
+        java.awt.Composite oldComp = null;
+        if (paint != null && paint.getAlpha() < 255) {
+            oldComp = g.getComposite();
+            g.setComposite(java.awt.AlphaComposite.getInstance(
+                    java.awt.AlphaComposite.SRC_OVER, Math.max(0f, Math.min(1f, paint.getAlpha() / 255f))));
+        }
+        Object prevInterp = g.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         if (src == null) {
-            g.drawImage(bitmap.getAwtImage(), dst.left, dst.top, dst.width(), dst.height(), null);
+            g.drawImage(awt, dst.left, dst.top, dst.width(), dst.height(), null);
         } else {
-            g.drawImage(bitmap.getAwtImage(), dst.left, dst.top, dst.right, dst.bottom,
+            g.drawImage(awt, dst.left, dst.top, dst.right, dst.bottom,
                     src.left, src.top, src.right, src.bottom, null);
         }
+        if (prevInterp != null) {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, prevInterp);
+        }
+        if (oldComp != null) g.setComposite(oldComp);
     }
 }

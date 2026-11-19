@@ -11,16 +11,24 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
-import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Enumeration;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
 /**
@@ -44,22 +52,33 @@ public final class DexLoader {
 
     public static ClassLoader loadApkDex(ApkFile apk, Path cacheDir, ClassLoader parent) throws IOException {
         Path jarFile = ensureDexJar(apk, cacheDir);
-        Map<String, ApkDexClassLoader.RefTypeMeta> externalRefs = ApkDexClassLoader.scanExternalReferences(jarFile);
+        Map<String, ApkDexClassLoader.RefTypeMeta> externalRefs = ApkDexClassLoader.loadOrScanExternalReferences(jarFile);
         return new ApkDexClassLoader(jarFile.toUri().toURL(), getSdkFallbackParent(parent), externalRefs);
     }
 
+    private record RawClassEntry(String internalName, byte[] rawBytes) {
+    }
+
+    private record ProcessedClassEntry(
+            String internalName,
+            byte[] transformedBytes,
+            Map<String, ApkDexClassLoader.RefTypeMeta> externalRefs
+    ) {
+    }
+
     /**
-     * Dịch toàn bộ classes*.dex trong APK ra file JAR JVM đã chuẩn hóa (có lưu đệm).
-     * Dùng chung cho cả việc chạy APK và công cụ quét tương thích tĩnh ApkCompatibilityScanner.
+     * Dịch toàn bộ classes*.dex trong APK ra file JAR JVM đã chuẩn hóa (có lưu đệm + chỉ mục `.refs`).
+     * Dùng dịch trực tiếp trong bộ nhớ + biến đổi ASM song song đa nhân để tăng tốc tối đa.
      */
     public static Path ensureDexJar(ApkFile apk, Path cacheDir) throws IOException {
         Files.createDirectories(cacheDir);
         Path apkPath = apk.getPath();
         long size = Files.size(apkPath);
         long mtime = Files.getLastModifiedTime(apkPath).toMillis();
-        String cacheKey = String.format("%s-%d-%d-v7.jar",
+        String cacheKey = String.format("%s-%d-%d-v9.jar",
                 apkPath.getFileName().toString().replaceAll("[^a-zA-Z0-9._-]", "_"), size, mtime);
         Path jarFile = cacheDir.resolve(cacheKey);
+        Path refsFile = cacheDir.resolve(cacheKey + ".refs");
 
         if (!Files.exists(jarFile)) {
             List<byte[]> dexFiles = apk.readDexFiles();
@@ -68,42 +87,102 @@ public final class DexLoader {
             }
             byte[] combinedInput = dexFiles.size() == 1 ? dexFiles.get(0) : packMultiDexZip(dexFiles);
             long t0 = System.currentTimeMillis();
-            Path rawJar = cacheDir.resolve(cacheKey + ".raw.jar");
-            Dex2jar.from(MultiDexFileReader.open(combinedInput))
+
+            DexR8Sanitizer.SanitizedReader sanitized = DexR8Sanitizer.sanitize(MultiDexFileReader.open(combinedInput));
+            DexR8Sanitizer.SanitizeStats r8Stats = sanitized.stats();
+            combinedInput = null; // Giải phóng mảng DEX gốc trước khi dịch
+            int dexCount = dexFiles.size();
+            dexFiles = null;
+
+            ByteArrayOutputStream rawStream = new ByteArrayOutputStream(65536);
+            Dex2jar.from(sanitized.reader())
                     .reUseReg(false)
                     .topoLogicalSort()
                     .skipDebug(false)
                     .optimizeSynchronized(false)
-                    .to(rawJar);
-            normalizeJarForJvmVerifier(rawJar, jarFile);
-            Files.deleteIfExists(rawJar);
+                    .doTranslate(rawStream);
+            sanitized = null; // Giải phóng DexFileNode hoàn toàn trước bước biến đổi ASM song song
+
+            byte[] translatedBytes = rawStream.toByteArray();
+            rawStream = null;
+            List<RawClassEntry> rawEntries = parseTranslatedStream(translatedBytes);
+            translatedBytes = null;
+
+            List<ProcessedClassEntry> processed = rawEntries.parallelStream()
+                    .map(entry -> {
+                        Map<String, ApkDexClassLoader.RefTypeMeta> localRefs = new HashMap<>();
+                        byte[] rewritten = entry.rawBytes().length > 8
+                                ? rewriteAndScanClass(entry.rawBytes(), localRefs)
+                                : entry.rawBytes();
+                        return new ProcessedClassEntry(entry.internalName(), rewritten, localRefs);
+                    })
+                    .toList();
+            rawEntries = null;
+
+            Set<String> definedInJar = new LinkedHashSet<>(processed.size() * 2);
+            Map<String, ApkDexClassLoader.RefTypeMeta> mergedRefs = new HashMap<>();
+            Path tmpJar = cacheDir.resolve(cacheKey + ".tmp");
+            try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(Files.newOutputStream(tmpJar), 65536))) {
+                zos.setLevel(Deflater.BEST_SPEED);
+                for (ProcessedClassEntry entry : processed) {
+                    definedInJar.add(entry.internalName());
+                    zos.putNextEntry(new ZipEntry(entry.internalName() + ".class"));
+                    zos.write(entry.transformedBytes());
+                    zos.closeEntry();
+                    for (var refEntry : entry.externalRefs().entrySet()) {
+                        mergedRefs.computeIfAbsent(refEntry.getKey(), ApkDexClassLoader.RefTypeMeta::new)
+                                .mergeFrom(refEntry.getValue());
+                    }
+                }
+            }
+            Files.move(tmpJar, jarFile, StandardCopyOption.REPLACE_EXISTING);
+
+            mergedRefs.keySet().removeAll(definedInJar);
+            ApkDexClassLoader.writeRefsIndex(refsFile, mergedRefs);
+
             long elapsed = System.currentTimeMillis() - t0;
-            System.out.printf("[AAOW-DEX] Đã dịch %d file DEX -> JVM bytecode (%s) trong %d ms%n",
-                    dexFiles.size(), jarFile.getFileName(), elapsed);
+            System.out.printf("[AAOW-DEX] Đã dịch %d file DEX (%d classes, R8 ctor fix=%d calls/%d ctors) -> %s trong %d ms%n",
+                    dexCount, processed.size(),
+                    r8Stats.rewrittenCallSites(), r8Stats.synthesizedConstructors(),
+                    jarFile.getFileName(), elapsed);
         } else {
             System.out.printf("[AAOW-DEX] Dùng bản dịch DEX đã lưu đệm: %s%n", jarFile.getFileName());
         }
         return jarFile;
     }
 
-    private static void normalizeJarForJvmVerifier(Path rawJar, Path outJar) throws IOException {
-        try (ZipFile zf = new ZipFile(rawJar.toFile());
-             ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(outJar))) {
-            Enumeration<? extends ZipEntry> entries = zf.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry e = entries.nextElement();
-                byte[] bytes;
-                try (InputStream in = zf.getInputStream(e)) {
-                    bytes = in.readAllBytes();
+    private static List<RawClassEntry> parseTranslatedStream(byte[] data) throws IOException {
+        List<RawClassEntry> entries = new ArrayList<>();
+        Set<String> seenNames = new LinkedHashSet<>();
+        try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data))) {
+            while (dis.available() > 0) {
+                int nameLen;
+                try {
+                    nameLen = dis.readInt();
+                } catch (EOFException eof) {
+                    break;
                 }
-                if (e.getName().endsWith(".class") && bytes.length > 8) {
-                    bytes = rewriteApkClassForWindows(bytes);
+                if (nameLen <= 0 || nameLen > 8192) {
+                    throw new IOException("Invalid class name length in Dex2jar stream: " + nameLen);
                 }
-                zos.putNextEntry(new ZipEntry(e.getName()));
-                zos.write(bytes);
-                zos.closeEntry();
+                byte[] nameBytes = dis.readNBytes(nameLen);
+                if (nameBytes.length != nameLen) break;
+                int bodyLen = dis.readInt();
+                if (bodyLen < 0) {
+                    throw new IOException("Invalid class body length in Dex2jar stream: " + bodyLen);
+                }
+                byte[] bodyBytes = dis.readNBytes(bodyLen);
+                if (bodyBytes.length != bodyLen) break;
+                String internalName = new String(nameBytes, StandardCharsets.UTF_8);
+                if (internalName.endsWith(".class")) {
+                    internalName = internalName.substring(0, internalName.length() - 6);
+                }
+                if (!internalName.isEmpty() && seenNames.add(internalName)) {
+                    entries.add(new RawClassEntry(internalName, bodyBytes));
+                }
             }
         }
+        return entries;
     }
 
     /**
@@ -113,6 +192,12 @@ public final class DexLoader {
      * - Bọc mọi phương thức native qua NativeBridge.invokeNative(...) với fallback Smart Default Return.
      */
     public static byte[] rewriteApkClassForWindows(byte[] classBytes) {
+        return rewriteAndScanClass(classBytes, null);
+    }
+
+    private static byte[] rewriteAndScanClass(
+            byte[] classBytes,
+            Map<String, ApkDexClassLoader.RefTypeMeta> externalRefs) {
         ClassReader cr = new ClassReader(classBytes);
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         ClassVisitor cv = new ClassVisitor(Opcodes.ASM9, cw) {
@@ -123,6 +208,18 @@ public final class DexLoader {
             public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
                 this.currentInternal = name != null ? name : "";
                 this.currentClass = this.currentInternal.replace('/', '.');
+                if (externalRefs != null) {
+                    if (superName != null && !ApkDexClassLoader.isBuiltInInternal(superName)) {
+                        externalRefs.computeIfAbsent(superName, ApkDexClassLoader.RefTypeMeta::new).mustBeClass = true;
+                    }
+                    if (interfaces != null) {
+                        for (String itf : interfaces) {
+                            if (itf != null && !ApkDexClassLoader.isBuiltInInternal(itf)) {
+                                externalRefs.computeIfAbsent(itf, ApkDexClassLoader.RefTypeMeta::new).mustBeInterface = true;
+                            }
+                        }
+                    }
+                }
                 int cleanAccess = access & ~(Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE | Opcodes.ACC_PROTECTED);
                 if ((cleanAccess & Opcodes.ACC_ABSTRACT) != 0) {
                     cleanAccess &= ~Opcodes.ACC_FINAL;
@@ -151,7 +248,49 @@ public final class DexLoader {
                 MethodVisitor baseMv = super.visitMethod(access, name, descriptor, signature, exceptions);
                 return new MethodVisitor(Opcodes.ASM9, baseMv) {
                     @Override
+                    public void visitTypeInsn(int opcode, String type) {
+                        if (externalRefs != null) {
+                            String clean = ApkDexClassLoader.unwrap(type);
+                            if (clean != null && !ApkDexClassLoader.isBuiltInInternal(clean)) {
+                                var meta = externalRefs.computeIfAbsent(clean, ApkDexClassLoader.RefTypeMeta::new);
+                                if (opcode == Opcodes.NEW) meta.mustBeClass = true;
+                            }
+                        }
+                        super.visitTypeInsn(opcode, type);
+                    }
+
+                    @Override
+                    public void visitFieldInsn(int opcode, String owner, String fName, String fDesc) {
+                        if (externalRefs != null) {
+                            String clean = ApkDexClassLoader.unwrap(owner);
+                            if (clean != null && !ApkDexClassLoader.isBuiltInInternal(clean)) {
+                                var meta = externalRefs.computeIfAbsent(clean, ApkDexClassLoader.RefTypeMeta::new);
+                                meta.fields.putIfAbsent(fName, fDesc);
+                                if (opcode == Opcodes.GETSTATIC || opcode == Opcodes.PUTSTATIC) {
+                                    meta.staticFields.add(fName);
+                                }
+                            }
+                        }
+                        super.visitFieldInsn(opcode, owner, fName, fDesc);
+                    }
+
+                    @Override
                     public void visitMethodInsn(int opcode, String owner, String mName, String mDesc, boolean isInterface) {
+                        if (externalRefs != null) {
+                            String clean = ApkDexClassLoader.unwrap(owner);
+                            if (clean != null && !ApkDexClassLoader.isBuiltInInternal(clean)) {
+                                var meta = externalRefs.computeIfAbsent(clean, ApkDexClassLoader.RefTypeMeta::new);
+                                if (isInterface || opcode == Opcodes.INVOKEINTERFACE) meta.mustBeInterface = true;
+                                else if (opcode == Opcodes.INVOKESPECIAL || opcode == Opcodes.INVOKEVIRTUAL) {
+                                    meta.mustBeClass = true;
+                                }
+                                String key = mName + mDesc;
+                                meta.methods.putIfAbsent(key, mName);
+                                if (opcode == Opcodes.INVOKESTATIC) {
+                                    meta.staticMethods.add(key);
+                                }
+                            }
+                        }
                         if (opcode == Opcodes.INVOKESTATIC && "java/lang/System".equals(owner)) {
                             if ("loadLibrary".equals(mName) && "(Ljava/lang/String;)V".equals(mDesc)) {
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, "dev/aaow/rt/NativeBridge",

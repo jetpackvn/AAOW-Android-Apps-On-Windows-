@@ -31,4 +31,15 @@ public class ColorDrawable extends Drawable {
         Rect b = getBounds();
         canvas.drawRect(b, paint);
     }
+
+    @Override
+    public ConstantState getConstantState() {
+        final int c = color;
+        return new ConstantState() {
+            @Override
+            public Drawable newDrawable() {
+                return new ColorDrawable(c);
+            }
+        };
+    }
 }

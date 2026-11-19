@@ -35,7 +35,7 @@ public class AlertDialog extends Dialog {
     }
 
     public AlertDialog(Context context, int themeResId) {
-        super(context);
+        super(context, themeResId);
     }
 
     public static void setHostDialogBridge(Consumer<AlertDialog> bridge) {

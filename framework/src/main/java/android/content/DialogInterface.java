@@ -19,4 +19,16 @@ public interface DialogInterface {
     interface OnDismissListener {
         void onDismiss(DialogInterface dialog);
     }
+
+    interface OnShowListener {
+        void onShow(DialogInterface dialog);
+    }
+
+    interface OnKeyListener {
+        boolean onKey(DialogInterface dialog, int keyCode, android.view.KeyEvent event);
+    }
+
+    interface OnMultiChoiceClickListener {
+        void onClick(DialogInterface dialog, int which, boolean isChecked);
+    }
 }

@@ -9,10 +9,18 @@ import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -47,7 +55,21 @@ public final class ApkDexClassLoader extends URLClassLoader {
         RefTypeMeta(String internalName) {
             this.internalName = internalName;
         }
+
+        void mergeFrom(RefTypeMeta other) {
+            if (other == null) return;
+            this.mustBeInterface |= other.mustBeInterface;
+            this.mustBeClass |= other.mustBeClass;
+            other.fields.forEach(this.fields::putIfAbsent);
+            this.staticFields.addAll(other.staticFields);
+            other.methods.forEach(this.methods::putIfAbsent);
+            this.staticMethods.addAll(other.staticMethods);
+        }
     }
+
+    private static final int REFS_MAGIC = 0x41414F52; // "AAOR"
+    private static final int REFS_VERSION = 1;
+    private static volatile Map<String, byte[]> sharedMicrogBytecode;
 
     private final Map<String, byte[]> microgBytecode;
     private final Map<String, RefTypeMeta> externalTypeRefs;
@@ -55,7 +77,21 @@ public final class ApkDexClassLoader extends URLClassLoader {
     public ApkDexClassLoader(URL dexJarUrl, ClassLoader parent, Map<String, RefTypeMeta> externalTypeRefs) {
         super(new URL[]{dexJarUrl}, parent);
         this.externalTypeRefs = externalTypeRefs != null ? externalTypeRefs : Map.of();
-        this.microgBytecode = loadMicrogArchive(parent);
+        this.microgBytecode = getOrLoadMicrogArchive(parent);
+    }
+
+    private static Map<String, byte[]> getOrLoadMicrogArchive(ClassLoader parent) {
+        Map<String, byte[]> cached = sharedMicrogBytecode;
+        if (cached != null) return cached;
+        synchronized (ApkDexClassLoader.class) {
+            if (sharedMicrogBytecode != null) return sharedMicrogBytecode;
+            Map<String, byte[]> loaded = loadMicrogArchive(parent);
+            if (!loaded.isEmpty()) {
+                sharedMicrogBytecode = Collections.unmodifiableMap(loaded);
+                return sharedMicrogBytecode;
+            }
+            return loaded;
+        }
     }
 
     private static Map<String, byte[]> loadMicrogArchive(ClassLoader parent) {
@@ -310,7 +346,7 @@ public final class ApkDexClassLoader extends URLClassLoader {
         return refs;
     }
 
-    private static String unwrap(String t) {
+    static String unwrap(String t) {
         if (t == null || t.isEmpty()) return null;
         if (t.startsWith("[")) {
             Type parsed = Type.getType(t);
@@ -322,7 +358,95 @@ public final class ApkDexClassLoader extends URLClassLoader {
         return t;
     }
 
-    private static boolean isBuiltInInternal(String internal) {
+    /**
+     * Nạp chỉ mục tham chiếu ngoại lai từ tệp đệm `.refs` (nếu có) để khởi động nóng tức thì,
+     * hoặc quét từ DEX JAR và lưu lại `.refs` cho lần chạy sau.
+     */
+    static Map<String, RefTypeMeta> loadOrScanExternalReferences(Path jarPath) {
+        Path refsPath = Path.of(jarPath.toString() + ".refs");
+        if (Files.isRegularFile(refsPath)) {
+            try {
+                return readRefsIndex(refsPath);
+            } catch (IOException ignored) {
+            }
+        }
+        Map<String, RefTypeMeta> scanned = scanExternalReferences(jarPath);
+        try {
+            writeRefsIndex(refsPath, scanned);
+        } catch (IOException ignored) {
+        }
+        return scanned;
+    }
+
+    static void writeRefsIndex(Path refsPath, Map<String, RefTypeMeta> refs) throws IOException {
+        Path tmp = Path.of(refsPath.toString() + ".tmp");
+        try (DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(tmp)))) {
+            dos.writeInt(REFS_MAGIC);
+            dos.writeInt(REFS_VERSION);
+            dos.writeInt(refs.size());
+            for (RefTypeMeta m : refs.values()) {
+                dos.writeUTF(m.internalName);
+                int flags = (m.mustBeInterface ? 1 : 0) | (m.mustBeClass ? 2 : 0);
+                dos.writeByte(flags);
+                dos.writeInt(m.fields.size());
+                for (var f : m.fields.entrySet()) {
+                    dos.writeUTF(f.getKey());
+                    dos.writeUTF(f.getValue());
+                }
+                dos.writeInt(m.staticFields.size());
+                for (String sf : m.staticFields) {
+                    dos.writeUTF(sf);
+                }
+                dos.writeInt(m.methods.size());
+                for (var mt : m.methods.entrySet()) {
+                    dos.writeUTF(mt.getKey());
+                    dos.writeUTF(mt.getValue());
+                }
+                dos.writeInt(m.staticMethods.size());
+                for (String sm : m.staticMethods) {
+                    dos.writeUTF(sm);
+                }
+            }
+        }
+        Files.move(tmp, refsPath, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    static Map<String, RefTypeMeta> readRefsIndex(Path refsPath) throws IOException {
+        try (DataInputStream dis = new DataInputStream(new BufferedInputStream(Files.newInputStream(refsPath)))) {
+            if (dis.readInt() != REFS_MAGIC || dis.readInt() != REFS_VERSION) {
+                throw new IOException("Invalid refs index header");
+            }
+            int count = dis.readInt();
+            Map<String, RefTypeMeta> map = new HashMap<>(Math.max(16, count * 2));
+            for (int i = 0; i < count; i++) {
+                String internalName = dis.readUTF();
+                RefTypeMeta m = new RefTypeMeta(internalName);
+                int flags = dis.readByte() & 0xFF;
+                m.mustBeInterface = (flags & 1) != 0;
+                m.mustBeClass = (flags & 2) != 0;
+                int fc = dis.readInt();
+                for (int j = 0; j < fc; j++) {
+                    m.fields.put(dis.readUTF(), dis.readUTF());
+                }
+                int sfc = dis.readInt();
+                for (int j = 0; j < sfc; j++) {
+                    m.staticFields.add(dis.readUTF());
+                }
+                int mc = dis.readInt();
+                for (int j = 0; j < mc; j++) {
+                    m.methods.put(dis.readUTF(), dis.readUTF());
+                }
+                int smc = dis.readInt();
+                for (int j = 0; j < smc; j++) {
+                    m.staticMethods.add(dis.readUTF());
+                }
+                map.put(internalName, m);
+            }
+            return map;
+        }
+    }
+
+    static boolean isBuiltInInternal(String internal) {
         return internal.startsWith("java/")
                 || internal.startsWith("javax/")
                 || internal.startsWith("sun/")

@@ -324,6 +324,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     private boolean activated;
     private float pivotX;
     private float pivotY;
+    private boolean pivotXSet;
+    private boolean pivotYSet;
     private float translationZ;
     private int textDirection = TEXT_DIRECTION_INHERIT;
     private int textAlignment = TEXT_ALIGNMENT_GRAVITY;
@@ -847,20 +849,22 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public float getPivotX() {
-        return pivotX;
+        return pivotXSet ? pivotX : getWidth() / 2f;
     }
 
     public void setPivotX(float pivotX) {
         this.pivotX = pivotX;
+        this.pivotXSet = true;
         invalidate();
     }
 
     public float getPivotY() {
-        return pivotY;
+        return pivotYSet ? pivotY : getHeight() / 2f;
     }
 
     public void setPivotY(float pivotY) {
         this.pivotY = pivotY;
+        this.pivotYSet = true;
         invalidate();
     }
 
@@ -1679,26 +1683,64 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     // --------------------------------------------------------- Draw & Invalidate
 
+    private static final Paint PRESSED_OVERLAY_PAINT = createPressedOverlayPaint();
+
+    private static Paint createPressedOverlayPaint() {
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(Color.argb(28, 0, 0, 0));
+        return p;
+    }
+
     public void draw(Canvas canvas) {
         if (visibility != VISIBLE || alpha <= 0f) return;
         int w = getWidth();
         int h = getHeight();
         if (w <= 0 || h <= 0) return;
 
-        if (background != null) {
-            background.setBounds(0, 0, w, h);
-            background.draw(canvas);
+        boolean hasTransform = rotation != 0f || scaleX != 1f || scaleY != 1f;
+        int saveCount = hasTransform ? canvas.save() : -1;
+        if (hasTransform) {
+            float px = getPivotX();
+            float py = getPivotY();
+            canvas.translate(px, py);
+            if (rotation != 0f) canvas.rotate(rotation);
+            if (scaleX != 1f || scaleY != 1f) canvas.scale(scaleX, scaleY);
+            canvas.translate(-px, -py);
         }
-        if (!willNotDraw) {
-            onDraw(canvas);
-        }
-        dispatchDraw(canvas);
-        onDrawForeground(canvas);
 
-        if (pressed && isClickable() && !(this instanceof ViewGroup)) {
-            Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-            p.setColor(Color.argb(28, 0, 0, 0));
-            canvas.drawRoundRect(0, 0, w, h, 8, 8, p);
+        java.awt.Graphics2D g2 = canvas.getAwtGraphics();
+        java.awt.Composite oldComposite = null;
+        if (g2 != null && alpha < 0.999f) {
+            oldComposite = g2.getComposite();
+            float effectiveAlpha = alpha;
+            if (oldComposite instanceof java.awt.AlphaComposite ac) {
+                effectiveAlpha *= ac.getAlpha();
+            }
+            g2.setComposite(java.awt.AlphaComposite.getInstance(
+                    java.awt.AlphaComposite.SRC_OVER, Math.max(0f, Math.min(1f, effectiveAlpha))));
+        }
+
+        try {
+            if (background != null) {
+                background.setBounds(0, 0, w, h);
+                background.draw(canvas);
+            }
+            if (!willNotDraw) {
+                onDraw(canvas);
+            }
+            dispatchDraw(canvas);
+            onDrawForeground(canvas);
+
+            if (pressed && isClickable() && !(this instanceof ViewGroup)) {
+                canvas.drawRoundRect(0, 0, w, h, 8, 8, PRESSED_OVERLAY_PAINT);
+            }
+        } finally {
+            if (g2 != null && oldComposite != null) {
+                g2.setComposite(oldComposite);
+            }
+            if (saveCount >= 0) {
+                canvas.restoreToCount(saveCount);
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 package dev.aaow.launcher;
 
 import android.app.Application;
+import android.os.Environment;
 import android.util.Log;
 import dev.aaow.apk.AndroidManifest;
 import dev.aaow.apk.ApkFile;
@@ -11,47 +12,92 @@ import javax.swing.UIManager;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Điểm vào chính của AAOW (Android Apps On Windows).
  */
 public final class Main {
-    private static Path resolveAaowHome() {
-        String env = System.getenv("AAOW_HOME");
-        if (env != null && !env.isBlank()) {
-            Path p = Path.of(env);
-            if (Files.isDirectory(p)) return p;
-        }
-        return Path.of("").toAbsolutePath();
-    }
-
     public static void main(String[] args) throws Exception {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {
         }
 
-        Path home = resolveAaowHome();
-        Path dataRoot = home.resolve("build").resolve("aaow-data");
-        Path samplesDir = home.resolve("samples");
+        Path cliDataDir = null;
+        List<String> filtered = new ArrayList<>();
+        for (int i = 0; i < args.length; i++) {
+            if ("--data-dir".equals(args[i]) && i + 1 < args.length) {
+                cliDataDir = Path.of(args[++i]);
+            } else {
+                filtered.add(args[i]);
+            }
+        }
+        String[] effectiveArgs = filtered.toArray(String[]::new);
 
-        if (args.length >= 1 && ("--help".equals(args[0]) || "-h".equals(args[0]))) {
+        Path home = WindowsIntegration.resolveAaowHome();
+        Path dataRoot = WindowsIntegration.resolveDataRoot(home, cliDataDir);
+        Path samplesDir = WindowsIntegration.resolveSamplesDir(home);
+        Environment.setDataRoot(dataRoot);
+
+        if (effectiveArgs.length >= 1 && ("--help".equals(effectiveArgs[0]) || "-h".equals(effectiveArgs[0]))) {
             printUsage();
             return;
         }
 
+        if (effectiveArgs.length >= 1 && "--associate-apk".equals(effectiveArgs[0])) {
+            Path launcher = WindowsIntegration.resolveSelfLauncher(home);
+            Path icon = WindowsIntegration.resolveApkIconPath(home);
+            boolean ok = WindowsIntegration.registerApkAssociation(launcher, icon);
+            System.out.println(ok
+                    ? "Đã liên kết đuôi .apk -> " + launcher.toAbsolutePath()
+                    : "Chức năng liên kết đuôi .apk chỉ áp dụng trên Windows.");
+            return;
+        }
+
+        if (effectiveArgs.length >= 1 && "--unassociate-apk".equals(effectiveArgs[0])) {
+            boolean ok = WindowsIntegration.unregisterApkAssociation();
+            System.out.println(ok
+                    ? "Đã gỡ liên kết đuôi .apk khỏi Windows Explorer."
+                    : "Chức năng liên kết đuôi .apk chỉ áp dụng trên Windows.");
+            return;
+        }
+
+        if (effectiveArgs.length >= 1 && "--check-associate-apk".equals(effectiveArgs[0])) {
+            System.out.println(WindowsIntegration.isApkAssociationRegistered() ? "REGISTERED" : "NOT_REGISTERED");
+            return;
+        }
+
+        if (effectiveArgs.length >= 2 && ("--install".equals(effectiveArgs[0]) || "--install-silent".equals(effectiveArgs[0]))) {
+            boolean silent = "--install-silent".equals(effectiveArgs[0]);
+            Path apkPath = Path.of(effectiveArgs[1]);
+            if (!Files.exists(apkPath)) {
+                System.err.println("Không tìm thấy file APK: " + apkPath.toAbsolutePath());
+                System.exit(1);
+            }
+            AppRepository repo = new AppRepository(dataRoot, samplesDir);
+            AppRepository.InstalledApp installed = repo.installApk(apkPath);
+            System.out.println("Đã cài đặt vào AAOW: " + installed.label() + " (" + installed.packageName() + ")");
+            if (!silent) {
+                AppHubWindow hub = new AppHubWindow(repo);
+                hub.selectApp(installed);
+                hub.show();
+            }
+            return;
+        }
+
         // Mặc định hoặc --hub: Mở giao diện AAOW App Hub
-        if (args.length == 0 || (args.length == 1 && "--hub".equals(args[0]))) {
+        if (effectiveArgs.length == 0 || (effectiveArgs.length == 1 && "--hub".equals(effectiveArgs[0]))) {
             AppRepository repo = new AppRepository(dataRoot, samplesDir);
             new AppHubWindow(repo).show();
             return;
         }
 
-        if (args.length >= 2 && "--screenshot-hub".equals(args[0])) {
+        if (effectiveArgs.length >= 2 && "--screenshot-hub".equals(effectiveArgs[0])) {
             try {
                 AppRepository repo = new AppRepository(dataRoot, samplesDir);
-                File out = new File(args[1]);
+                File out = new File(effectiveArgs[1]);
                 new AppHubWindow(repo).renderScreenshot(out, 1080, 700);
                 Log.i("AAOW", "Đã xuất ảnh chụp giao diện AAOW App Hub ra: " + out.getAbsolutePath());
                 System.exit(0);
@@ -62,8 +108,8 @@ public final class Main {
             return;
         }
 
-        if (args.length >= 2 && "--scan".equals(args[0])) {
-            Path apkPath = Path.of(args[1]);
+        if (effectiveArgs.length >= 2 && "--scan".equals(effectiveArgs[0])) {
+            Path apkPath = Path.of(effectiveArgs[1]);
             if (!Files.exists(apkPath)) {
                 System.err.println("Không tìm thấy file APK: " + apkPath.toAbsolutePath());
                 System.exit(1);
@@ -73,21 +119,21 @@ public final class Main {
             return;
         }
 
-        if (args.length >= 2 && "--info".equals(args[0])) {
-            printApkInfo(Path.of(args[1]), args.length >= 3 && "--xml".equals(args[2]));
+        if (effectiveArgs.length >= 2 && "--info".equals(effectiveArgs[0])) {
+            printApkInfo(Path.of(effectiveArgs[1]), effectiveArgs.length >= 3 && "--xml".equals(effectiveArgs[2]));
             return;
         }
 
-        if (args.length >= 3 && "--screenshot".equals(args[0])) {
-            Path apkPath = Path.of(args[1]);
-            File outFile = new File(args[2]);
-            String actOverride = args.length >= 4 ? args[3] : null;
+        if (effectiveArgs.length >= 3 && "--screenshot".equals(effectiveArgs[0])) {
+            Path apkPath = Path.of(effectiveArgs[1]);
+            File outFile = new File(effectiveArgs[2]);
+            String actOverride = effectiveArgs.length >= 4 ? effectiveArgs[3] : null;
             runApk(apkPath, dataRoot, actOverride, outFile);
             return;
         }
 
-        Path apkPath = Path.of(args[0]);
-        String activityOverride = args.length >= 2 ? args[1] : null;
+        Path apkPath = Path.of(effectiveArgs[0]);
+        String activityOverride = effectiveArgs.length >= 2 ? effectiveArgs[1] : null;
         runApk(apkPath, dataRoot, activityOverride, null);
     }
 
@@ -97,10 +143,13 @@ public final class Main {
                 Cách dùng:
                   aaow.bat                                     Mở AAOW App Hub
                   aaow.bat <file.apk> [ten.Activity]           Chạy trực tiếp một file APK
+                  aaow.bat --install <file.apk>                Cài đặt APK vào kho và mở App Hub
                   aaow.bat --scan <file.apk>                   Quét độ tương thích API tĩnh của APK
                   aaow.bat --info <file.apk> [--xml]           Xem thông tin & giải mã AndroidManifest
+                  aaow.bat --associate-apk / --unassociate-apk Đăng ký / gỡ liên kết nhấp đúp file .apk
                   aaow.bat --screenshot <apk> <out.png> [Act]  Chụp ảnh màn hình APK tự động
                   aaow.bat --screenshot-hub <out.png>          Chụp ảnh màn hình App Hub
+                  aaow.bat --data-dir <thu-muc>                Chỉ định thư mục dữ liệu tùy chọn
                   aaow.bat --rebuild [tham-so-khac...]         Biên dịch lại bản chạy nhanh installDist
                 """);
     }

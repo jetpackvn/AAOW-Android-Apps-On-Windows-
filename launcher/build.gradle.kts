@@ -16,6 +16,7 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     workingDir = rootDir
+    maxHeapSize = "1536m"
 }
 
 application {
@@ -26,4 +27,13 @@ application {
 
 tasks.named<JavaExec>("run") {
     workingDir = rootDir
+}
+
+tasks.register<Exec>("packageWindows") {
+    group = "distribution"
+    description = "Đóng gói AAOW thành AAOW.exe (jlink + jpackage) và bộ cài Windows."
+    dependsOn("installDist")
+    workingDir = rootDir
+    commandLine("powershell", "-ExecutionPolicy", "Bypass", "-File",
+        rootProject.file("scripts/package-windows.ps1").absolutePath, "-SkipGradleBuild")
 }
