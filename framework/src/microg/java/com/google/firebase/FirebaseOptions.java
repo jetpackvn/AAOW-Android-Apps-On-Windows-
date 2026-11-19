@@ -98,6 +98,8 @@ public final class FirebaseOptions {
         if (apiKey != null) b.setApiKey(apiKey);
         String dbUrl = readStringRes(res, pkg, "firebase_database_url");
         if (dbUrl != null) b.setDatabaseUrl(dbUrl);
+        String gaTrack = readStringRes(res, pkg, "ga_trackingId");
+        if (gaTrack != null) b.setGaTrackingId(gaTrack);
         String gcm = readStringRes(res, pkg, "gcm_defaultSenderId");
         if (gcm != null) b.setGcmSenderId(gcm);
         String bucket = readStringRes(res, pkg, "google_storage_bucket");

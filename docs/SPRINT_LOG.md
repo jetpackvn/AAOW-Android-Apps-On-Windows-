@@ -496,5 +496,80 @@ Khi mở phiên hội thoại mới cho **Sprint 12**, triển khai theo thứ t
    - Mở rộng [MicroGServiceRegistry.java](../framework/src/main/java/dev/aaow/rt/microg/MicroGServiceRegistry.java) cho các dịch vụ GMS phổ biến (`com.google.android.gms.measurement.START`, `com.google.android.gms.analytics.service.START`, `com.google.android.gms.ads.identifier.service.START`, `com.google.android.gms.common.service.START` / `IGmsServiceBroker` trả về `IGmsCallbacks.onPostInitComplete` đúng chuẩn descriptor), xóa triệt để `Got binder with a wrong descriptor` và `AdvertisingIdClient IOException`.
    - Viết `Sprint12FrameworkTest` kiểm chứng khởi tạo sớm `Process.myProcessName()`/`FirebaseApp`, giải mã `CertificateFactory.getInstance("X.509")` từ `PackageManager.getPackageInfo(GET_SIGNATURES)` trên APK thật, và giao dịch Binder AIDL của `microG-lite`; nghiệm thu cuối Sprint 12, giữ 100% test PASS (0 `SUPER_MISMATCH`), cập nhật tài liệu và commit Git sạch sẽ.
 
+---
+
+## Sprint 12 (Phase D1): Hạ tầng GMS Khởi động Sớm, Chứng chỉ X.509 Thật & AIDL `microG-lite`
+**Trạng thái:** ✅ Đã hoàn thành & Nghiệm thu (19/11/2026)
+
+### 1. Các hạng mục đã hoàn thành
+1. **Chuẩn hóa Khởi động Sớm (`Process.myProcessName()`, `/proc/<pid>/cmdline` & `FirebaseInitProvider` trước `attachBaseContext()`):**
+   - Tách riêng `currentProcessName` / `setProcessName()` khỏi `currentPackageName` trong [ActivityThread.java](../framework/src/main/java/android/app/ActivityThread.java) để `Process.myProcessName()`, `ActivityThread.currentProcessName()` và `Application.getProcessName()` luôn sẵn sàng ngay khi tạo [AndroidRuntimeContext.java](../framework/src/main/java/dev/aaow/rt/AndroidRuntimeContext.java) (trước mọi proxy Tinker/CrabShell/MultiDex).
+   - Xây dựng mới [LinuxProcFsBridge.java](../framework/src/main/java/dev/aaow/rt/LinuxProcFsBridge.java) tạo các tệp ảo `<dataDir>/aaow-proc/{cmdline,cpuinfo,meminfo}` chứa `<processName>\0` và chèn bytecode ASM trong [DexLoader.java](../launcher/src/main/java/dev/aaow/launcher/DexLoader.java) (cache key `-v12.jar`) tự động chuyển hướng `FileReader(String|File)` và `FileInputStream(String|File)` cho `/proc/<pid>/cmdline`, `/proc/self/cmdline`, `/proc/cpuinfo`, `/proc/meminfo` trên Windows — giúp `GMS ProcessUtils.getMyProcessName()`, `QDDownloader` và `AegonApplication` đọc đúng tên tiến trình mà không văng `FileNotFoundException`.
+   - Bổ sung `Application.preAttachBaseContext(Context)` trong [Application.java](../framework/src/main/java/android/app/Application.java), `installEarlyFirebaseProviders()` (chống trùng lặp với `installManifestContentProviders()` và khớp cả `FirebaseInitProvider` lẫn authority `.firebaseinitprovider`) trong [AndroidRuntimeContext.java](../framework/src/main/java/dev/aaow/rt/AndroidRuntimeContext.java), và chuẩn hóa chuỗi khởi tạo trong [AppRepository.java](../launcher/src/main/java/dev/aaow/launcher/AppRepository.java) (`preAttachBaseContext` → `setApplicationContext(app)` → `installEarlyFirebaseProviders` → `app.attach` → `installManifestContentProviders` → `app.onCreate`). Nhờ vậy `FirebaseInitProvider` khởi tạo xong `FirebaseApp` (`ge.qdae`) *trước* `RealApplicationLike.attachBaseContext()` và `getApplicationContext()` đã là `Application` (không văng `ClassCastException` trong `com.google.android.gms.internal.measurement.zzee`).
+   - Bổ sung [TelephonyManager.java](../framework/src/main/java/android/telephony/TelephonyManager.java) (`Context.TELEPHONY_SERVICE = "phone"`) dập sạch 16 lỗi NPE `getSimOperator()` từ Google DataTransport, [Messenger.java](../framework/src/main/java/android/os/Messenger.java) + trường `Message.replyTo`, và đọc thêm `ga_trackingId` trong [FirebaseOptions.java](../framework/src/microg/java/com/google/firebase/FirebaseOptions.java).
+2. **Trích xuất Chứng chỉ X.509 DER Thật từ APK (`META-INF/*.RSA` / `*.DSA` / `*.EC` & APK Signature Scheme v2/v3):**
+   - Xây dựng mới [ApkSignatureExtractor.java](../apk/src/main/java/dev/aaow/apk/ApkSignatureExtractor.java) hỗ trợ đầy đủ **APK Signature Scheme v3.1 / v3 / v2** (`APK Sig Block 42` trước Central Directory), **JAR Signing Scheme v1** (`META-INF/*.RSA`, `*.DSA`, `*.EC` định dạng PKCS#7/CMS), và bộ sinh chứng chỉ tự ký X.509 v3 DER chuẩn RFC 5280 thuần Java (`RSA-2048` + `SHA256withRSA`, lưu đệm tĩnh) cho gói ảo `microG-lite` và APK dev chưa ký.
+   - Tích hợp `getSigningResult()` / `readSigningCertificates()` vào [ApkFile.java](../apk/src/main/java/dev/aaow/apk/ApkFile.java), tạo mới [SigningInfo.java](../framework/src/main/java/android/content/pm/SigningInfo.java) (khớp chữ ký API 37 `android.jar`, hỗ trợ `Parcelable`, `getApkContentsSigners`, `getSigningCertificateHistory`, `getPublicKeys`, `getSchemeVersion`, `signersMatchExactly`), thêm trường `PackageInfo.signingInfo` và nâng cấp [PackageManager.java](../framework/src/main/java/android/content/pm/PackageManager.java) (`GET_SIGNATURES | GET_SIGNING_CERTIFICATES`, `getPackageArchiveInfo`, `hasSigningCertificate` hỗ trợ `CERT_INPUT_RAW_X509` và `CERT_INPUT_SHA256`).
+   - Thay thế hoàn toàn các chuỗi chữ ký hex giả bị cắt cụt trong [MicroGServiceRegistry.java](../framework/src/main/java/dev/aaow/rt/microg/MicroGServiceRegistry.java) bằng chứng chỉ X.509 v3 DER hợp lệ chuẩn RFC 5280.
+3. **Hoàn thiện AIDL Binder Descriptor, `IGmsServiceBroker` (`code = 46`) & Căn chỉnh 4-byte `Parcel` cho GMS `SafeParcel`:**
+   - Mở rộng [MicroGServiceRegistry.java](../framework/src/main/java/dev/aaow/rt/microg/MicroGServiceRegistry.java) với các AIDL Binder cụ thể đúng chuẩn interface descriptor:
+     - `AdvertisingIdBinder` (`com.google.android.gms.ads.identifier.internal.IAdvertisingIdService`: `code = 1` `getId()`, `code = 2` `isLimitAdTrackingEnabled`, `code = 6` `isAdIdFakeForDebugLogging`, giao ngay không deadlock với `BlockingServiceConnection`).
+     - `MeasurementServiceBinder` (`com.google.android.gms.measurement.internal.IMeasurementService`: hỗ trợ gắn kết trực tiếp lẫn bắt tay qua `IGmsServiceBroker` `code = 46` → `IGmsCallbacks.onPostInitComplete` `code = 1`, `getAppInstanceId`, `getAllUserProperties`, `upload`, `getSessionId`...).
+     - `AnalyticsServiceBinder` (`com.google.android.gms.analytics.internal.IAnalyticsService`: `sendHit`, `clearHits`, `getVersion`), `AppSetServiceBinder` (`IAppSetService`) và `GmsServiceBrokerBinder` tổng quát (tự đọc `BaseGmsClient.getServiceDescriptor()` khi gặp dịch vụ GMS mở rộng).
+   - Bổ sung cầu nối ASM trong [DexLoader.java](../launcher/src/main/java/dev/aaow/launcher/DexLoader.java) điều phối `GooglePlayServicesUtilLight.isGooglePlayServicesAvailable(Context, int)` sang `MicroGServiceRegistry.isGooglePlayServicesAvailable(...)` (trả `ConnectionResult.SUCCESS` = `0` cho dịch vụ microG-lite nội bộ, tránh yêu cầu khóa riêng của Google).
+   - Nâng cấp [Parcel.java](../framework/src/main/java/android/os/Parcel.java) chuẩn hóa `dataPosition()` / `setDataPosition()` / `dataSize()` / `dataAvail()` / `appendFrom()` theo đơn vị căn chỉnh **4-byte** (và 8-byte cho `writeLong`/`writeDouble`), cùng đầy đủ `write*Array`/`create*Array`/`writeBinder*`/`SparseBooleanArray`. Nhờ vậy `SafeParcelWriter.finishObjectHeader` (`setDataPosition(start - 4)`) không ghi đè `callbacksBinder` trong giao dịch `IGmsServiceBroker.getService(code = 46)` và Firebase Analytics đọc/ghi trọn vẹn sự kiện `SafeParcel` qua `google_app_measurement_local.db`.
+
+### 2. Kết quả Nghiệm thu Thực tế (Đã chạy sau chỉnh sửa cuối cùng)
+- **Kiểm thử tự động JUnit 5 (`.\gradlew.bat test --rerun-tasks --console=plain`):**
+  - **53/53 tests PASS (0 failures, 0 errors, 0 skipped)** trong `1m 06s`:
+    - `AndroidSdkFallbackClassLoaderTest` (2), `ApkCompatibilityScannerTest` (2)
+    - `FrameworkHierarchyTest` (2 — giữ vững **0 `SUPER_MISMATCH`** đối chiếu `android.jar` API 37 trên toàn bộ **435 lớp `android.*`** trong `:framework`, bao gồm `SigningInfo`, `Messenger`, `TelephonyManager`)
+    - `Sprint4FrameworkTest` (6), `Sprint5FrameworkTest` (5), `Sprint6FrameworkTest` (4), `Sprint7FrameworkTest` (5), `Sprint8FrameworkTest` (5), `Sprint9FrameworkTest` (5), `Sprint10FrameworkTest` (5), `Sprint11FrameworkTest` (5 — **0 hồi quy**)
+    - `Sprint12FrameworkTest` (7 — **MỚI** tại [Sprint12FrameworkTest.java](../launcher/src/test/java/dev/aaow/launcher/Sprint12FrameworkTest.java), kiểm thử `Process.myProcessName()` + `LinuxProcFsBridge` + ASM rewrite `/proc/<pid>/cmdline`, thứ tự `FirebaseInitProvider` trước `attachBaseContext()`, trích xuất X.509 v1/v2/fallback + `SigningInfo` + `hasSigningCertificate`, căn chỉnh 4-byte `Parcel`/SafeParcel, toàn bộ AIDL `microG-lite` + `IGmsServiceBroker` `code = 46`, trích xuất X.509 thật trên 3 APK F-Droid đã cài, và kiểm thử trực tiếp trên `com.apkpure.aegon.apk`).
+- **Đối chiếu định lượng thực tế trên `com.apkpure.aegon.apk` (trước vs. sau Sprint 12, log tại `build/sprint12-final/apkpure-run.log`):**
+  | Chỉ số / Lỗi GMS & Khởi động | Trước Sprint 12 | Sau Sprint 12 | Kết quả |
+  |---|---:|---:|---|
+  | `IllegalStateException: Default FirebaseApp is not initialized` | 5 | **0** | ✅ Xóa triệt để |
+  | `CertificateException: Incomplete BER/DER data` | 18 | **0** | ✅ Xóa triệt để (trích xuất `APKPURE.RSA` 487B thật) |
+  | `E/FA` & `E/GAv4: Got binder with a wrong descriptor` | 2 | **0** | ✅ Xóa triệt để |
+  | `W/FA: Service invalid` | 1 | **0** | ✅ Xóa triệt để (`V/FA: Service available`) |
+  | `AdvertisingIdClient IOException: Google Play services not available` | 2 | **0** | ✅ Xóa triệt để (4/4 lần bind `IAdvertisingIdService` OK) |
+  | `W/GAv4: never got onServiceConnected callback` | 1 | **0** | ✅ Xóa triệt để (`Bound to IAnalyticsService interface`) |
+  | `FileNotFoundException: \proc\<pid>\cmdline` | 1 | **0** | ✅ Xóa triệt để (`ProcessUtils.getMyProcessName() == "com.apkpure.aegon"`) |
+  | `NullPointerException: TelephonyManager.getSimOperator()` | 16 | **0** | ✅ Xóa triệt để |
+  | `IGmsServiceBroker.getService(measurement.START)` → `D/FA: Connected to remote service` | 0 | **1** | ✅ Bắt tay & xử lý 6 tác vụ Firebase Analytics |
+- **Biên dịch phân phối (`.\aaow.bat --rebuild`), Quét tĩnh (`--scan`) & Ảnh chụp không hồi quy (`build/sprint12-final/*.png`):**
+  - `com.apkpure.aegon.apk` (`--scan`): **66,1%** class hệ thống trong `:framework` (502/760), **74,9%** method (3.507/4.684), **97,0%** call sites (72.440/74.655).
+  - Bộ ảnh nghiệm thu không hồi quy: `showcase.png`, `game2048.png`, `currency.png`, `forecastie.png` (tải thật `London, GB 9.4 °C` từ OpenWeatherMap), `hub.png`, `apkpure.png`.
+
+### 3. Đánh giá Trung thực (Chạy thật vs. Giả lập / Hạn chế dành cho Sprint 13)
+- **Chạy thật 100%:**
+  - Trích xuất chứng chỉ X.509 DER thật từ APK ký v1 (`META-INF/APKPURE.RSA`, F-Droid `*.RSA`) và v2/v3 (`APK Sig Block 42`), xác thực qua JDK `CertificateFactory.getInstance("X.509")` & `PackageManager.hasSigningCertificate` (`RAW_X509`/`SHA256`).
+  - Khởi động sớm `Process.myProcessName()`, đọc `/proc/<pid>/cmdline` trên Windows qua `LinuxProcFsBridge`, chạy thật `com.google.firebase.provider.FirebaseInitProvider` của chính APKPure để khởi tạo `FirebaseApp` + `FirebaseAnalytics` (`FA` v73000) + `GoogleAnalytics` (`GAv4` 12.4.51).
+  - Bắt tay IPC Binder thật qua `Parcel` căn chỉnh 4-byte (`SafeParcelWriter`/`SafeParcelReader` + `IGmsServiceBroker` `code = 46` → `IGmsCallbacks.onPostInitComplete` `code = 1`) với `IAdvertisingIdService`, `IMeasurementService`, `IAnalyticsService`.
+- **Giả lập nhẹ (`microG-lite`) & Hạn chế cố ý chuyển sang Sprint 13 (Phase D2):**
+  - Gói hệ thống ảo `com.google.android.gms` / `com.android.vending` sử dụng chứng chỉ tự ký RFC 5280 riêng của AAOW (`CN=AAOW MicroG Services`) và định tuyến `GooglePlayServicesUtilLight.isGooglePlayServicesAvailable` về `MicroGServiceRegistry` (không giả mạo khóa ký Google); các hàm AIDL của `microG-lite` trả mã định danh AAOW cục bộ và phản hồi không lỗi chứ không kết nối máy chủ Google Play thật.
+  - Đúng phạm vi Sprint 12 (Phase D1), `com.apkpure.aegon.apk` đã sạch hoàn toàn nhóm lỗi GMS/Firebase/X.509 và vào tới `SplashActivity.onCreate()`, nơi các lỗi tầng UI/API/Native của **Sprint 13 (Phase D2)** bắt đầu xuất hiện:
+    1. `NoSuchMethodError: android.content.Intent.resolveTypeIfNeeded(ContentResolver)` trong `SplashActivity.onCreate` (`s1.qdaa.c` / `LocalBroadcastManager`).
+    2. `NoSuchFieldError` trong `com.apkpure.aegon.utils.qdcg.uncaughtException:411` (`Timer-2` / `AWT-EventQueue-0`) và `NoSuchMethodError` tại `AppProtoBufUpdateService:g:49` / `qdae:invoke:69`.
+    3. Reflection dò `ConnectivityManager.getActiveLinkProperties()` (`ks.qdad.j`).
+    4. Các hàm JNI native trong `libqsealib.so` (`com.ola.qsea.encrypt.U.*`) và `libqmp.so` (`com.tencent.qmsp.sdk.u.U.a`) hiện rơi vào giá trị mặc định rỗng gây `InvalidKeySpecException` khi khởi tạo mã hóa khóa công khai.
+
+### 4. Chuẩn bị cho Sprint 13 (Phase D2 — Thực chiến Ứng dụng Thương mại & Mở rộng Native JNI HLE) — Bắt đầu ở chat mới
+Khi mở phiên hội thoại mới cho **Sprint 13**, triển khai theo thứ tự sau để đưa `com.apkpure.aegon.apk` vượt qua `SplashActivity` vào màn hình chính và phát hành bản cài Windows cập nhật:
+1. **Bước 13.1 — Vá dây chuyền `NoSuchMethodError` / `NoSuchFieldError` trên luồng `SplashActivity` → `MainTabActivity` của APKPure:**
+   - Bắt đầu từ các lỗi đã lộ rõ ngay ở cuối log Sprint 12 (`build/sprint12-final/apkpure-run.log`) và top method thiếu trong `build/sprint12-final/apkpure-scan.txt`:
+     - `Intent.resolveTypeIfNeeded(ContentResolver)` (gây crash ngay trong `SplashActivity.onCreate`).
+     - Soi bytecode `com.apkpure.aegon.utils.qdcg` (dòng 411 — xác định chính xác trường `android.*` thiếu gây `NoSuchFieldError`), `AppProtoBufUpdateService.g` và `qdae.invoke` bằng `javap`.
+     - Bổ sung `ConnectivityManager.getActiveLinkProperties()` (hidden API bị reflection dò) và các method UI/View/Parcel/WebSettings thuộc Top 20 của `--scan` (`ProgressBar.setProgressDrawable`, `View.onVisibilityChanged`, `View.setDrawingCacheEnabled`, `View.findViewWithTag`, `View.getWindowVisibleDisplayFrame`, `TextView.setError`, `Parcel.readIntArray`/`readList`/`readMap`, `WebSettings.getDefaultUserAgent`, `Activity.isChangingConfigurations`, `PackageItemInfo.loadIcon`, `Uri.fromParts`, `TextUtils.writeToParcel`...).
+   - Chạy lặp `.\aaow.bat --screenshot build\aaow-data\installed-apps\com.apkpure.aegon.apk ...`, truy vết và vá cuốn chiếu cho tới khi `SplashActivity` chuyển sang màn hình chính (và kết xuất nội dung UI thật trên cửa sổ Windows).
+2. **Bước 13.2 — Reflection `mNativePtr` & Mở rộng JNI HLE cho Thư viện Thương mại:**
+   - Kiểm tra/hỗ trợ các trường reflection JNI phổ biến (`mNativePtr`, `mNativeInstance` trên `Canvas`/`Paint`/`Path`/`Bitmap`/`Typeface`/`SQLiteConnection` nếu APK thương mại truy cập).
+   - Bổ sung HLE an toàn trong `NativeBridge` cho các nhóm hàm native `com.ola.qsea.encrypt.U.*` (trả khóa công khai X.509 RSA/chuỗi hợp lệ tránh `InvalidKeySpecException`) và các thư viện `.so` gặp trong quá trình đưa APKPure vào màn hình chính.
+3. **Bước 13.3 — Kiểm thử Tự động, Đóng gói Bộ cài Windows & Nghiệm thu Hoàn tất Giai đoạn 2:**
+   - Viết `Sprint13FrameworkTest` (giữ **0 `SUPER_MISMATCH`** trên `FrameworkHierarchyTest` và 100% JUnit 5 PASS không hồi quy).
+   - Chạy đóng gói lại `AAOW.exe` + bộ cài Windows (`powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1`), nghiệm thu ảnh chụp màn hình APKPure & các APK mẫu/F-Droid, cập nhật tài liệu tổng kết và commit mốc Git cuối Sprint 13.
+
+
 
 

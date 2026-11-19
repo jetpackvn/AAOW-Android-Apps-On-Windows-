@@ -15,6 +15,7 @@ public final class ApkFile implements Closeable {
     private final ZipFile zip;
     private final ResourceTable resources;
     private final AndroidManifest manifest;
+    private volatile ApkSignatureExtractor.SigningResult signingResult;
 
     public ApkFile(Path path) throws IOException {
         this.path = path;
@@ -103,6 +104,21 @@ public final class ApkFile implements Closeable {
             }
         });
         return out;
+    }
+
+    /** Trích xuất và lưu đệm thông tin chứng chỉ số X.509 DER thật của APK (v3/v2/v1 META-INF/*.RSA). */
+    public ApkSignatureExtractor.SigningResult getSigningResult() {
+        ApkSignatureExtractor.SigningResult cached = signingResult;
+        if (cached == null) {
+            cached = ApkSignatureExtractor.extractFromApk(path, zip);
+            signingResult = cached;
+        }
+        return cached;
+    }
+
+    /** Danh sách chứng chỉ X.509 DER thật trong APK (trống nếu APK chưa ký). */
+    public List<byte[]> readSigningCertificates() {
+        return getSigningResult().certificates();
     }
 
     @Override

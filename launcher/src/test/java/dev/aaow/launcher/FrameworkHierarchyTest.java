@@ -25,6 +25,7 @@ import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.content.pm.Signature;
+import android.content.pm.SigningInfo;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
@@ -88,6 +89,7 @@ import android.util.SizeF;
 import android.os.BaseBundle;
 import android.os.Bundle;
 import android.os.Message;
+import android.os.Messenger;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
 import android.os.PersistableBundle;
@@ -98,6 +100,7 @@ import android.print.PrintAttributes;
 import android.print.PrintDocumentInfo;
 import android.print.PrintJobId;
 import android.print.PrintJobInfo;
+import android.telephony.TelephonyManager;
 import android.text.Editable;
 import android.text.Spannable;
 import android.util.AndroidException;
@@ -235,17 +238,20 @@ class FrameworkHierarchyTest {
         assertTrue(BaseColumns.class.isAssignableFrom(MediaStore.MediaColumns.class));
         assertTrue(MediaStore.MediaColumns.class.isAssignableFrom(MediaStore.Images.ImageColumns.class));
         assertTrue(MediaStore.Images.ImageColumns.class.isAssignableFrom(MediaStore.Images.Media.class));
+        assertNotNull(SigningInfo.class);
+        assertNotNull(Messenger.class);
+        assertNotNull(TelephonyManager.class);
 
         Class<?>[] parcelables = {
                 Intent.class, IntentFilter.class, Bundle.class, PersistableBundle.class,
                 ResultReceiver.class, Uri.class, ComponentName.class,
                 ContentValues.class, Bitmap.class, Rect.class, RectF.class, Configuration.class,
                 PackageInfo.class, ActivityInfo.class, ApplicationInfo.class, ProviderInfo.class,
-                ServiceInfo.class, ResolveInfo.class, Signature.class,
+                ServiceInfo.class, ResolveInfo.class, Signature.class, SigningInfo.class,
                 ActivityManager.RunningAppProcessInfo.class, ActivityManager.MemoryInfo.class,
                 Debug.MemoryInfo.class,
                 ColorStateList.class, KeyEvent.class, MotionEvent.class, PointerIcon.class, WindowId.class,
-                Message.class, ParcelFileDescriptor.class, AssetFileDescriptor.class,
+                Message.class, Messenger.class, ParcelFileDescriptor.class, AssetFileDescriptor.class,
                 Network.class, NetworkInfo.class, NetworkCapabilities.class, NetworkRequest.class,
                 IpPrefix.class, LinkAddress.class, RouteInfo.class, ProxyInfo.class,
                 LinkProperties.class, DhcpInfo.class, WifiInfo.class, SupplicantState.class,

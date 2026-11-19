@@ -12,6 +12,7 @@ public final class ActivityThread {
     private static final ActivityThread INSTANCE = new ActivityThread();
     private static volatile Application currentApp;
     private static volatile String currentPkg = "dev.aaow.app";
+    private static volatile String currentProc = "dev.aaow.app";
 
     public static final class H extends Handler {
         public static final int SCHEDULE_CRASH = 134;
@@ -30,13 +31,23 @@ public final class ActivityThread {
     public static void setPackageName(String pkg) {
         if (pkg != null && !pkg.isEmpty()) {
             currentPkg = pkg;
+            currentProc = pkg;
+        }
+    }
+
+    public static void setProcessName(String processName) {
+        if (processName != null && !processName.isEmpty()) {
+            currentProc = processName;
         }
     }
 
     public static void setCurrentApplication(Application app) {
         currentApp = app;
-        if (app != null) {
-            setPackageName(app.getPackageName());
+        if (app != null && app.getBaseContext() != null) {
+            String pkg = app.getPackageName();
+            if (pkg != null && !pkg.isEmpty()) {
+                setPackageName(pkg);
+            }
         }
     }
 
@@ -49,13 +60,23 @@ public final class ActivityThread {
     }
 
     public static String currentPackageName() {
-        return currentApp != null && currentApp.getPackageName() != null
-                ? currentApp.getPackageName()
-                : currentPkg;
+        if (currentApp != null && currentApp.getBaseContext() != null) {
+            try {
+                String pkg = currentApp.getPackageName();
+                if (pkg != null && !pkg.isEmpty()) return pkg;
+            } catch (Throwable ignored) {
+            }
+        }
+        return currentPkg;
     }
 
     public static String currentProcessName() {
-        return currentPackageName();
+        String proc = currentProc;
+        return (proc != null && !proc.isEmpty()) ? proc : currentPackageName();
+    }
+
+    public String getProcessName() {
+        return currentProcessName();
     }
 
     public Application getApplication() {

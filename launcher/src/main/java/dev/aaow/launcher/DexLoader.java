@@ -75,7 +75,7 @@ public final class DexLoader {
         Path apkPath = apk.getPath();
         long size = Files.size(apkPath);
         long mtime = Files.getLastModifiedTime(apkPath).toMillis();
-        String cacheKey = String.format("%s-%d-%d-v10.jar",
+        String cacheKey = String.format("%s-%d-%d-v12.jar",
                 apkPath.getFileName().toString().replaceAll("[^a-zA-Z0-9._-]", "_"), size, mtime);
         Path jarFile = cacheDir.resolve(cacheKey);
         Path refsFile = cacheDir.resolve(cacheKey + ".refs");
@@ -245,6 +245,25 @@ public final class DexLoader {
                     return null;
                 }
 
+                // Định tuyến kiểm tra sẵn sàng GMS của play-services-basement sang AAOW microG-lite
+                if ("com/google/android/gms/common/GooglePlayServicesUtilLight".equals(currentInternal)
+                        && "isGooglePlayServicesAvailable".equals(name)
+                        && "(Landroid/content/Context;I)I".equals(descriptor)
+                        && (access & Opcodes.ACC_STATIC) != 0) {
+                    MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+                    mv.visitCode();
+                    mv.visitVarInsn(Opcodes.ALOAD, 0);
+                    mv.visitVarInsn(Opcodes.ILOAD, 1);
+                    mv.visitMethodInsn(Opcodes.INVOKESTATIC,
+                            "dev/aaow/rt/microg/MicroGServiceRegistry",
+                            "isGooglePlayServicesAvailable",
+                            "(Landroid/content/Context;I)I", false);
+                    mv.visitInsn(Opcodes.IRETURN);
+                    mv.visitMaxs(0, 0);
+                    mv.visitEnd();
+                    return null;
+                }
+
                 MethodVisitor baseMv = super.visitMethod(access, name, descriptor, signature, exceptions);
                 return new MethodVisitor(Opcodes.ASM9, baseMv) {
                     @Override
@@ -300,6 +319,17 @@ public final class DexLoader {
                                 super.visitMethodInsn(Opcodes.INVOKESTATIC, "dev/aaow/rt/NativeBridge",
                                         "load", "(Ljava/lang/String;)V", false);
                                 return;
+                            }
+                        }
+                        if (opcode == Opcodes.INVOKESPECIAL
+                                && "<init>".equals(mName)
+                                && ("java/io/FileReader".equals(owner) || "java/io/FileInputStream".equals(owner))) {
+                            if ("(Ljava/lang/String;)V".equals(mDesc)) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "dev/aaow/rt/LinuxProcFsBridge",
+                                        "remapPath", "(Ljava/lang/String;)Ljava/lang/String;", false);
+                            } else if ("(Ljava/io/File;)V".equals(mDesc)) {
+                                super.visitMethodInsn(Opcodes.INVOKESTATIC, "dev/aaow/rt/LinuxProcFsBridge",
+                                        "remapFile", "(Ljava/io/File;)Ljava/io/File;", false);
                             }
                         }
                         if ((currentInternal.endsWith("/FileProvider") || currentInternal.contains("/FileProvider$"))

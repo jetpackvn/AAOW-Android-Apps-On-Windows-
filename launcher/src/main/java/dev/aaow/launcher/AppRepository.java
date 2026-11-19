@@ -302,13 +302,20 @@ public final class AppRepository {
             ClassLoader prevCl = Thread.currentThread().getContextClassLoader();
             Thread.currentThread().setContextClassLoader(cl);
             try {
+                // 1. Khởi tạo sớm Process.myProcessName() / ActivityThread trước khi nạp lớp Application
+                if (mf.packageName != null && !mf.packageName.isEmpty()) {
+                    android.app.ActivityThread.setPackageName(mf.packageName);
+                    android.app.ActivityThread.setProcessName(mf.packageName);
+                }
+
+                // 2. Tạo thực thể Application và pre-attach base context để FirebaseInitProvider sớm
+                //    nhìn thấy getApplicationContext() là một android.app.Application hợp lệ
                 Application app = null;
                 if (mf.applicationClass != null && !mf.applicationClass.isEmpty()) {
                     try {
                         Class<?> cls = Class.forName(mf.applicationClass, true, cl);
                         if (Application.class.isAssignableFrom(cls)) {
                             app = (Application) cls.getDeclaredConstructor().newInstance();
-                            app.attach(ctx);
                         }
                     } catch (Throwable t) {
                         if (warnLog != null) {
@@ -318,7 +325,20 @@ public final class AppRepository {
                 }
                 if (app == null) {
                     app = new Application();
+                }
+                app.preAttachBaseContext(ctx);
+                ctx.setApplicationContext(app);
+
+                // 3. Khởi tạo sớm FirebaseInitProvider / FirebaseApp TRƯỚC Application.attachBaseContext()
+                ctx.installEarlyFirebaseProviders();
+
+                // 4. Chạy vòng đời attachBaseContext() của Application (Tinker/CrabShell/MultiDex)
+                try {
                     app.attach(ctx);
+                } catch (Throwable t) {
+                    if (warnLog != null) {
+                        warnLog.accept("Lỗi trong Application.attachBaseContext (" + app.getClass().getName() + "): " + t);
+                    }
                 }
                 ctx.setApplicationContext(app);
                 ctx.installManifestContentProviders();

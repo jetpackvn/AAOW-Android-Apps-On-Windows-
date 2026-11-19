@@ -15,6 +15,7 @@ public class PackageInfo implements Parcelable {
     public ProviderInfo[] providers;
     public String[] requestedPermissions;
     public Signature[] signatures;
+    public SigningInfo signingInfo;
     public long firstInstallTime;
     public long lastUpdateTime;
 
@@ -34,7 +35,29 @@ public class PackageInfo implements Parcelable {
         dest.writeInt(versionCode);
         dest.writeLong(longVersionCode);
         dest.writeParcelable(applicationInfo, flags);
+        dest.writeParcelable(signingInfo, flags);
         dest.writeLong(firstInstallTime);
         dest.writeLong(lastUpdateTime);
     }
+
+    public static final Creator<PackageInfo> CREATOR = new Creator<>() {
+        @Override
+        public PackageInfo createFromParcel(Parcel source) {
+            PackageInfo pi = new PackageInfo();
+            pi.packageName = source.readString();
+            pi.versionName = source.readString();
+            pi.versionCode = source.readInt();
+            pi.longVersionCode = source.readLong();
+            pi.applicationInfo = source.readParcelable(ApplicationInfo.class.getClassLoader());
+            pi.signingInfo = source.readParcelable(SigningInfo.class.getClassLoader());
+            pi.firstInstallTime = source.readLong();
+            pi.lastUpdateTime = source.readLong();
+            return pi;
+        }
+
+        @Override
+        public PackageInfo[] newArray(int size) {
+            return new PackageInfo[size];
+        }
+    };
 }

@@ -14,6 +14,9 @@ import java.util.Map;
  * Cài đặt nhẹ của android.os.Parcel để các APK có thể đọc/ghi dữ liệu Parcelable trong bộ nhớ.
  */
 public final class Parcel {
+    private static final int SLOT_BYTES = 4;
+    private static final String WIDE_SLOT_TAIL = "\u0000AAOW_PARCEL_WIDE_TAIL\u0000";
+
     private final List<Object> data = new ArrayList<>();
     private int pos;
 
@@ -30,19 +33,20 @@ public final class Parcel {
     }
 
     public int dataSize() {
-        return data.size();
+        return data.size() * SLOT_BYTES;
     }
 
     public int dataPosition() {
-        return pos;
+        return pos * SLOT_BYTES;
     }
 
-    public void setDataPosition(int pos) {
-        this.pos = Math.max(0, Math.min(pos, data.size()));
+    public void setDataPosition(int bytePos) {
+        int slot = bytePos <= 0 ? 0 : (bytePos / SLOT_BYTES);
+        this.pos = Math.max(0, Math.min(slot, data.size()));
     }
 
     public int dataAvail() {
-        return Math.max(0, data.size() - pos);
+        return Math.max(0, (data.size() - pos) * SLOT_BYTES);
     }
 
     private void writeItem(Object item) {
@@ -54,9 +58,20 @@ public final class Parcel {
         pos++;
     }
 
+    private void writeWideItem(Object item) {
+        writeItem(item);
+        writeItem(WIDE_SLOT_TAIL);
+    }
+
     private Object readItem() {
         if (pos >= data.size()) return null;
         return data.get(pos++);
+    }
+
+    private void consumeWideTailIfPresent() {
+        if (pos < data.size() && WIDE_SLOT_TAIL.equals(data.get(pos))) {
+            pos++;
+        }
     }
 
     public void writeByte(byte val) {
@@ -78,11 +93,12 @@ public final class Parcel {
     }
 
     public void writeLong(long val) {
-        writeItem(val);
+        writeWideItem(val);
     }
 
     public long readLong() {
         Object o = readItem();
+        consumeWideTailIfPresent();
         return o instanceof Number n ? n.longValue() : 0L;
     }
 
@@ -96,11 +112,12 @@ public final class Parcel {
     }
 
     public void writeDouble(double val) {
-        writeItem(val);
+        writeWideItem(val);
     }
 
     public double readDouble() {
         Object o = readItem();
+        consumeWideTailIfPresent();
         return o instanceof Number n ? n.doubleValue() : 0.0;
     }
 
@@ -190,6 +207,89 @@ public final class Parcel {
     public byte[] createByteArray() {
         Object o = readItem();
         return o instanceof byte[] arr ? arr : new byte[0];
+    }
+
+    public void writeCharArray(char[] val) {
+        writeItem(val != null ? val.clone() : null);
+    }
+
+    public char[] createCharArray() {
+        Object o = readItem();
+        return o instanceof char[] arr ? arr.clone() : new char[0];
+    }
+
+    public void writeBooleanArray(boolean[] val) {
+        writeItem(val != null ? val.clone() : null);
+    }
+
+    public boolean[] createBooleanArray() {
+        Object o = readItem();
+        return o instanceof boolean[] arr ? arr.clone() : new boolean[0];
+    }
+
+    public void writeLongArray(long[] val) {
+        writeItem(val != null ? val.clone() : null);
+    }
+
+    public long[] createLongArray() {
+        Object o = readItem();
+        return o instanceof long[] arr ? arr.clone() : new long[0];
+    }
+
+    public void writeFloatArray(float[] val) {
+        writeItem(val != null ? val.clone() : null);
+    }
+
+    public float[] createFloatArray() {
+        Object o = readItem();
+        return o instanceof float[] arr ? arr.clone() : new float[0];
+    }
+
+    public void writeDoubleArray(double[] val) {
+        writeItem(val != null ? val.clone() : null);
+    }
+
+    public double[] createDoubleArray() {
+        Object o = readItem();
+        return o instanceof double[] arr ? arr.clone() : new double[0];
+    }
+
+    public void writeBinderArray(IBinder[] val) {
+        writeItem(val != null ? val.clone() : null);
+    }
+
+    public IBinder[] createBinderArray() {
+        Object o = readItem();
+        return o instanceof IBinder[] arr ? arr.clone() : new IBinder[0];
+    }
+
+    public void writeBinderList(List<IBinder> val) {
+        writeItem(val != null ? new ArrayList<>(val) : null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public ArrayList<IBinder> createBinderArrayList() {
+        Object o = readItem();
+        return o instanceof List<?> l ? new ArrayList<>((List<IBinder>) l) : new ArrayList<>();
+    }
+
+    public void writeSparseBooleanArray(android.util.SparseBooleanArray val) {
+        writeItem(val);
+    }
+
+    public android.util.SparseBooleanArray readSparseBooleanArray() {
+        Object o = readItem();
+        return o instanceof android.util.SparseBooleanArray s ? s : null;
+    }
+
+    public void appendFrom(Parcel parcel, int offset, int length) {
+        if (parcel == null || length <= 0) return;
+        int start = Math.max(0, Math.min(offset / SLOT_BYTES, parcel.data.size()));
+        int slots = (length + SLOT_BYTES - 1) / SLOT_BYTES;
+        int end = Math.max(start, Math.min(start + slots, parcel.data.size()));
+        for (int i = start; i < end; i++) {
+            writeItem(parcel.data.get(i));
+        }
     }
 
     public <T extends Parcelable> void writeTypedList(List<T> val) {

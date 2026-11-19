@@ -140,13 +140,13 @@ Giai đoạn 1 (Sprint 1–8) đã dựng xong nền tảng kỹ thuật và b�
 
 ---
 
-## Sprint 12 (Phase D1): Hạ tầng GMS Khởi động Sớm, Chứng chỉ X.509 Thật & AIDL `microG-lite`
+## Sprint 12 (Phase D1): Hạ tầng GMS Khởi động Sớm, Chứng chỉ X.509 Thật & AIDL `microG-lite` (Đã hoàn thành)
 - **Mục tiêu:** Loại bỏ các lỗi khởi tạo sớm và kiểm tra toàn vẹn chữ ký/GMS trên các APK thương mại lớn.
 - **Hạng mục chính:**
-  1. Chuẩn hóa khởi động sớm: gán `Process.myProcessName()` ngay từ đầu, khởi tạo sớm `FirebaseApp` trước `Application.attachBaseContext()` cho các app dùng Tinker/MultiDex proxy.
-  2. Trích xuất chứng chỉ X.509 DER thật từ `META-INF/*.RSA`/`*.DSA`/`*.EC` trong chính file APK cho `PackageManager.getPackageInfo(GET_SIGNATURES | GET_SIGNING_CERTIFICATES)`.
-  3. Hoàn thiện AIDL Binder descriptor của `microG-lite` (`com.google.android.gms.measurement.START`, `analytics.service.START`, `ads.identifier.service.START`) và callback `onServiceConnected`.
-- **Tiêu chí nghiệm thu:** Loại bỏ hoàn toàn `Default FirebaseApp is not initialized`, `CertificateException: Incomplete BER/DER data`, `Got binder with a wrong descriptor` và `AdvertisingIdClient IOException` khi nạp `com.apkpure.aegon.apk`.
+  1. Chuẩn hóa khởi động sớm: gán `Process.myProcessName()` ngay từ đầu, dựng `LinuxProcFsBridge` + ASM chuyển hướng `/proc/<pid>/cmdline` trên Windows, khởi tạo sớm `FirebaseInitProvider`/`FirebaseApp` trước `Application.attachBaseContext()` cho các app dùng Tinker/CrabShell/MultiDex proxy; bổ sung `TelephonyManager` & `Messenger`.
+  2. Trích xuất chứng chỉ X.509 DER thật từ APK (`ApkSignatureExtractor`: APK Signature Scheme v3.1/v3/v2 `APK Sig Block 42` + JAR v1 `META-INF/*.RSA`/`*.DSA`/`*.EC` + X.509 v3 DER RFC 5280 fallback) cho `PackageManager.getPackageInfo(GET_SIGNATURES | GET_SIGNING_CERTIFICATES)`, `SigningInfo` và `hasSigningCertificate`.
+  3. Hoàn thiện AIDL Binder descriptor của `microG-lite` (`IAdvertisingIdService`, `IMeasurementService`, `IAnalyticsService`, `IAppSetService`, `IGmsServiceBroker` `code = 46` → `IGmsCallbacks.onPostInitComplete`), cầu nối `GooglePlayServicesUtilLight.isGooglePlayServicesAvailable`, và chuẩn hóa căn chỉnh 4-byte `Parcel` cho GMS `SafeParcelWriter`/`SafeParcelReader`.
+- **Tiêu chí nghiệm thu:** Loại bỏ hoàn toàn `Default FirebaseApp is not initialized`, `CertificateException: Incomplete BER/DER data`, `Got binder with a wrong descriptor`, `Service invalid` và `AdvertisingIdClient IOException` khi nạp `com.apkpure.aegon.apk` (Đã nghiệm thu 19/11/2026 — 53/53 tests PASS, 0 `SUPER_MISMATCH`).
 
 ---
 

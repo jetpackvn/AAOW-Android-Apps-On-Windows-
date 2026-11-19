@@ -69,6 +69,7 @@ public abstract class Context {
     public static final String PRINT_SERVICE = "print";
     public static final String USER_SERVICE = "user";
     public static final String WIFI_SERVICE = "wifi";
+    public static final String TELEPHONY_SERVICE = "phone";
 
     public abstract AssetManager getAssets();
 
@@ -256,6 +257,7 @@ public abstract class Context {
         if (serviceClass == android.app.job.JobScheduler.class) return JOB_SCHEDULER_SERVICE;
         if (serviceClass == android.os.UserManager.class) return USER_SERVICE;
         if (serviceClass == android.net.wifi.WifiManager.class) return WIFI_SERVICE;
+        if (serviceClass == android.telephony.TelephonyManager.class) return TELEPHONY_SERVICE;
         return null;
     }
 

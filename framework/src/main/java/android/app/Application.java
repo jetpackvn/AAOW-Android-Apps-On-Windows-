@@ -80,8 +80,36 @@ public class Application extends ContextWrapper implements ComponentCallbacks2 {
         super(null);
     }
 
+    /**
+     * Gắn sớm base context mà chưa gọi callback {@code attachBaseContext()} của lớp
+     * con,
+     * để các {@code ContentProvider} khởi động sớm (như
+     * {@code FirebaseInitProvider})
+     * nhìn thấy một thực thể {@code android.app.Application} hợp lệ với đầy đủ
+     * {@code Resources}/{@code PackageManager}.
+     */
+    public final void preAttachBaseContext(Context context) {
+        if (context != null && context.getPackageName() != null && !context.getPackageName().isEmpty()) {
+            ActivityThread.setPackageName(context.getPackageName());
+            ActivityThread.setProcessName(context.getPackageName());
+        }
+        super.attachBaseContext(context);
+        ActivityThread.setCurrentApplication(this);
+    }
+
+    @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(base);
+        if (base != null && base.getPackageName() != null && !base.getPackageName().isEmpty()) {
+            ActivityThread.setPackageName(base.getPackageName());
+        }
+        ActivityThread.setCurrentApplication(this);
+    }
+
     public void attach(Context context) {
-        ActivityThread.setPackageName(context != null ? context.getPackageName() : null);
+        if (context != null && context.getPackageName() != null && !context.getPackageName().isEmpty()) {
+            ActivityThread.setPackageName(context.getPackageName());
+        }
         attachBaseContext(context);
         ActivityThread.setCurrentApplication(this);
     }

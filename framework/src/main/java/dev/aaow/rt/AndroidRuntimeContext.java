@@ -87,8 +87,10 @@ public final class AndroidRuntimeContext extends Context {
     private final JobScheduler jobScheduler;
     private final android.os.UserManager userManager;
     private final android.net.wifi.WifiManager wifiManager;
+    private final android.telephony.TelephonyManager telephonyManager;
     private final ClassLoader classLoader;
     private final Path dataDir;
+    private final Set<String> installedProviderClasses = ConcurrentHashMap.newKeySet();
     private final Map<String, SharedPreferences> prefsCache = new ConcurrentHashMap<>();
     private final List<RegisteredReceiver> receivers = new CopyOnWriteArrayList<>();
     private final Map<String, Intent> stickyBroadcasts = new ConcurrentHashMap<>();
@@ -142,6 +144,11 @@ public final class AndroidRuntimeContext extends Context {
         }
         this.classLoader = classLoader;
         this.dataDir = absRoot.resolve(manifest.packageName.isEmpty() ? "default_app" : manifest.packageName);
+        if (manifest.packageName != null && !manifest.packageName.isEmpty()) {
+            android.app.ActivityThread.setPackageName(manifest.packageName);
+            android.app.ActivityThread.setProcessName(manifest.packageName);
+        }
+        LinuxProcFsBridge.configure(manifest.packageName, this.dataDir);
         try {
             Files.createDirectories(dataDir.resolve("files"));
             Files.createDirectories(dataDir.resolve("cache"));
@@ -167,7 +174,7 @@ public final class AndroidRuntimeContext extends Context {
         this.appInfo.minSdkVersion = manifest.minSdk;
         this.appInfo.targetSdkVersion = manifest.targetSdk;
 
-        this.packageManager = new PackageManager(manifest, appInfo, resources);
+        this.packageManager = new PackageManager(manifest, appInfo, resources, apk);
         this.contentResolver = new ContentResolver(this);
         this.contentResolver.registerProvider("com.google.android.gsf.gservices",
                 new MicroGServiceRegistry.GServicesProvider());
@@ -185,6 +192,7 @@ public final class AndroidRuntimeContext extends Context {
         this.jobScheduler = JobScheduler.createDefault();
         this.userManager = new android.os.UserManager();
         this.wifiManager = new android.net.wifi.WifiManager();
+        this.telephonyManager = new android.telephony.TelephonyManager();
     }
 
     private static final class HostWindowManager implements WindowManager {
@@ -220,6 +228,97 @@ public final class AndroidRuntimeContext extends Context {
     }
 
     /**
+     * Khởi tạo sớm {@code FirebaseInitProvider} & {@code FirebaseApp} TRƯỚC
+     * {@code Application.attachBaseContext()}
+     * nhằm hỗ trợ các ứng dụng dùng Tinker / CrabShell / MultiDex proxy gọi
+     * FirebaseCrashlytics/Analytics
+     * ngay trong {@code attachBaseContext()} mà không văng
+     * {@code Default FirebaseApp is not initialized}.
+     */
+    public void installEarlyFirebaseProviders() {
+        Context providerCtx = applicationInstance != null ? applicationInstance : this;
+        boolean installedManifestFirebase = false;
+        if (manifest != null && !manifest.providers.isEmpty()) {
+            for (AndroidManifest.Provider p : manifest.providers) {
+                if (p.enabled && isFirebaseInitProvider(p)) {
+                    if (installSingleProvider(p, providerCtx)) {
+                        installedManifestFirebase = true;
+                    }
+                }
+            }
+        }
+        // Nếu APK không đóng gói hoặc không khai báo FirebaseInitProvider (hoặc dùng
+        // microG-lite FirebaseApp),
+        // khởi tạo sẵn FirebaseApp nếu lớp này tồn tại trong APK/microG-lite hoặc
+        // resources có google_app_id.
+        if (!installedManifestFirebase) {
+            try {
+                int appIdRes = resources.getIdentifier("google_app_id", "string", manifest.packageName);
+                if (appIdRes != 0) {
+                    Class<?> fbCls = Class.forName("com.google.firebase.FirebaseApp", true, classLoader);
+                    java.lang.reflect.Method initMethod = fbCls.getMethod("initializeApp", Context.class);
+                    initMethod.invoke(null, providerCtx);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private static boolean isFirebaseInitProvider(AndroidManifest.Provider p) {
+        if (p == null) return false;
+        String className = p.name != null ? p.name : "";
+        if ("com.google.firebase.provider.FirebaseInitProvider".equals(className)
+                || className.endsWith(".FirebaseInitProvider")
+                || className.endsWith("$FirebaseInitProvider")) {
+            return true;
+        }
+        String auth = p.authorities != null ? p.authorities : "";
+        return auth.endsWith(".firebaseinitprovider");
+    }
+
+    private boolean installSingleProvider(AndroidManifest.Provider p, Context providerCtx) {
+        if (p == null || p.name == null || p.name.isEmpty()
+                || p.authorities == null || p.authorities.isEmpty()) {
+            return false;
+        }
+        if (!installedProviderClasses.add(p.name)) {
+            return true;
+        }
+        try {
+            Class<?> cls = Class.forName(p.name, true, classLoader);
+            if (!ContentProvider.class.isAssignableFrom(cls)) {
+                return false;
+            }
+            ContentProvider cp = (ContentProvider) cls.getDeclaredConstructor().newInstance();
+            ProviderInfo pi = packageManager.resolveContentProvider(p.authorities.split(";")[0].trim(),
+                    PackageManager.GET_META_DATA);
+            if (pi == null) {
+                pi = new ProviderInfo();
+                pi.packageName = manifest.packageName;
+                pi.name = p.name;
+                pi.authority = p.authorities;
+                pi.enabled = p.enabled;
+                pi.exported = p.exported;
+                pi.grantUriPermissions = p.grantUriPermissions;
+                pi.initOrder = p.initOrder;
+                pi.applicationInfo = appInfo;
+            }
+            cp.attachInfo(providerCtx, pi);
+            for (String auth : p.authorities.split(";")) {
+                String clean = auth.trim();
+                if (!clean.isEmpty()) {
+                    contentResolver.registerInitializedProvider(clean, cp);
+                }
+            }
+            return true;
+        } catch (Throwable t) {
+            installedProviderClasses.remove(p.name);
+            Log.w(TAG, "Bỏ qua ContentProvider khởi động " + p.name + ": " + t);
+            return false;
+        }
+    }
+
+    /**
      * Khởi tạo toàn bộ ContentProvider khai báo trong AndroidManifest.xml (theo thứ
      * tự initOrder giảm dần),
      * tương đương bước ActivityThread.installContentProviders() ngay trước
@@ -240,36 +339,7 @@ public final class AndroidRuntimeContext extends Context {
         Context providerCtx = applicationInstance != null ? applicationInstance : this;
 
         for (AndroidManifest.Provider p : ordered) {
-            if (p.authorities == null || p.authorities.isEmpty())
-                continue;
-            try {
-                Class<?> cls = Class.forName(p.name, true, classLoader);
-                if (!ContentProvider.class.isAssignableFrom(cls))
-                    continue;
-                ContentProvider cp = (ContentProvider) cls.getDeclaredConstructor().newInstance();
-                ProviderInfo pi = packageManager.resolveContentProvider(p.authorities.split(";")[0].trim(),
-                        PackageManager.GET_META_DATA);
-                if (pi == null) {
-                    pi = new ProviderInfo();
-                    pi.packageName = manifest.packageName;
-                    pi.name = p.name;
-                    pi.authority = p.authorities;
-                    pi.enabled = p.enabled;
-                    pi.exported = p.exported;
-                    pi.grantUriPermissions = p.grantUriPermissions;
-                    pi.initOrder = p.initOrder;
-                    pi.applicationInfo = appInfo;
-                }
-                cp.attachInfo(providerCtx, pi);
-                for (String auth : p.authorities.split(";")) {
-                    String clean = auth.trim();
-                    if (!clean.isEmpty()) {
-                        contentResolver.registerInitializedProvider(clean, cp);
-                    }
-                }
-            } catch (Throwable t) {
-                Log.w(TAG, "Bỏ qua ContentProvider khởi động " + p.name + ": " + t);
-            }
+            installSingleProvider(p, providerCtx);
         }
     }
 
@@ -645,6 +715,8 @@ public final class AndroidRuntimeContext extends Context {
     public void unbindService(ServiceConnection conn) {
         if (conn == null)
             return;
+        if (MicroGServiceRegistry.unbindVirtualService(conn))
+            return;
         ServiceBinding binding = boundConnections.remove(conn);
         if (binding == null)
             return;
@@ -872,6 +944,9 @@ public final class AndroidRuntimeContext extends Context {
         }
         if (WIFI_SERVICE.equals(name)) {
             return wifiManager;
+        }
+        if (TELEPHONY_SERVICE.equals(name)) {
+            return telephonyManager;
         }
         return null;
     }

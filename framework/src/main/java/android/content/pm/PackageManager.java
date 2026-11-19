@@ -8,12 +8,15 @@ import android.os.Bundle;
 import android.util.AndroidException;
 import dev.aaow.apk.AndroidManifest;
 import dev.aaow.apk.ApkFile;
+import dev.aaow.apk.ApkSignatureExtractor;
 import dev.aaow.apk.ResValue;
 import dev.aaow.rt.microg.MicroGServiceRegistry;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +39,8 @@ public class PackageManager {
     public static final int COMPONENT_ENABLED_STATE_DISABLED_USER = 3;
     public static final int COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED = 4;
     public static final int DONT_KILL_APP = 1;
+    public static final int CERT_INPUT_RAW_X509 = 0;
+    public static final int CERT_INPUT_SHA256 = 1;
 
     public static class NameNotFoundException extends AndroidException {
         public NameNotFoundException() {
@@ -129,17 +134,25 @@ public class PackageManager {
     private final AndroidManifest manifest;
     private final ApplicationInfo appInfo;
     private final Resources resources;
+    private final ApkFile apkFile;
+    private volatile Signature[] cachedAppSignatures;
+    private volatile int cachedSchemeVersion;
     private final Map<ComponentName, Integer> componentEnabledStates = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<String, String> installerPackages = new java.util.concurrent.ConcurrentHashMap<>();
 
     public PackageManager(AndroidManifest manifest, ApplicationInfo appInfo) {
-        this(manifest, appInfo, null);
+        this(manifest, appInfo, null, null);
     }
 
     public PackageManager(AndroidManifest manifest, ApplicationInfo appInfo, Resources resources) {
+        this(manifest, appInfo, resources, null);
+    }
+
+    public PackageManager(AndroidManifest manifest, ApplicationInfo appInfo, Resources resources, ApkFile apkFile) {
         this.manifest = manifest;
         this.appInfo = appInfo;
         this.resources = resources;
+        this.apkFile = apkFile;
         if (this.appInfo != null && manifest != null && !manifest.applicationMetaData.isEmpty()) {
             this.appInfo.metaData = toBundle(manifest.applicationMetaData);
         }
@@ -229,7 +242,7 @@ public class PackageManager {
             ai.minSdkVersion = mf.minSdk;
             ai.targetSdkVersion = mf.targetSdk;
             ai.metaData = toBundle(mf.applicationMetaData);
-            return buildPackageInfo(mf, ai, flags);
+            return buildPackageInfo(mf, ai, flags, apk);
         } catch (Exception e) {
             return null;
         }
@@ -246,13 +259,19 @@ public class PackageManager {
     }
 
     private PackageInfo buildPackageInfo(AndroidManifest mf, ApplicationInfo ai, int flags) {
+        return buildPackageInfo(mf, ai, flags, apkFile);
+    }
+
+    private PackageInfo buildPackageInfo(AndroidManifest mf, ApplicationInfo ai, int flags, ApkFile sourceApk) {
         PackageInfo pi = new PackageInfo();
         pi.packageName = mf.packageName;
         pi.versionName = mf.versionName;
         pi.versionCode = mf.versionCode;
         pi.longVersionCode = mf.versionCode;
         pi.applicationInfo = ai;
-        pi.signatures = new Signature[] { MicroGServiceRegistry.getDefaultAppSignature() };
+        ResolvedSignatures resolved = resolveSignatures(sourceApk);
+        pi.signatures = resolved.signatures.clone();
+        pi.signingInfo = SigningInfo.fromSignatures(resolved.schemeVersion, resolved.signatures);
         if ((flags & GET_PERMISSIONS) != 0 || !mf.permissions.isEmpty()) {
             pi.requestedPermissions = mf.permissions.toArray(new String[0]);
         }
@@ -269,6 +288,64 @@ public class PackageManager {
             pi.providers = mf.providers.stream().map(p -> toProviderInfo(mf, ai, p)).toArray(ProviderInfo[]::new);
         }
         return pi;
+    }
+
+    private record ResolvedSignatures(Signature[] signatures, int schemeVersion) {
+    }
+
+    private ResolvedSignatures resolveSignatures(ApkFile sourceApk) {
+        if (sourceApk == this.apkFile && cachedAppSignatures != null) {
+            return new ResolvedSignatures(cachedAppSignatures, cachedSchemeVersion);
+        }
+        Signature[] sigs = null;
+        int scheme = SigningInfo.VERSION_JAR;
+        if (sourceApk != null) {
+            try {
+                ApkSignatureExtractor.SigningResult res = sourceApk.getSigningResult();
+                if (res != null && res.hasCertificates()) {
+                    List<byte[]> certs = res.certificates();
+                    sigs = new Signature[certs.size()];
+                    for (int i = 0; i < certs.size(); i++) {
+                        sigs[i] = new Signature(certs.get(i));
+                    }
+                    scheme = res.schemeVersion() > 0 ? res.schemeVersion() : SigningInfo.VERSION_JAR;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (sigs == null || sigs.length == 0) {
+            sigs = new Signature[]{MicroGServiceRegistry.getDefaultAppSignature()};
+            scheme = SigningInfo.VERSION_JAR;
+        }
+        if (sourceApk == this.apkFile) {
+            cachedAppSignatures = sigs;
+            cachedSchemeVersion = scheme;
+        }
+        return new ResolvedSignatures(sigs, scheme);
+    }
+
+    public boolean hasSigningCertificate(String packageName, byte[] certificate, int type) {
+        if (packageName == null || certificate == null || certificate.length == 0) {
+            return false;
+        }
+        try {
+            PackageInfo pi = getPackageInfo(packageName, GET_SIGNING_CERTIFICATES | GET_SIGNATURES);
+            if (pi == null || pi.signatures == null) return false;
+            for (Signature sig : pi.signatures) {
+                byte[] raw = sig.toByteArray();
+                if (type == CERT_INPUT_RAW_X509 && Arrays.equals(raw, certificate)) {
+                    return true;
+                }
+                if (type == CERT_INPUT_SHA256) {
+                    byte[] digest = MessageDigest.getInstance("SHA-256").digest(raw);
+                    if (Arrays.equals(digest, certificate)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     public ApplicationInfo getApplicationInfo(String packageName, int flags) throws NameNotFoundException {

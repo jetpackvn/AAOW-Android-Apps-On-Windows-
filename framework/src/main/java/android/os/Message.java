@@ -5,6 +5,7 @@ public final class Message implements Parcelable {
     public int arg1;
     public int arg2;
     public Object obj;
+    public Messenger replyTo;
     public int sendingUid = -1;
     public long when;
     public Handler target;
@@ -22,6 +23,7 @@ public final class Message implements Parcelable {
             m.arg1 = orig.arg1;
             m.arg2 = orig.arg2;
             m.obj = orig.obj;
+            m.replyTo = orig.replyTo;
             m.sendingUid = orig.sendingUid;
             m.target = orig.target;
             m.callback = orig.callback;
