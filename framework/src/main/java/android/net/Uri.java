@@ -271,6 +271,9 @@ public final class Uri implements Comparable<Uri>, Parcelable {
                 sb.append("//").append(authority);
             }
             if (path != null && !path.isEmpty()) {
+                if (authority != null && !path.startsWith("/")) {
+                    sb.append('/');
+                }
                 sb.append(path);
             }
             if (query != null && !query.isEmpty()) {

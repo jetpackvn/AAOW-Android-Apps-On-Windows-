@@ -14,6 +14,7 @@ import java.util.List;
 
 public class TypedArray implements AutoCloseable {
     private final Resources resources;
+    private final List<Integer> themeLayers;
     private final int[] attrs;
     private final ResValue[] values;
     private final int[] rawRefs;
@@ -22,6 +23,7 @@ public class TypedArray implements AutoCloseable {
 
     public TypedArray(Resources resources, int[] attrs) {
         this.resources = resources;
+        this.themeLayers = List.of();
         this.attrs = attrs != null ? attrs : new int[0];
         this.values = new ResValue[this.attrs.length];
         this.rawRefs = new int[this.attrs.length];
@@ -29,14 +31,24 @@ public class TypedArray implements AutoCloseable {
         this.positionDescription = "";
     }
 
-    private TypedArray(Resources resources, int[] attrs, ResValue[] values, int[] rawRefs,
+    private TypedArray(Resources resources, List<Integer> themeLayers, int[] attrs, ResValue[] values, int[] rawRefs,
                        int[] indices, String positionDescription) {
         this.resources = resources;
+        this.themeLayers = themeLayers != null ? List.copyOf(themeLayers) : List.of();
         this.attrs = attrs;
         this.values = values;
         this.rawRefs = rawRefs;
         this.indices = indices;
         this.positionDescription = positionDescription != null ? positionDescription : "";
+    }
+
+    private Resources.Theme buildTheme() {
+        if (resources == null || themeLayers.isEmpty()) return null;
+        Resources.Theme t = resources.newTheme();
+        for (int i = themeLayers.size() - 1; i >= 0; i--) {
+            t.applyStyle(themeLayers.get(i), true);
+        }
+        return t;
     }
 
     static TypedArray obtain(Resources res, int themeResId, AttributeSet set, int[] attrs,
@@ -56,39 +68,64 @@ public class TypedArray implements AutoCloseable {
         int styleFromDefAttr = 0;
         if (defStyleAttr != 0) {
             ResValue styleRef = resolveAttrAcrossThemes(res, themeLayers, defStyleAttr);
+            styleRef = resolveAttrChain(res, themeLayers, styleRef);
             if (styleRef != null && styleRef.isReference()) {
                 styleFromDefAttr = styleRef.data();
             }
         }
         int xmlStyleAttr = set != null ? set.getStyleAttribute() : 0;
-        AttributeSet.XmlAttributeSet xas = set instanceof AttributeSet.XmlAttributeSet x ? x : null;
+        XmlElement xmlEl = null;
+        if (set instanceof AttributeSet.XmlAttributeSet x) {
+            xmlEl = x.element;
+        } else if (set instanceof dev.aaow.rt.AxmlXmlResourceParser axml) {
+            xmlEl = axml.getCurrentXmlElement();
+        }
+        if (xmlStyleAttr == 0 && xmlEl != null) {
+            XmlElement.Attribute styleAttr = xmlEl.attr(null, "style");
+            if (styleAttr != null) {
+                ResValue sr = resolveAttrChain(res, themeLayers, styleAttr.value);
+                if (sr != null && sr.isReference()) {
+                    xmlStyleAttr = sr.data();
+                }
+            }
+        }
 
         for (int i = 0; i < attrs.length; i++) {
             int attrId = attrs[i];
             ResValue raw = null;
-            if (xas != null) {
-                raw = findInXmlElement(res, xas.element, attrId);
+            if (xmlEl != null) {
+                raw = findInXmlElement(res, xmlEl, attrId);
             } else if (set != null) {
                 raw = findInGenericAttributeSet(set, attrId);
             }
             if (raw == null && xmlStyleAttr != 0) {
-                raw = res.resolveStyleAttr(xmlStyleAttr, attrId);
+                raw = res.resolveStyleAttrRaw(xmlStyleAttr, attrId);
             }
             if (raw == null && styleFromDefAttr != 0) {
-                raw = res.resolveStyleAttr(styleFromDefAttr, attrId);
+                raw = res.resolveStyleAttrRaw(styleFromDefAttr, attrId);
             }
             if (raw == null && defStyleRes != 0) {
-                raw = res.resolveStyleAttr(defStyleRes, attrId);
+                raw = res.resolveStyleAttrRaw(defStyleRes, attrId);
             }
             if (raw == null) {
                 raw = resolveAttrAcrossThemes(res, themeLayers, attrId);
             }
 
             if (raw != null) {
-                if (raw.isReference()) {
+                ResValue deref = resolveAttrChain(res, themeLayers, raw);
+                if (deref != null && deref.isReference()) {
+                    refs[i] = deref.data();
+                } else if (raw.isReference()) {
                     refs[i] = raw.data();
                 }
-                ResValue val = resolveAttrValue(res, themeLayers, raw);
+                ResValue val = deref != null && res != null ? res.getTable().resolve(deref) : deref;
+                if (val != null && val.type() == ResValue.TYPE_ATTRIBUTE && res != null) {
+                    ResValue second = resolveAttrChain(res, themeLayers, val);
+                    if (second != null) {
+                        if (second.isReference()) refs[i] = second.data();
+                        val = res.getTable().resolve(second);
+                    }
+                }
                 if (val != null && val.type() != ResValue.TYPE_NULL) {
                     resolved[i] = val;
                     idxList.add(i);
@@ -101,16 +138,27 @@ public class TypedArray implements AutoCloseable {
             idxArr[i] = idxList.get(i);
         }
         String posDesc = set != null ? set.getPositionDescription() : "";
-        return new TypedArray(res, attrs, resolved, refs, idxArr, posDesc);
+        return new TypedArray(res, themeLayers, attrs, resolved, refs, idxArr, posDesc);
     }
 
     private static ResValue resolveAttrAcrossThemes(Resources res, List<Integer> themeLayers, int attrId) {
         if (res == null || attrId == 0) return null;
         for (int styleId : themeLayers) {
-            ResValue rv = res.resolveStyleAttr(styleId, attrId);
+            ResValue rv = res.resolveStyleAttrRaw(styleId, attrId);
             if (rv != null) return rv;
         }
         return null;
+    }
+
+    private static ResValue resolveAttrChain(Resources res, List<Integer> themeLayers, ResValue raw) {
+        if (raw == null || res == null) return raw;
+        ResValue cur = raw;
+        for (int depth = 0; depth < 8 && cur != null && cur.type() == ResValue.TYPE_ATTRIBUTE; depth++) {
+            ResValue next = resolveAttrAcrossThemes(res, themeLayers, cur.data());
+            if (next == null) break;
+            cur = next;
+        }
+        return cur;
     }
 
     private static ResValue findInXmlElement(Resources res, XmlElement el, int attrId) {
@@ -148,15 +196,6 @@ public class TypedArray implements AutoCloseable {
             }
         }
         return null;
-    }
-
-    private static ResValue resolveAttrValue(Resources res, List<Integer> themeLayers, ResValue raw) {
-        if (raw == null || res == null) return raw;
-        if (raw.type() == ResValue.TYPE_ATTRIBUTE) {
-            ResValue themed = resolveAttrAcrossThemes(res, themeLayers, raw.data());
-            if (themed != null) return themed;
-        }
-        return res.getTable().resolve(raw);
     }
 
     private ResValue valueAt(int index) {
@@ -277,7 +316,13 @@ public class TypedArray implements AutoCloseable {
     public int getColor(int index, int defValue) {
         ResValue v = valueAt(index);
         if (v == null) return defValue;
-        if (resources != null) return resources.resolveColor(v, defValue);
+        if (resources != null) {
+            if (v.isString() && v.string() != null && v.string().endsWith(".xml")) {
+                ColorStateList csl = getColorStateList(index);
+                return csl != null ? csl.getDefaultColor() : defValue;
+            }
+            return resources.resolveColor(v, buildTheme(), defValue);
+        }
         if (v.isColor() || v.isInt()) return v.data();
         if (v.isString() && v.string() != null && v.string().startsWith("#")) {
             try {
@@ -291,8 +336,26 @@ public class TypedArray implements AutoCloseable {
     public ColorStateList getColorStateList(int index) {
         ResValue v = valueAt(index);
         if (v == null) return null;
-        int c = getColor(index, 0);
-        return ColorStateList.valueOf(c);
+        int refId = (index >= 0 && index < rawRefs.length) ? rawRefs[index] : 0;
+        if (refId != 0 && resources != null) {
+            return resources.getColorStateList(refId, buildTheme());
+        }
+        if (v.isString() && v.string() != null && v.string().endsWith(".xml") && resources != null) {
+            XmlElement xml = resources.loadXmlByPath(v.string());
+            if (xml != null) {
+                return ColorStateList.fromXmlElement(xml, resources, buildTheme());
+            }
+        }
+        if (v.isColor() || v.isInt()) {
+            return ColorStateList.valueOf(v.data());
+        }
+        if (v.isString() && v.string() != null && v.string().startsWith("#")) {
+            try {
+                return ColorStateList.valueOf(Color.parseColor(v.string()));
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
     }
 
     public int getInteger(int index, int defValue) {
@@ -354,7 +417,7 @@ public class TypedArray implements AutoCloseable {
     public Drawable getDrawable(int index) {
         int resId = getResourceId(index, 0);
         if (resId != 0 && resources != null) {
-            return resources.getDrawable(resId);
+            return resources.getDrawable(resId, buildTheme());
         }
         ResValue v = valueAt(index);
         if (v != null && v.isColor()) {

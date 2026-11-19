@@ -250,7 +250,7 @@ class Sprint8FrameworkTest {
         try (ApkFile apk = new ApkFile(copyApk)) {
             Path jarPath = DexLoader.ensureDexJar(apk, dexCache);
             assertTrue(Files.isRegularFile(jarPath));
-            assertTrue(jarPath.getFileName().toString().endsWith("-v9.jar"));
+            assertTrue(jarPath.getFileName().toString().endsWith("-v10.jar"));
 
             Path refsPath = Path.of(jarPath.toString() + ".refs");
             assertTrue(Files.isRegularFile(refsPath), "DexLoader phải sinh file chỉ mục .refs trong cùng lần biên dịch");

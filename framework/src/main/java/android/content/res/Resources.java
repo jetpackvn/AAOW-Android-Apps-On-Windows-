@@ -85,19 +85,40 @@ public class Resources {
         }
 
         public boolean resolveAttribute(int resid, TypedValue outValue, boolean resolveRefs) {
-            ResValue rv = null;
-            for (int styleId : styleLayers) {
-                rv = resolveStyleAttr(styleId, resid);
-                if (rv != null) break;
-            }
+            ResValue rv = resolveAttributeValue(resid);
             if (rv == null) return false;
+            int rawRef = rv.isReference() ? rv.data() : 0;
+            if (resolveRefs) {
+                ResValue resolved = table.resolve(rv);
+                if (resolved != null) rv = resolved;
+            }
             if (outValue != null) {
                 outValue.type = rv.type();
                 outValue.data = rv.data();
                 outValue.string = rv.string();
-                outValue.resourceId = rv.isReference() ? rv.data() : resid;
+                outValue.resourceId = rawRef != 0 ? rawRef : (rv.isReference() ? rv.data() : resid);
             }
             return true;
+        }
+
+        public ResValue resolveAttributeValue(int resid) {
+            int curAttr = resid;
+            ResValue last = null;
+            for (int depth = 0; depth < 8 && curAttr != 0; depth++) {
+                ResValue rv = null;
+                for (int styleId : styleLayers) {
+                    rv = resolveStyleAttrRaw(styleId, curAttr);
+                    if (rv != null) break;
+                }
+                if (rv == null) return last;
+                last = rv;
+                if (rv.type() == ResValue.TYPE_ATTRIBUTE && rv.data() != curAttr) {
+                    curAttr = rv.data();
+                    continue;
+                }
+                return rv;
+            }
+            return last;
         }
     }
 
@@ -221,19 +242,42 @@ public class Resources {
         if (sys != null) return sys;
         ResValue v = table.getValue(id);
         if (v != null) {
+            if (v.type() == ResValue.TYPE_ATTRIBUTE && theme != null) {
+                ResValue themed = theme.resolveAttributeValue(v.data());
+                if (themed != null) return resolveColor(themed, theme, Color.BLACK);
+            }
             if (v.isColor() || v.isInt()) return v.data();
-            if (v.isString() && v.string() != null && v.string().startsWith("#")) {
-                return Color.parseColor(v.string());
+            if (v.isString() && v.string() != null) {
+                if (v.string().startsWith("#")) {
+                    return Color.parseColor(v.string());
+                }
+                if (v.string().endsWith(".xml") && apk != null) {
+                    try {
+                        XmlElement xml = loadXmlElement(id);
+                        return ColorStateList.fromXmlElement(xml, this, theme).getDefaultColor();
+                    } catch (Exception ignored) {
+                    }
+                }
             }
         }
         return Color.BLACK;
     }
 
     public ColorStateList getColorStateList(int id) {
-        return ColorStateList.valueOf(getColor(id));
+        return getColorStateList(id, null);
     }
 
     public ColorStateList getColorStateList(int id, Theme theme) {
+        Integer sys = AndroidSystemResources.systemColor(id);
+        if (sys != null) return ColorStateList.valueOf(sys);
+        ResValue v = table.getValue(id);
+        if (v != null && v.isString() && v.string() != null && v.string().endsWith(".xml") && apk != null) {
+            try {
+                XmlElement xml = loadXmlElement(id);
+                return ColorStateList.fromXmlElement(xml, this, theme);
+            } catch (Exception ignored) {
+            }
+        }
         return ColorStateList.valueOf(getColor(id, theme));
     }
 
@@ -289,8 +333,8 @@ public class Resources {
             try {
                 if (path.endsWith(".xml")) {
                     XmlElement xml = loadXmlElement(id);
-                    Drawable d = XmlDrawableLoader.fromXml(xml, this);
-                    if (d != null && (d instanceof VectorDrawable || d instanceof GradientDrawable || d instanceof ColorDrawable)) {
+                    Drawable d = XmlDrawableLoader.fromXml(xml, this, theme);
+                    if (theme == null && d != null && (d instanceof VectorDrawable || d instanceof GradientDrawable || d instanceof ColorDrawable)) {
                         resourceCache.putDrawableState(id, d.getConstantState());
                     }
                     return d;
@@ -396,6 +440,14 @@ public class Resources {
                 outValue.resourceId = id;
                 return;
             }
+            if ((id & 0xFFFF0000) == 0x01080000) {
+                // Android framework drawable (e.g. android.R.drawable.list_selector_background)
+                outValue.type = TypedValue.TYPE_INT_COLOR_ARGB8;
+                outValue.data = 0x00000000;
+                outValue.string = null;
+                outValue.resourceId = id;
+                return;
+            }
             throw new NotFoundException("Resource ID #0x" + Integer.toHexString(id));
         }
         outValue.type = v.type();
@@ -496,6 +548,7 @@ public class Resources {
         if ("android".equals(pkg) && "id".equals(type)) {
             if ("action_bar".equals(entry)) return AndroidSystemResources.ID_ACTION_BAR;
             if ("content".equals(entry)) return AndroidSystemResources.ID_ANDROID_CONTENT;
+            if ("title_template".equals(entry)) return 0x01020901;
         }
         if (type == null) return 0;
         return table.getIdentifier(type, entry);
@@ -536,21 +589,56 @@ public class Resources {
     }
 
     public int resolveColor(ResValue v, int def) {
+        return resolveColor(v, null, def);
+    }
+
+    public int resolveColor(ResValue v, Theme theme, int def) {
         if (v == null) return def;
-        if (v.isReference()) {
-            Integer sys = AndroidSystemResources.systemColor(v.data());
+        ResValue cur = v;
+        if (cur.type() == ResValue.TYPE_ATTRIBUTE && theme != null) {
+            ResValue themed = theme.resolveAttributeValue(cur.data());
+            if (themed == null) return def;
+            cur = themed;
+        }
+        int origRef = cur.isReference() ? cur.data() : 0;
+        if (origRef != 0) {
+            Integer sys = AndroidSystemResources.systemColor(origRef);
             if (sys != null) return sys;
         }
-        ResValue r = table.resolve(v);
+        ResValue r = table.resolve(cur);
         if (r == null) return def;
+        if (r.type() == ResValue.TYPE_ATTRIBUTE && theme != null && r.data() != cur.data()) {
+            return resolveColor(r, theme, def);
+        }
         if (r.isColor() || r.isInt()) return r.data();
-        if (r.isString() && r.string() != null && r.string().startsWith("#")) {
-            try {
-                return Color.parseColor(r.string());
-            } catch (Exception ignored) {
+        if (r.isString() && r.string() != null) {
+            if (r.string().startsWith("#")) {
+                try {
+                    return Color.parseColor(r.string());
+                } catch (Exception ignored) {
+                }
+            }
+            if (r.string().endsWith(".xml") && apk != null) {
+                try {
+                    XmlElement xml = origRef != 0 ? loadXmlElement(origRef) : loadXmlByPath(r.string());
+                    if (xml != null) {
+                        return ColorStateList.fromXmlElement(xml, this, theme).getDefaultColor();
+                    }
+                } catch (Exception ignored) {
+                }
             }
         }
         return def;
+    }
+
+    public XmlElement loadXmlByPath(String path) {
+        if (path == null || apk == null) return null;
+        try {
+            byte[] bytes = apk.read(path);
+            if (bytes != null) return AxmlParser.parse(bytes);
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     public float resolveDimension(ResValue v, float def) {
@@ -565,25 +653,31 @@ public class Resources {
         return def;
     }
 
-    /** Tìm thuộc tính trong một style và chuỗi parent của nó. */
-    public ResValue resolveStyleAttr(int styleResId, int attrResId) {
+    /** Tìm thuộc tính trong một style và chuỗi parent của nó (trả giá trị gốc trước khi resolve reference). */
+    public ResValue resolveStyleAttrRaw(int styleResId, int attrResId) {
         String targetName = AndroidSystemResources.attrName(attrResId);
         int cur = styleResId;
         for (int depth = 0; depth < 32 && cur != 0; depth++) {
             ResourceTable.Entry e = table.getEntry(cur);
             if (e == null || !e.isBag()) break;
             ResValue direct = e.bag.get(attrResId);
-            if (direct != null) return table.resolve(direct);
+            if (direct != null) return direct;
             if (targetName != null) {
                 for (Map.Entry<Integer, ResValue> kv : e.bag.entrySet()) {
                     ResourceTable.Entry ke = table.getEntry(kv.getKey());
                     if (ke != null && targetName.equals(ke.key)) {
-                        return table.resolve(kv.getValue());
+                        return kv.getValue();
                     }
                 }
             }
             cur = e.parent;
         }
         return null;
+    }
+
+    /** Tìm thuộc tính trong một style và chuỗi parent của nó. */
+    public ResValue resolveStyleAttr(int styleResId, int attrResId) {
+        ResValue raw = resolveStyleAttrRaw(styleResId, attrResId);
+        return raw != null ? table.resolve(raw) : null;
     }
 }

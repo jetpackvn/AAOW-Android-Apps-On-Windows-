@@ -20,20 +20,25 @@ public final class XmlDrawableLoader {
     }
 
     public static Drawable fromXml(XmlElement root, Resources res) {
+        return fromXml(root, res, null);
+    }
+
+    public static Drawable fromXml(XmlElement root, Resources res, Resources.Theme theme) {
         return switch (root.name) {
-            case "shape" -> parseShape(root, res);
-            case "vector" -> parseVector(root, res);
-            case "color" -> new ColorDrawable(colorAttr(root, "color", res, Color.TRANSPARENT));
-            case "adaptive-icon" -> parseAdaptiveIcon(root, res);
+            case "shape" -> parseShape(root, res, theme);
+            case "vector" -> parseVector(root, res, theme);
+            case "color" -> new ColorDrawable(colorAttr(root, "color", res, theme, Color.TRANSPARENT));
+            case "adaptive-icon" -> parseAdaptiveIcon(root, res, theme);
+            case "layer-list" -> parseLayerList(root, res, theme);
             case "selector", "ripple", "inset" -> {
                 for (XmlElement item : root.children) {
                     XmlElement.Attribute dAttr = item.attr("drawable");
                     if (dAttr != null && dAttr.value.isReference()) {
-                        Drawable d = res.getDrawable(dAttr.value.data());
+                        Drawable d = res.getDrawable(dAttr.value.data(), theme);
                         if (d != null) yield d;
                     }
                     if (!item.children.isEmpty()) {
-                        Drawable d = fromXml(item.children.get(0), res);
+                        Drawable d = fromXml(item.children.get(0), res, theme);
                         if (d != null) yield d;
                     }
                 }
@@ -43,7 +48,24 @@ public final class XmlDrawableLoader {
         };
     }
 
-    private static Drawable parseShape(XmlElement root, Resources res) {
+    private static Drawable parseLayerList(XmlElement root, Resources res, Resources.Theme theme) {
+        java.util.List<Drawable> layers = new java.util.ArrayList<>();
+        for (XmlElement item : root.children) {
+            if (!"item".equals(item.name)) continue;
+            Drawable d = null;
+            XmlElement.Attribute dAttr = item.attr("drawable");
+            if (dAttr != null && dAttr.value.isReference()) {
+                d = res.getDrawable(dAttr.value.data(), theme);
+            } else if (!item.children.isEmpty()) {
+                d = fromXml(item.children.get(0), res, theme);
+            }
+            if (d != null) layers.add(d);
+        }
+        if (layers.isEmpty()) return new ColorDrawable(Color.TRANSPARENT);
+        return new android.graphics.drawable.LayerDrawable(layers.toArray(new Drawable[0]));
+    }
+
+    private static Drawable parseShape(XmlElement root, Resources res, Resources.Theme theme) {
         GradientDrawable gd = new GradientDrawable();
         XmlElement.Attribute shapeAttr = root.attr("shape");
         if (shapeAttr != null) {
@@ -51,16 +73,16 @@ public final class XmlDrawableLoader {
         }
         for (XmlElement c : root.children) {
             switch (c.name) {
-                case "solid" -> gd.setColor(colorAttr(c, "color", res, Color.TRANSPARENT));
+                case "solid" -> gd.setColor(colorAttr(c, "color", res, theme, Color.TRANSPARENT));
                 case "corners" -> gd.setCornerRadius(dimenAttr(c, "radius", res, 0f));
                 case "stroke" -> {
                     int w = Math.round(dimenAttr(c, "width", res, 0f));
-                    int col = colorAttr(c, "color", res, Color.TRANSPARENT);
+                    int col = colorAttr(c, "color", res, theme, Color.TRANSPARENT);
                     gd.setStroke(w, col);
                 }
                 case "gradient" -> {
-                    int start = colorAttr(c, "startColor", res, 0);
-                    int end = colorAttr(c, "endColor", res, 0);
+                    int start = colorAttr(c, "startColor", res, theme, 0);
+                    int end = colorAttr(c, "endColor", res, theme, 0);
                     if (start != 0 || end != 0) {
                         gd.setColors(new int[]{start, end});
                     }
@@ -70,37 +92,39 @@ public final class XmlDrawableLoader {
         return gd;
     }
 
-    private static Drawable parseVector(XmlElement root, Resources res) {
+    private static Drawable parseVector(XmlElement root, Resources res, Resources.Theme theme) {
         float vw = floatAttr(root, "viewportWidth", res, 24f);
         float vh = floatAttr(root, "viewportHeight", res, 24f);
         int w = Math.round(dimenAttr(root, "width", res, 24f));
         int h = Math.round(dimenAttr(root, "height", res, 24f));
-        int tint = colorAttr(root, "tint", res, 0);
+        int tint = colorAttr(root, "tint", res, theme, 0);
         VectorDrawable vd = new VectorDrawable(vw, vh, w, h, tint);
-        collectVectorPaths(root, vd, res);
+        collectVectorPaths(root, vd, res, theme);
         return vd;
     }
 
-    private static void collectVectorPaths(XmlElement parent, VectorDrawable vd, Resources res) {
+    private static void collectVectorPaths(XmlElement parent, VectorDrawable vd, Resources res, Resources.Theme theme) {
         for (XmlElement c : parent.children) {
             if ("path".equals(c.name)) {
                 XmlElement.Attribute pd = c.attr("pathData");
                 String pathData = pd != null ? res.resolveString(pd.value) : null;
-                int fill = colorAttr(c, "fillColor", res, Color.TRANSPARENT);
-                int stroke = colorAttr(c, "strokeColor", res, Color.TRANSPARENT);
+                int fill = colorAttr(c, "fillColor", res, theme, Color.TRANSPARENT);
+                int stroke = colorAttr(c, "strokeColor", res, theme, Color.TRANSPARENT);
                 float sw = floatAttr(c, "strokeWidth", res, 0f);
-                vd.addPath(pathData, fill, stroke, sw);
+                XmlElement.Attribute ft = c.attr("fillType");
+                boolean evenOdd = ft != null && ft.value != null && ft.value.data() == 1;
+                vd.addPath(pathData, fill, stroke, sw, evenOdd);
             } else if ("group".equals(c.name)) {
-                collectVectorPaths(c, vd, res);
+                collectVectorPaths(c, vd, res, theme);
             }
         }
     }
 
-    private static Drawable parseAdaptiveIcon(XmlElement root, Resources res) {
+    private static Drawable parseAdaptiveIcon(XmlElement root, Resources res, Resources.Theme theme) {
         Drawable bg = null, fg = null;
         for (XmlElement c : root.children) {
             XmlElement.Attribute d = c.attr("drawable");
-            Drawable resolved = d != null && d.value.isReference() ? res.getDrawable(d.value.data()) : null;
+            Drawable resolved = d != null && d.value.isReference() ? res.getDrawable(d.value.data(), theme) : null;
             if ("background".equals(c.name)) bg = resolved;
             else if ("foreground".equals(c.name)) fg = resolved;
         }
@@ -131,10 +155,10 @@ public final class XmlDrawableLoader {
         };
     }
 
-    private static int colorAttr(XmlElement el, String name, Resources res, int def) {
+    private static int colorAttr(XmlElement el, String name, Resources res, Resources.Theme theme, int def) {
         XmlElement.Attribute a = el.attr(name);
         if (a == null) return def;
-        return res.resolveColor(a.value, def);
+        return res.resolveColor(a.value, theme, def);
     }
 
     private static float dimenAttr(XmlElement el, String name, Resources res, float def) {

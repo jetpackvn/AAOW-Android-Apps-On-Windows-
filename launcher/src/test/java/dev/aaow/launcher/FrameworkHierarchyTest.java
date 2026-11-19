@@ -166,6 +166,9 @@ class FrameworkHierarchyTest {
         assertNotNull(LruCache.class);
         assertNotNull(Choreographer.class);
         assertNotNull(Debug.class);
+        assertNotNull(android.media.ExifInterface.class);
+        assertNotNull(android.animation.LayoutTransition.class);
+        assertTrue(android.util.Property.class.isAssignableFrom(android.util.FloatProperty.class));
 
         Class<?>[] parcelables = {
                 Intent.class, IntentFilter.class, Bundle.class, PersistableBundle.class,

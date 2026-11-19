@@ -41,7 +41,8 @@ public final class WindowsFilePickerBridge {
         return Intent.ACTION_GET_CONTENT.equals(action)
                 || Intent.ACTION_OPEN_DOCUMENT.equals(action)
                 || Intent.ACTION_CREATE_DOCUMENT.equals(action)
-                || Intent.ACTION_OPEN_DOCUMENT_TREE.equals(action);
+                || Intent.ACTION_OPEN_DOCUMENT_TREE.equals(action)
+                || Intent.ACTION_PICK.equals(action);
     }
 
     public static Intent unwrapChooser(Intent intent) {

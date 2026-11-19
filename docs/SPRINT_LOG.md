@@ -370,3 +370,71 @@ Khi mở phiên hội thoại mới cho **Sprint 10**, triển khai theo thứ t
    - Viết bộ test tương tác tự động (mô phỏng sự kiện chuột/bàn phím trên `HostWindow` cho từng luồng chính của 5 APK Offline) và hỗ trợ cài/mở nhanh các APK kiểm thử trong `AppHubWindow`.
    - Nghiệm thu cuối Sprint 10: giữ 100% test JUnit 5 PASS (0 `SUPER_MISMATCH`), cập nhật `SPRINT_LOG.md`, `ROADMAP.md`, `GEMINI.md` và commit Git trước khi sang chat Sprint 11.
 
+---
+
+## Sprint 10 (Phase B): Chạy & Tương tác Trọn vẹn Các Ứng dụng Offline (Offline Apps)
+**Trạng thái:** ✅ Đã hoàn thành & Nghiệm thu (19/11/2026)
+
+### 1. Các hạng mục đã hoàn thành
+1. **Lớp phủ `Dialog` Tổng quát (`android.app.Dialog`, `androidx.appcompat.app.AlertDialog`, `MaterialAlertDialog`) & Theming Material/AppCompat (`:framework`):**
+   - Nâng cấp [HostWindow.java](../framework/src/main/java/dev/aaow/ui/HostWindow.java), [Dialog.java](../framework/src/main/java/android/app/Dialog.java), [AlertDialog.java](../framework/src/main/java/android/app/AlertDialog.java) và [Window.java](../framework/src/main/java/android/view/Window.java) để vẽ và định tuyến sự kiện chuột/bàn phím trực tiếp trên cây `View` thực của mọi `Dialog` (cả `android.app.AlertDialog` lẫn `androidx.appcompat.app.AlertDialog` / `MaterialAlertDialogBuilder`).
+   - Hỗ trợ đo đạc `MeasureSpec.AT_MOST`, căn giữa màn hình với lớp nền mờ (scrim), đóng dialog khi bấm nút (`BUTTON1`/`BUTTON2`/`BUTTON3`) hoặc chạm ngoài vùng `cancelable`, và hoàn thiện bố cục `AlertDialog` hệ thống (`android.R.id.title_template`, `customPanel`) cho các hộp thoại tùy biến.
+   - Bổ sung giải mã màu & thuộc tính giao diện Material/AppCompat trong [Resources.java](../framework/src/main/java/android/content/res/Resources.java), [TypedArray.java](../framework/src/main/java/android/content/res/TypedArray.java), [ColorStateList.java](../framework/src/main/java/android/content/res/ColorStateList.java), [XmlDrawableLoader.java](../framework/src/main/java/dev/aaow/ui/XmlDrawableLoader.java), [VectorDrawable.java](../framework/src/main/java/android/graphics/drawable/VectorDrawable.java) và sửa [Button.java](../framework/src/main/java/android/widget/Button.java) để các nút `MaterialButton` / borderless dialog button không bị ép chữ trắng trên nền sáng.
+   - Bổ sung cắt vùng clip ngược `Canvas.clipOutRect` / `clipOutPath` bằng `java.awt.geom.Area.subtract` trong [Canvas.java](../framework/src/main/java/android/graphics/Canvas.java), giúp khung viền `TextInputLayout` (`CutoutDrawable` của Material Components) khoét nhãn nổi *"Name"* / *"Category"* chuẩn xác.
+2. **Cài đặt Thật `android.media.ExifInterface`, Chuẩn hóa Đường dẫn Windows cho `FileProvider` & Cầu nối Chia sẻ (`:framework`, `:launcher`):**
+   - Xây dựng mới hoàn toàn [ExifInterface.java](../framework/src/main/java/android/media/ExifInterface.java) bằng thuần Java: phân tích và ghi binary phân đoạn JPEG (`SOI`, `APP1` EXIF TIFF header Little/Big Endian, `IFD0`, `ExifIFD`, `GPSIFD`, `SOFn`) và PNG (`IHDR`, `eXIf`), hỗ trợ đọc/ghi/xóa tag (`TAG_MAKE`, `TAG_MODEL`, `TAG_ORIENTATION`, `TAG_GPS_*`, `TAG_IMAGE_WIDTH`, `TAG_IMAGE_LENGTH`...) và `saveAttributes()` bảo toàn dữ liệu ảnh.
+   - Nâng cấp [Bitmap.java](../framework/src/main/java/android/graphics/Bitmap.java) (`Bitmap.compress(CompressFormat.JPEG/PNG/WEBP, quality, OutputStream)`) sử dụng `ImageIO` kết hợp `JPEGImageWriteParam` theo đúng mức `quality`.
+   - Sửa lỗi tương thích đường dẫn Windows (`\` vs `/`) trong AndroidX `FileProvider` bằng cách tự động chuẩn hóa kết quả `File.getCanonicalPath()` và `File.getPath()` sang `/` trong [DexLoader.java](../launcher/src/main/java/dev/aaow/launcher/DexLoader.java) (`-v10.jar`), đồng thời sửa [Uri.java](../framework/src/main/java/android/net/Uri.java) (`Uri.Builder.build()`) luôn thêm dấu `/` ngăn cách giữa `authority` và `encodedPath`.
+   - Tạo mới [WindowsShareBridge.java](../framework/src/main/java/dev/aaow/ui/WindowsShareBridge.java) và tích hợp vào [Activity.java](../framework/src/main/java/android/app/Activity.java) để bắt `Intent.ACTION_CHOOSER` / `Intent.ACTION_SEND`, tự động sao lưu file chia sẻ (`content://...` hoặc `file://...`) ra thư mục `shared-out/` trên Windows và hỗ trợ chế độ headless cho kiểm thử tự động.
+3. **Tương tác Đầu-Cuối (E2E) Trọn vẹn trên 5 APK Offline Thực tế (`build/benchmark-apks/`):**
+   - **`org.billthefarmer.editor_198.apk` (Text Editor):** Hỗ trợ `ScrollView`/`HorizontalScrollView` `fillViewport`, nhập văn bản nhiều dòng vào `EditText`, mở Options Menu → bấm `Save` ghi file thật xuống `sdcard/Documents/Editor.txt`, mở dialog nội bộ `openDialog` và nạp lại file văn bản qua `Intent.ACTION_VIEW`.
+   - **`org.billthefarmer.notes_142.apk` (Markdown Notes):** Hiển thị bản xem trước Markdown trên JavaFX `WebView`, bấm FAB `@id/edit` chuyển sang chế độ soạn thảo `EditText`, nhập nội dung Markdown mới, bấm FAB `@id/accept` kết xuất lại HTML trực tiếp trên `WebView` và lưu xuống `sdcard/Notes/Notes.md`.
+   - **`org.woheller69.level_35.apk` (Bubble Level):** Hiển thị và bấm đóng dialog 3 nút `FreeDroidWarn`, chạy vòng lặp `SurfaceView` 60fps của thước thủy `LevelView` phản hồi trực tiếp với trọng lực ảo `SensorManager.setVirtualGravity(gx, gy, gz)` + phông chữ 7 đoạn LCD (`Typeface.createFromAsset`), và mở màn hình `SettingsActivity` (`PreferenceFragmentCompat` + `RecyclerView` + `SwitchCompat` + `SeekBar`).
+   - **`com.jarsilio.android.scrambledeggsif_88.apk` (Scrambled Exif):** Hiển thị và bấm đóng `MaterialAlertDialog` (`androidx.appcompat.app.AlertDialog`), gửi ảnh JPEG có gắn thẻ EXIF (`Make`, `Model`, `GPSLatitude`) vào `HandleImageActivity` qua `Intent.ACTION_SEND`, xóa sạch metadata EXIF bằng `ExifInterface`, xuất URI chia sẻ `content://com.jarsilio.android.scrambledeggsif.fileprovider/shared_images/...jpg` qua `FileProvider` và trích xuất ra file JPEG sạch trên Windows qua `WindowsShareBridge`.
+   - **`org.secuso.privacyfriendlynotes_105.apk` (Privacy Friendly Notes):** Chạy trọn luồng `SplashActivity` → `TutorialActivity` (bấm điều hướng `ViewPager` qua các trang hướng dẫn & `Skip`) → `MainActivity` → mở & đóng menu ngăn kéo `DrawerLayout` (`NavigationView` có icon vector) → bấm FAB `+` mở bảng chọn loại ghi chú → bấm `New text` mở `TextNoteActivity` (hiển thị ô nhập Material Outlined `TextInputLayout` có viền khoét nhãn *"Name"* & *"Category"*) → nhập tiêu đề & nội dung → bấm Back lưu vào cơ sở dữ liệu **Room SQLite** (`[Toast] Note saved`) → `MainActivity` hiển thị thẻ `CardView` của ghi chú trong `RecyclerView` → bấm vào thẻ ghi chú trong `RecyclerView` mở lại `TextNoteActivity` nạp đúng dữ liệu từ Room SQLite!
+4. **Hoàn thiện Các Lớp Tương thích `Compat*`, Widget Cốt lõi & Tích hợp `AppHubWindow` (`:framework`, `:launcher`):**
+   - Nâng cấp [CompatViewPager.java](../framework/src/main/java/dev/aaow/compat/CompatViewPager.java), [CompatRecyclerView.java](../framework/src/main/java/dev/aaow/compat/CompatRecyclerView.java) (tự động đồng bộ adapter khi dữ liệu thay đổi trong `onMeasure`), và thêm mới [CompatDrawerLayout.java](../framework/src/main/java/dev/aaow/compat/CompatDrawerLayout.java), [CompatTextInputLayout.java](../framework/src/main/java/dev/aaow/compat/CompatTextInputLayout.java), [LayoutTransition.java](../framework/src/main/java/android/animation/LayoutTransition.java), [FloatProperty.java](../framework/src/main/java/android/util/FloatProperty.java).
+   - Bổ sung hàng loạt phương thức AndroidX/Material cần thiết trên `View`, `ViewGroup`, `ViewParent`, `TextView`, `CompoundButton`, `ImageView`, `AutoCompleteTextView`, `Drawable`, `Path`, `Bundle`, `Intent`, và cập nhật `SQLiteDatabase.releaseMemory()` giải phóng kết nối JDBC để không giữ khóa file `.db-shm`/`.db-wal` trên Windows.
+   - Bổ sung `AppRepository.installApksFromDirectory(Path)` в [AppRepository.java](../launcher/src/main/java/dev/aaow/launcher/AppRepository.java), tham số CLI `--install-silent <file|dir>` trong [Main.java](../launcher/src/main/java/dev/aaow/launcher/Main.java), và nút **"Nạp APK Offline"** trên thanh công cụ của [AppHubWindow.java](../launcher/src/main/java/dev/aaow/launcher/AppHubWindow.java) để nạp nhanh toàn bộ 5 APK Offline từ `build/benchmark-apks/` vào App Hub chỉ với 1 cú nhấp chuột.
+
+### 2. Kết quả Nghiệm thu Thực tế (Đã chạy sau chỉnh sửa cuối cùng)
+- **Kiểm thử tự động JUnit 5 (`.\gradlew.bat test --rerun-tasks --console=plain`):**
+  - **41/41 tests PASS (0 failures, 0 errors, 0 skipped)** trong `1m 07s`:
+    - `AndroidSdkFallbackClassLoaderTest` (2)
+    - `ApkCompatibilityScannerTest` (2)
+    - `FrameworkHierarchyTest` (2 — giữ vững **0 `SUPER_MISMATCH`** đối chiếu `android.jar` API 37 cho toàn bộ 281 lớp `android.*`, bao gồm `ExifInterface`, `LayoutTransition`, `FloatProperty`)
+    - `Sprint4FrameworkTest` (6)
+    - `Sprint5FrameworkTest` (5)
+    - `Sprint6FrameworkTest` (4)
+    - `Sprint7FrameworkTest` (5)
+    - `Sprint8FrameworkTest` (5)
+    - `Sprint9FrameworkTest` (5)
+    - `Sprint10FrameworkTest` (5 — **MỚI** tại [Sprint10FrameworkTest.java](../launcher/src/test/java/dev/aaow/launcher/Sprint10FrameworkTest.java), kiểm thử tự động đầu-cuối `ExifInterface`, lớp phủ `Dialog`, cảm biến `Level` + `SettingsActivity`, luồng xóa EXIF ảnh thật qua `Scrambled Exif` `HandleImageActivity`, và luồng tạo/lưu/mở lại ghi chú Room SQLite trên `Privacy Friendly Notes` + nạp batch 5 APK Offline vào `AppRepository`).
+- **Bộ 19 ảnh chụp màn hình nghiệm thu thực tế (`build/sprint10-final/*.png`):**
+  - `0-app-hub-offline.png`: Giao diện **AAOW App Hub** hiển thị đầy đủ 7 ứng dụng đã cài (2 APK mẫu + 5 APK Offline thật) kèm nút **"Nạp APK Offline"**.
+  - `1-editor-typed.png`: **Editor** nhập văn bản nhiều dòng và lưu xuống `sdcard/Documents/Editor.txt`.
+  - `2a-notes-view.png`, `2b-notes-editing.png`, `2c-notes-updated.png`: **Notes** chuyển từ xem Markdown trên JavaFX `WebView` → sửa trong `EditText` → bấm lưu và kết xuất lại HTML mới trên `WebView`.
+  - `3a-level-dialog.png`, `3b-level-main.png`, `3c-level-settings.png`: **Bubble Level** hiển thị dialog `FreeDroidWarn`, đóng dialog vào thước thủy xanh lá với chữ số LCD 7 đoạn nghiêng theo trọng lực ảo, và mở màn hình `SettingsActivity`.
+  - `4a-scrambled-dialog.png`, `4b-scrambled-main.png`: **Scrambled Exif** hiển thị `MaterialAlertDialog` với đủ 3 nút bấm rõ nét và đóng dialog vào màn hình chính.
+  - `5a-pfnotes-tutorial-0.png` → `5i-pfnotes-reopened.png` (9 ảnh): **Privacy Friendly Notes** đi qua trọn vẹn các trang `TutorialActivity` (`ViewPager`), `MainActivity`, menu ngăn kéo `DrawerLayout`, menu `FAB +`, màn hình `TextNoteActivity` với khung viền Material `TextInputLayout`, nhập và lưu ghi chú vào Room SQLite, hiển thị thẻ ghi chú trên `RecyclerView` của `MainActivity`, và bấm mở lại thành công ghi chú từ Room SQLite!
+
+### 3. Đánh giá Trung thực (Chạy thật vs. Hạn chế dành cho Sprint 11+)
+- **Chạy thật 100%:** Toàn bộ 5 APK Offline thực tế (`Editor`, `Notes`, `Bubble Level`, `Scrambled Exif`, `Privacy Friendly Notes`) đều khởi chạy, hiển thị giao diện Material/AppCompat, nhận tương tác chuột/bàn phím/menu/dialog đầu-cuối, đọc/ghi file thật trên đĩa, xóa metadata EXIF JPEG/PNG thật qua `ExifInterface` + `FileProvider`, và lưu/truy vấn dữ liệu bền vững qua Room SQLite trên Windows.
+- **Hạn chế chuyển sang Sprint 11–13:**
+  - Các ứng dụng cần kết nối mạng thời gian thực và tải ảnh/dữ liệu trực tuyến (`ConnectivityManager.registerDefaultNetworkCallback`, `NetworkCapabilities`, `WifiManager`, `TrafficStats`, `NetworkSecurityPolicy`, `ImageDecoder`, `Glide`/`Coil`/`OkHttp` nâng cao, mở link ngoài qua trình duyệt Windows) sẽ được giải quyết trong **Sprint 11 (Phase C: Non-GMS Online & Media Apps)**.
+  - Các ứng dụng thương mại phụ thuộc sâu vào Google Play Services / Firebase khởi tạo sớm, chữ ký chứng chỉ `META-INF/*.RSA` thật, AIDL `microG-lite` và thư viện native `.so` JNI HLE sẽ được giải quyết trong **Sprint 12 (Phase D1)** và **Sprint 13 (Phase D2)**.
+
+### 4. Chuẩn bị cho Sprint 11 (Phase C — Non-GMS Online & Media Apps) — Bắt đầu ở chat mới
+Khi mở phiên hội thoại mới cho **Sprint 11**, triển khai theo thứ tự sau:
+1. **Bước 11.1 — Hoàn thiện Hạ tầng Mạng Hiện đại (`android.net.*` & `android.net.wifi.*`):**
+   - Nâng cấp `ConnectivityManager` hỗ trợ đầy đủ `registerDefaultNetworkCallback`, `registerNetworkCallback(NetworkRequest, NetworkCallback)`, `unregisterNetworkCallback`, và tự động bắn callback `onAvailable(Network)` / `onCapabilitiesChanged(Network, NetworkCapabilities)` với cờ `NET_CAPABILITY_INTERNET`, `NET_CAPABILITY_VALIDATED`, `TRANSPORT_WIFI`/`TRANSPORT_ETHERNET`.
+   - Cài đặt/mở rộng `Network`, `NetworkCapabilities`, `NetworkRequest`, `LinkProperties`, `TrafficStats` (no-op an toàn cho OkHttp/Retrofit/ExoPlayer), `NetworkSecurityPolicy` (`isCleartextTrafficPermitted`), và `WifiManager` / `WifiInfo`.
+2. **Bước 11.2 — Giải mã Ảnh Hiện đại & Media (`ImageDecoder`, `MediaStore`, `ContentResolver`):**
+   - Cài đặt `android.graphics.ImageDecoder` (`createSource`, `decodeBitmap`, `decodeDrawable`, `OnHeaderDecodedListener`) cho API 28+ (Glide/Coil).
+   - Bổ sung hỗ trợ `ExifInterface(InputStream)` / `ExifInterface(FileDescriptor)` và mở rộng `ContentResolver.openFileDescriptor` / `openAssetFileDescriptor` cho các thư viện tải ảnh.
+   - Nối `Intent.ACTION_VIEW` với URI `http://` hoặc `https://` trong `Activity.startActivity()` ra trình duyệt mặc định của Windows (`Desktop.getDesktop().browse(...)` kèm chế độ kiểm thử không mở cửa sổ ngoài khi chạy test tự động).
+3. **Bước 11.3 — Kiểm thử Thực tế với APK Online Non-GMS & Viết `Sprint11FrameworkTest`:**
+   - Tuyển chọn/nạp APK kiểm thử có kết nối mạng không phụ thuộc GMS (hoặc ứng dụng đọc tin/tải dữ liệu trực tuyến từ F-Droid), chạy kiểm thử tải dữ liệu thật qua HTTP/HTTPS (OkHttp / `HttpURLConnection` / `WebView`) và hiển thị lên giao diện Windows.
+   - Viết `Sprint11FrameworkTest` kiểm chứng toàn bộ luồng `NetworkCallback`, `ImageDecoder`, `TrafficStats`, `NetworkSecurityPolicy`, `WifiManager` và HTTP client; nghiệm thu cuối Sprint 11, cập nhật tài liệu và commit Git sạch sẽ.
+
+

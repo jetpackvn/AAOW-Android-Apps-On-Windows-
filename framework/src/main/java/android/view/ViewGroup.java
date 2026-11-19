@@ -227,6 +227,12 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
         } else {
             children.add(index, child);
         }
+        if (isAttachedToWindow() && !child.isAttachedToWindow()) {
+            child.dispatchAttachedToWindow();
+        }
+        if (hierarchyChangeListener != null) {
+            hierarchyChangeListener.onChildViewAdded(this, child);
+        }
         requestLayout();
     }
 
@@ -241,8 +247,14 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
     @Override
     public void removeView(View view) {
         if (children.remove(view)) {
+            if (view.isAttachedToWindow()) {
+                view.dispatchDetachedFromWindow();
+            }
             view.parent = null;
             if (touchTarget == view) touchTarget = null;
+            if (hierarchyChangeListener != null) {
+                hierarchyChangeListener.onChildViewRemoved(this, view);
+            }
             requestLayout();
         }
     }
@@ -250,18 +262,31 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
     public void removeViewAt(int index) {
         if (index >= 0 && index < children.size()) {
             View v = children.remove(index);
+            if (v.isAttachedToWindow()) {
+                v.dispatchDetachedFromWindow();
+            }
             v.parent = null;
             if (touchTarget == v) touchTarget = null;
+            if (hierarchyChangeListener != null) {
+                hierarchyChangeListener.onChildViewRemoved(this, v);
+            }
             requestLayout();
         }
     }
 
     public void removeAllViews() {
-        for (View v : children) {
-            v.parent = null;
-        }
+        List<View> removed = List.copyOf(children);
         children.clear();
         touchTarget = null;
+        for (View v : removed) {
+            if (v.isAttachedToWindow()) {
+                v.dispatchDetachedFromWindow();
+            }
+            v.parent = null;
+            if (hierarchyChangeListener != null) {
+                hierarchyChangeListener.onChildViewRemoved(this, v);
+            }
+        }
         requestLayout();
     }
 
@@ -430,14 +455,35 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
         return MeasureSpec.makeMeasureSpec(resultSize, resultMode);
     }
 
+    protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
+        if (child == null || child.getVisibility() != VISIBLE || child.getAlpha() <= 0f) return false;
+        int cw = child.getWidth();
+        int ch = child.getHeight();
+        if (cw <= 0 || ch <= 0) return false;
+        float dx = child.getLeft() - scrollX + child.getTranslationX();
+        float dy = child.getTop() - scrollY + child.getTranslationY();
+        int save = canvas.save();
+        canvas.translate(dx, dy);
+        if (clipChildren) {
+            canvas.clipRect(0, 0, cw, ch);
+        }
+        child.draw(canvas);
+        canvas.restoreToCount(save);
+        return false;
+    }
+
     @Override
     protected void dispatchDraw(Canvas canvas) {
         java.awt.Graphics2D g2 = canvas.getAwtGraphics();
         java.awt.Rectangle clipBounds = g2 != null ? g2.getClipBounds() : null;
         int selfW = getWidth();
         int selfH = getHeight();
+        long drawingTime = android.os.SystemClock.uptimeMillis();
+        boolean useCustomOrder = isChildrenDrawingOrderEnabled();
         for (int i = 0, n = children.size(); i < n; i++) {
-            View child = children.get(i);
+            int childIndex = useCustomOrder ? getChildDrawingOrder(n, i) : i;
+            if (childIndex < 0 || childIndex >= n) childIndex = i;
+            View child = children.get(childIndex);
             if (child.getVisibility() != VISIBLE || child.getAlpha() <= 0f) continue;
             int cw = child.getWidth();
             int ch = child.getHeight();
@@ -455,13 +501,7 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
                     }
                 }
             }
-            int save = canvas.save();
-            canvas.translate(dx, dy);
-            if (clipChildren) {
-                canvas.clipRect(0, 0, cw, ch);
-            }
-            child.draw(canvas);
-            canvas.restoreToCount(save);
+            drawChild(canvas, child, drawingTime);
         }
     }
 
@@ -473,21 +513,31 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
         float y = ev.getY() + scrollY;
 
         if (action == MotionEvent.ACTION_DOWN) {
+            disallowIntercept = false;
             touchTarget = null;
-            for (int i = children.size() - 1; i >= 0; i--) {
-                View child = children.get(i);
-                if (child.getVisibility() != VISIBLE || !child.isEnabled()) continue;
-                float cx = x - child.getLeft() - child.getTranslationX();
-                float cy = y - child.getTop() - child.getTranslationY();
-                if (cx >= 0 && cx < child.getWidth() && cy >= 0 && cy < child.getHeight()) {
-                    MotionEvent childEv = new MotionEvent(action, cx, cy, ev.getRawX(), ev.getRawY(), ev.getDownTime(), ev.getEventTime());
-                    if (child.dispatchTouchEvent(childEv)) {
-                        touchTarget = child;
-                        return true;
+            boolean intercepted = onInterceptTouchEvent(ev);
+            if (!intercepted) {
+                for (int i = children.size() - 1; i >= 0; i--) {
+                    View child = children.get(i);
+                    if (child.getVisibility() != VISIBLE || !child.isEnabled()) continue;
+                    float cx = x - child.getLeft() - child.getTranslationX();
+                    float cy = y - child.getTop() - child.getTranslationY();
+                    if (cx >= 0 && cx < child.getWidth() && cy >= 0 && cy < child.getHeight()) {
+                        MotionEvent childEv = new MotionEvent(action, cx, cy, ev.getRawX(), ev.getRawY(), ev.getDownTime(), ev.getEventTime());
+                        if (child.dispatchTouchEvent(childEv)) {
+                            touchTarget = child;
+                            return true;
+                        }
                     }
                 }
             }
         } else if (touchTarget != null) {
+            if (!disallowIntercept && action == MotionEvent.ACTION_MOVE && onInterceptTouchEvent(ev)) {
+                MotionEvent cancelEv = new MotionEvent(MotionEvent.ACTION_CANCEL, 0, 0, ev.getRawX(), ev.getRawY(), ev.getDownTime(), ev.getEventTime());
+                touchTarget.dispatchTouchEvent(cancelEv);
+                touchTarget = null;
+                return super.dispatchTouchEvent(ev);
+            }
             float cx = x - touchTarget.getLeft() - touchTarget.getTranslationX();
             float cy = y - touchTarget.getTop() - touchTarget.getTranslationY();
             MotionEvent childEv = new MotionEvent(action, cx, cy, ev.getRawX(), ev.getRawY(), ev.getDownTime(), ev.getEventTime());
@@ -701,6 +751,22 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
     }
 
     @Override
+    public void dispatchWindowFocusChanged(boolean hasFocus) {
+        super.dispatchWindowFocusChanged(hasFocus);
+        for (View child : List.copyOf(children)) {
+            child.dispatchWindowFocusChanged(hasFocus);
+        }
+    }
+
+    @Override
+    public void jumpDrawablesToCurrentState() {
+        super.jumpDrawablesToCurrentState();
+        for (View child : List.copyOf(children)) {
+            child.jumpDrawablesToCurrentState();
+        }
+    }
+
+    @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         for (View child : List.copyOf(children)) {
@@ -745,6 +811,35 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
 
     private boolean addStatesFromChildren;
     private int transientStateCount;
+    private boolean childrenDrawingOrderEnabled;
+    private android.animation.LayoutTransition layoutTransition;
+
+    public android.animation.LayoutTransition getLayoutTransition() {
+        return layoutTransition;
+    }
+
+    public void setLayoutTransition(android.animation.LayoutTransition transition) {
+        this.layoutTransition = transition;
+    }
+
+    @Override
+    public void focusableViewAvailable(View v) {
+        if (parent != null) {
+            parent.focusableViewAvailable(v);
+        }
+    }
+
+    protected boolean isChildrenDrawingOrderEnabled() {
+        return childrenDrawingOrderEnabled;
+    }
+
+    protected void setChildrenDrawingOrderEnabled(boolean enabled) {
+        this.childrenDrawingOrderEnabled = enabled;
+    }
+
+    protected int getChildDrawingOrder(int childCount, int drawingPosition) {
+        return drawingPosition;
+    }
 
     public boolean addStatesFromChildren() {
         return addStatesFromChildren;

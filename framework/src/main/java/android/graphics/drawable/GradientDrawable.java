@@ -93,13 +93,17 @@ public class GradientDrawable extends Drawable {
             }
             g.setPaint(new GradientPaint(x1, y1, Color.toAwt(colors[0]), x2, y2, Color.toAwt(colors[colors.length - 1])));
             g.fill(new RoundRectangle2D.Float(b.left, b.top, b.width(), b.height(), cornerRadius * 2, cornerRadius * 2));
-        } else if ((solidColor >>> 24) != 0) {
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(solidColor);
-            if (shape == OVAL) {
-                canvas.drawOval(b.left, b.top, b.right, b.bottom, paint);
-            } else {
-                canvas.drawRoundRect(b.left, b.top, b.right, b.bottom, cornerRadius, cornerRadius, paint);
+        } else {
+            int effectiveSolid = (solidColor >>> 24) != 0 ? resolveTintedColor(solidColor)
+                    : (getTintListInternal() != null ? resolveTintedColor(0xFFFFFFFF) : 0);
+            if ((effectiveSolid >>> 24) != 0) {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(effectiveSolid);
+                if (shape == OVAL) {
+                    canvas.drawOval(b.left, b.top, b.right, b.bottom, paint);
+                } else {
+                    canvas.drawRoundRect(b.left, b.top, b.right, b.bottom, cornerRadius, cornerRadius, paint);
+                }
             }
         }
         if (strokeWidth > 0 && (strokeColor >>> 24) != 0) {

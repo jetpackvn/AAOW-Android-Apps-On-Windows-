@@ -68,6 +68,11 @@ public interface ViewParent {
     default void childHasTransientStateChanged(View child, boolean hasTransientState) {
     }
 
+    default void focusableViewAvailable(View v) {
+        ViewParent p = getParent();
+        if (p != null) p.focusableViewAvailable(v);
+    }
+
     default OnBackInvokedDispatcher findOnBackInvokedDispatcherForChild(View child, View requester) {
         ViewParent p = getParent();
         return p != null ? p.findOnBackInvokedDispatcherForChild(child, requester) : null;

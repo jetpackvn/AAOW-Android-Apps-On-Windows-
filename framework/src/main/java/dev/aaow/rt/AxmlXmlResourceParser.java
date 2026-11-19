@@ -31,13 +31,23 @@ public final class AxmlXmlResourceParser implements XmlResourceParser {
 
     private final ResourceTable resources;
     private final List<Event> events = new ArrayList<>();
+    private XmlElement rootElement;
     private int cursor = 0;
     private String inputEncoding = "UTF-8";
     private boolean processNamespaces = true;
 
     public AxmlXmlResourceParser(XmlElement root, ResourceTable resources) {
         this.resources = resources != null ? resources : ResourceTable.empty();
+        this.rootElement = root;
         buildEvents(root);
+    }
+
+    public XmlElement getRootElement() {
+        return rootElement;
+    }
+
+    public XmlElement getCurrentXmlElement() {
+        return currentElement();
     }
 
     public AxmlXmlResourceParser() {

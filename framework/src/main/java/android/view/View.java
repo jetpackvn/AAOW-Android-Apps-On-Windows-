@@ -30,7 +30,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Lớp cơ sở android.view.View chạy trên Windows: quản lý đo kích thước (measure),
+ * Lớp cơ sở android.view.View chạy trên Windows: quản lý đo kích thước
+ * (measure),
  * bố cục (layout), vẽ bằng Java2D (draw), và xử lý chuột/bàn phím.
  */
 public class View implements Drawable.Callback, KeyEvent.Callback {
@@ -54,15 +55,20 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     public static final int ACCESSIBILITY_LIVE_REGION_ASSERTIVE = 2;
 
     public static final Property<View, Float> ALPHA = floatProp("alpha", View::getAlpha, View::setAlpha);
-    public static final Property<View, Float> TRANSLATION_X = floatProp("translationX", View::getTranslationX, View::setTranslationX);
-    public static final Property<View, Float> TRANSLATION_Y = floatProp("translationY", View::getTranslationY, View::setTranslationY);
-    public static final Property<View, Float> TRANSLATION_Z = floatProp("translationZ", View::getTranslationZ, View::setTranslationZ);
+    public static final Property<View, Float> TRANSLATION_X = floatProp("translationX", View::getTranslationX,
+            View::setTranslationX);
+    public static final Property<View, Float> TRANSLATION_Y = floatProp("translationY", View::getTranslationY,
+            View::setTranslationY);
+    public static final Property<View, Float> TRANSLATION_Z = floatProp("translationZ", View::getTranslationZ,
+            View::setTranslationZ);
     public static final Property<View, Float> X = floatProp("x", View::getX, View::setX);
     public static final Property<View, Float> Y = floatProp("y", View::getY, View::setY);
     public static final Property<View, Float> Z = floatProp("z", View::getZ, View::setZ);
     public static final Property<View, Float> ROTATION = floatProp("rotation", View::getRotation, View::setRotation);
-    public static final Property<View, Float> ROTATION_X = floatProp("rotationX", View::getRotationX, View::setRotationX);
-    public static final Property<View, Float> ROTATION_Y = floatProp("rotationY", View::getRotationY, View::setRotationY);
+    public static final Property<View, Float> ROTATION_X = floatProp("rotationX", View::getRotationX,
+            View::setRotationX);
+    public static final Property<View, Float> ROTATION_Y = floatProp("rotationY", View::getRotationY,
+            View::setRotationY);
     public static final Property<View, Float> SCALE_X = floatProp("scaleX", View::getScaleX, View::setScaleX);
     public static final Property<View, Float> SCALE_Y = floatProp("scaleY", View::getScaleY, View::setScaleY);
 
@@ -73,7 +79,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         return new Property<>(Float.class, name) {
             @Override
             public void set(View object, Float value) {
-                if (object != null && value != null) setter.accept(object, value);
+                if (object != null && value != null)
+                    setter.accept(object, value);
             }
 
             @Override
@@ -82,9 +89,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
             }
         };
     }
+
     public static final int MEASURED_SIZE_MASK = 0x00ffffff;
     public static final int MEASURED_STATE_MASK = 0xff000000;
     public static final int MEASURED_HEIGHT_STATE_SHIFT = 16;
+    public static final int MEASURED_STATE_TOO_SMALL = 0x01000000;
     public static final int OVER_SCROLL_ALWAYS = 0;
     public static final int OVER_SCROLL_IF_CONTENT_SCROLLS = 1;
     public static final int OVER_SCROLL_NEVER = 2;
@@ -115,6 +124,44 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     public static final int SYSTEM_UI_FLAG_IMMERSIVE_STICKY = 0x00001000;
     public static final int SYSTEM_UI_FLAG_LIGHT_STATUS_BAR = 0x00002000;
     public static final int SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR = 0x00000010;
+    public static final int SCROLL_INDICATOR_TOP = 0x1;
+    public static final int SCROLL_INDICATOR_BOTTOM = 0x2;
+    public static final int SCROLL_INDICATOR_LEFT = 0x4;
+    public static final int SCROLL_INDICATOR_RIGHT = 0x8;
+    public static final int SCROLL_INDICATOR_START = 0x10;
+    public static final int SCROLL_INDICATOR_END = 0x20;
+
+    protected static final int[] EMPTY_STATE_SET = new int[0];
+    protected static final int[] ENABLED_STATE_SET = new int[] { 0x0101009e };
+    protected static final int[] FOCUSED_STATE_SET = new int[] { 0x0101009c };
+    protected static final int[] SELECTED_STATE_SET = new int[] { 0x010100a1 };
+    protected static final int[] PRESSED_STATE_SET = new int[] { 0x010100a7 };
+    protected static final int[] WINDOW_FOCUSED_STATE_SET = new int[] { 0x0101009d };
+    protected static final int[] ENABLED_FOCUSED_STATE_SET = new int[] { 0x0101009e, 0x0101009c };
+    protected static final int[] ENABLED_SELECTED_STATE_SET = new int[] { 0x0101009e, 0x010100a1 };
+    protected static final int[] ENABLED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x0101009e, 0x0101009d };
+    protected static final int[] FOCUSED_SELECTED_STATE_SET = new int[] { 0x0101009c, 0x010100a1 };
+    protected static final int[] FOCUSED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x0101009c, 0x0101009d };
+    protected static final int[] SELECTED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a1, 0x0101009d };
+    protected static final int[] ENABLED_FOCUSED_SELECTED_STATE_SET = new int[] { 0x0101009e, 0x0101009c, 0x010100a1 };
+    protected static final int[] ENABLED_FOCUSED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x0101009e, 0x0101009c, 0x0101009d };
+    protected static final int[] ENABLED_SELECTED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x0101009e, 0x010100a1, 0x0101009d };
+    protected static final int[] ENABLED_FOCUSED_SELECTED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x0101009e, 0x0101009c, 0x010100a1, 0x0101009d };
+    protected static final int[] PRESSED_ENABLED_STATE_SET = new int[] { 0x010100a7, 0x0101009e };
+    protected static final int[] PRESSED_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009c };
+    protected static final int[] PRESSED_SELECTED_STATE_SET = new int[] { 0x010100a7, 0x010100a1 };
+    protected static final int[] PRESSED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009d };
+    protected static final int[] PRESSED_ENABLED_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009e, 0x0101009c };
+    protected static final int[] PRESSED_ENABLED_SELECTED_STATE_SET = new int[] { 0x010100a7, 0x0101009e, 0x010100a1 };
+    protected static final int[] PRESSED_ENABLED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009e, 0x0101009d };
+    protected static final int[] PRESSED_FOCUSED_SELECTED_STATE_SET = new int[] { 0x010100a7, 0x0101009c, 0x010100a1 };
+    protected static final int[] PRESSED_FOCUSED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009c, 0x0101009d };
+    protected static final int[] PRESSED_SELECTED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x010100a1, 0x0101009d };
+    protected static final int[] PRESSED_ENABLED_FOCUSED_SELECTED_STATE_SET = new int[] { 0x010100a7, 0x0101009e, 0x0101009c, 0x010100a1 };
+    protected static final int[] PRESSED_ENABLED_FOCUSED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009e, 0x0101009c, 0x0101009d };
+    protected static final int[] PRESSED_ENABLED_SELECTED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009e, 0x010100a1, 0x0101009d };
+    protected static final int[] PRESSED_FOCUSED_SELECTED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009c, 0x010100a1, 0x0101009d };
+    protected static final int[] PRESSED_ENABLED_FOCUSED_SELECTED_WINDOW_FOCUSED_STATE_SET = new int[] { 0x010100a7, 0x0101009e, 0x0101009c, 0x010100a1, 0x0101009d };
 
     public static class BaseSavedState extends AbsSavedState {
         public BaseSavedState(Parcel source) {
@@ -151,7 +198,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         public void sendAccessibilityEventUnchecked(View host, android.view.accessibility.AccessibilityEvent event) {
         }
 
-        public boolean dispatchPopulateAccessibilityEvent(View host, android.view.accessibility.AccessibilityEvent event) {
+        public boolean dispatchPopulateAccessibilityEvent(View host,
+                android.view.accessibility.AccessibilityEvent event) {
             return false;
         }
 
@@ -161,15 +209,17 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         public void onInitializeAccessibilityEvent(View host, android.view.accessibility.AccessibilityEvent event) {
         }
 
-        public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) {
+        public void onInitializeAccessibilityNodeInfo(View host,
+                android.view.accessibility.AccessibilityNodeInfo info) {
         }
 
-        public void addExtraDataToAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info,
-                                                        String extraDataKey, android.os.Bundle arguments) {
+        public void addExtraDataToAccessibilityNodeInfo(View host,
+                android.view.accessibility.AccessibilityNodeInfo info,
+                String extraDataKey, android.os.Bundle arguments) {
         }
 
         public boolean onRequestSendAccessibilityEvent(ViewGroup host, View child,
-                                                       android.view.accessibility.AccessibilityEvent event) {
+                android.view.accessibility.AccessibilityEvent event) {
             return true;
         }
 
@@ -241,7 +291,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public interface OnLayoutChangeListener {
         void onLayoutChange(View v, int left, int top, int right, int bottom,
-                            int oldLeft, int oldTop, int oldRight, int oldBottom);
+                int oldLeft, int oldTop, int oldRight, int oldBottom);
     }
 
     protected final Context context;
@@ -254,6 +304,11 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     private int visibility = VISIBLE;
     private int layoutDirection = LAYOUT_DIRECTION_LTR;
     private int importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_AUTO;
+    private boolean accessibilityHeading;
+    private boolean screenReaderFocusable;
+    private CharSequence accessibilityPaneTitle;
+    private CharSequence stateDescription;
+    private String transitionName;
     private boolean willNotDraw;
     private boolean enabled = true;
     private boolean clickable;
@@ -261,6 +316,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     private boolean focusable;
     private boolean focused;
     private boolean pressed;
+    private boolean hovered;
     private float alpha = 1.0f;
     private float elevation;
     private float translationX;
@@ -296,6 +352,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     protected OnKeyListener onKeyListener;
     protected OnFocusChangeListener onFocusChangeListener;
     protected OnScrollChangeListener onScrollChangeListener;
+    protected OnCreateContextMenuListener onCreateContextMenuListener;
     private Runnable invalidateCallback;
     private final Handler viewHandler = new Handler();
     private ViewTreeObserver viewTreeObserver;
@@ -333,6 +390,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     private PorterDuff.Mode backgroundTintMode;
     private final Matrix viewMatrix = new Matrix();
     private boolean attachedToWindow;
+    private IBinder windowToken;
+    private boolean hasWindowFocus = true;
 
     public View(Context context) {
         this(context, null, 0, 0);
@@ -351,31 +410,95 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         if (attrs instanceof AttributeSet.XmlAttributeSet xas) {
             applyXmlAttributes(xas.element, context != null ? context.getResources() : null);
         }
+        if (context != null && (defStyleAttr != 0 || defStyleRes != 0 || (attrs != null && attrs.getStyleAttribute() != 0))) {
+            applyStyledViewAttributes(context, attrs, defStyleAttr, defStyleRes);
+        }
+    }
+
+    private void applyStyledViewAttributes(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+        int[] styleAttrs = new int[] {
+                0x010100d4, // android:background
+                0x0101013f, // android:minWidth
+                0x01010140, // android:minHeight
+                0x0101046b  // android:backgroundTint
+        };
+        try {
+            TypedArray ta = context.obtainStyledAttributes(attrs, styleAttrs, defStyleAttr, defStyleRes);
+            try {
+                if (this.background == null && ta.hasValue(0)) {
+                    Drawable d = ta.getDrawable(0);
+                    if (d != null) {
+                        this.background = d;
+                        this.background.setCallback(this);
+                    }
+                }
+                if (this.minWidth == 0 && ta.hasValue(1)) {
+                    this.minWidth = ta.getDimensionPixelSize(1, 0);
+                }
+                if (this.minHeight == 0 && ta.hasValue(2)) {
+                    this.minHeight = ta.getDimensionPixelSize(2, 0);
+                }
+                if (this.backgroundTintList == null && ta.hasValue(3)) {
+                    ColorStateList csl = ta.getColorStateList(3);
+                    if (csl != null) {
+                        this.backgroundTintList = csl;
+                        if (this.background != null) {
+                            this.background.setTintList(csl);
+                        }
+                    }
+                }
+            } finally {
+                ta.recycle();
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     protected void applyXmlAttributes(XmlElement el, Resources res) {
-        if (el == null || res == null) return;
+        if (el == null || res == null)
+            return;
         for (XmlElement.Attribute a : el.attributes) {
-            if (!XmlElement.ANDROID_NS.equals(a.namespace)) continue;
+            if (!XmlElement.ANDROID_NS.equals(a.namespace))
+                continue;
             ResValue v = a.value;
             switch (a.name) {
                 case "id" -> {
-                    if (v.isReference()) this.id = v.data();
+                    if (v.isReference())
+                        this.id = v.data();
                 }
                 case "tag" -> this.tag = res.resolveString(v);
                 case "visibility" -> {
                     int val = res.getTable().resolve(v).data();
-                    if (val == 1 || val == INVISIBLE) this.visibility = INVISIBLE;
-                    else if (val == 2 || val == GONE) this.visibility = GONE;
-                    else this.visibility = VISIBLE;
+                    if (val == 1 || val == INVISIBLE)
+                        this.visibility = INVISIBLE;
+                    else if (val == 2 || val == GONE)
+                        this.visibility = GONE;
+                    else
+                        this.visibility = VISIBLE;
                 }
                 case "background" -> {
-                    ResValue rv = res.getTable().resolve(v);
+                    Resources.Theme theme = context != null ? context.getTheme() : null;
+                    ResValue resolved = v;
+                    if (resolved.type() == ResValue.TYPE_ATTRIBUTE && theme != null) {
+                        ResValue themed = theme.resolveAttributeValue(resolved.data());
+                        if (themed != null)
+                            resolved = themed;
+                    }
+                    int refId = resolved.isReference() ? resolved.data() : 0;
+                    ResValue rv = res.getTable().resolve(resolved);
                     if (rv != null && rv.isColor()) {
                         this.background = new ColorDrawable(rv.data());
-                    } else if (v.isReference()) {
-                        Drawable d = res.getDrawable(v.data());
-                        if (d != null) this.background = d;
+                    } else if (refId != 0) {
+                        Drawable d = res.getDrawable(refId, theme);
+                        if (d != null)
+                            this.background = d;
+                    }
+                }
+                case "backgroundTint" -> {
+                    Resources.Theme theme = context != null ? context.getTheme() : null;
+                    int col = res.resolveColor(v, theme, 0);
+                    if ((col >>> 24) != 0) {
+                        this.backgroundTintList = ColorStateList.valueOf(col);
                     }
                 }
                 case "padding" -> {
@@ -400,7 +523,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
                 case "enabled" -> this.enabled = res.getTable().resolve(v).data() != 0;
                 case "alpha" -> {
                     ResValue rv = res.getTable().resolve(v);
-                    if (rv != null) this.alpha = rv.type() == ResValue.TYPE_FLOAT ? rv.getFloat() : 1f;
+                    if (rv != null)
+                        this.alpha = rv.type() == ResValue.TYPE_FLOAT ? rv.getFloat() : 1f;
                 }
                 case "elevation" -> this.elevation = res.resolveDimension(v, 0f);
                 case "contentDescription" -> this.contentDescription = res.resolveString(v);
@@ -463,12 +587,53 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         return importantForAccessibility;
     }
 
+    public void setAccessibilityHeading(boolean isHeading) {
+        this.accessibilityHeading = isHeading;
+    }
+
+    public boolean isAccessibilityHeading() {
+        return accessibilityHeading;
+    }
+
+    public void setScreenReaderFocusable(boolean screenReaderFocusable) {
+        this.screenReaderFocusable = screenReaderFocusable;
+    }
+
+    public boolean isScreenReaderFocusable() {
+        return screenReaderFocusable;
+    }
+
+    public void setAccessibilityPaneTitle(CharSequence accessibilityPaneTitle) {
+        this.accessibilityPaneTitle = accessibilityPaneTitle;
+    }
+
+    public CharSequence getAccessibilityPaneTitle() {
+        return accessibilityPaneTitle;
+    }
+
+    public void setStateDescription(CharSequence stateDescription) {
+        this.stateDescription = stateDescription;
+    }
+
+    public CharSequence getStateDescription() {
+        return stateDescription;
+    }
+
+    public String getTransitionName() {
+        return transitionName;
+    }
+
+    public void setTransitionName(String transitionName) {
+        this.transitionName = transitionName;
+    }
+
     public void setImportantForAccessibility(int mode) {
         this.importantForAccessibility = mode;
     }
 
     public boolean isAttachedToWindow() {
-        if (attachedToWindow) return true;
+        if (attachedToWindow)
+            return true;
         View cur = this;
         while (cur.parent instanceof View p) {
             cur = p;
@@ -612,7 +777,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public boolean performAccessibilityAction(int action, android.os.Bundle arguments) {
-        return accessibilityDelegate != null && accessibilityDelegate.performAccessibilityAction(this, action, arguments);
+        return accessibilityDelegate != null
+                && accessibilityDelegate.performAccessibilityAction(this, action, arguments);
     }
 
     public void sendAccessibilityEvent(int eventType) {
@@ -670,7 +836,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public final void saveAttributeDataForStyleable(Context context, int[] styleable, AttributeSet attrs,
-                                                    TypedArray t, int defStyleAttr, int defStyleRes) {
+            TypedArray t, int defStyleAttr, int defStyleRes) {
     }
 
     public void setForeground(Drawable foreground) {
@@ -678,7 +844,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
             this.foreground = foreground;
             if (foreground != null) {
                 foreground.setCallback(this);
-                if (foregroundTintList != null) foreground.setTintList(foregroundTintList);
+                if (foregroundTintList != null)
+                    foreground.setTintList(foregroundTintList);
             }
             invalidate();
         }
@@ -699,7 +866,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public void setForegroundTintList(ColorStateList tint) {
         this.foregroundTintList = tint;
-        if (foreground != null) foreground.setTintList(tint);
+        if (foreground != null)
+            foreground.setTintList(tint);
         invalidate();
     }
 
@@ -709,7 +877,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public void setForegroundTintMode(PorterDuff.Mode tintMode) {
         this.foregroundTintMode = tintMode;
-        if (foreground != null) foreground.setTintMode(tintMode);
+        if (foreground != null)
+            foreground.setTintMode(tintMode);
         invalidate();
     }
 
@@ -726,7 +895,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public void setBackgroundTintList(ColorStateList tint) {
         this.backgroundTintList = tint;
-        if (background != null) background.setTintList(tint);
+        if (background != null)
+            background.setTintList(tint);
         invalidate();
     }
 
@@ -736,7 +906,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public void setBackgroundTintMode(PorterDuff.Mode tintMode) {
         this.backgroundTintMode = tintMode;
-        if (background != null) background.setTintMode(tintMode);
+        if (background != null)
+            background.setTintMode(tintMode);
         invalidate();
     }
 
@@ -746,6 +917,15 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public void refreshDrawableState() {
         drawableStateChanged();
+    }
+
+    public void jumpDrawablesToCurrentState() {
+        if (background != null) {
+            background.jumpToCurrentState();
+        }
+        if (foreground != null) {
+            foreground.jumpToCurrentState();
+        }
     }
 
     protected void drawableStateChanged() {
@@ -759,12 +939,37 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     protected static int[] mergeDrawableStates(int[] baseState, int[] additionalState) {
-        if (baseState == null) return additionalState != null ? additionalState : new int[0];
-        if (additionalState == null) return baseState;
+        if (baseState == null)
+            return additionalState != null ? additionalState : new int[0];
+        if (additionalState == null)
+            return baseState;
         int[] out = new int[baseState.length + additionalState.length];
         System.arraycopy(baseState, 0, out, 0, baseState.length);
         System.arraycopy(additionalState, 0, out, baseState.length, additionalState.length);
         return out;
+    }
+
+    private boolean saveEnabled = true;
+    private int scrollIndicators;
+
+    public void setSaveEnabled(boolean enabled) {
+        this.saveEnabled = enabled;
+    }
+
+    public boolean isSaveEnabled() {
+        return saveEnabled;
+    }
+
+    public void setScrollIndicators(int indicators) {
+        this.scrollIndicators = indicators;
+    }
+
+    public void setScrollIndicators(int indicators, int mask) {
+        this.scrollIndicators = (this.scrollIndicators & ~mask) | (indicators & mask);
+    }
+
+    public int getScrollIndicators() {
+        return scrollIndicators;
     }
 
     public void saveHierarchyState(SparseArray<Parcelable> container) {
@@ -772,9 +977,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     protected void dispatchSaveInstanceState(SparseArray<Parcelable> container) {
-        if (id != NO_ID && container != null) {
+        if (saveEnabled && id != NO_ID && container != null) {
             Parcelable state = onSaveInstanceState();
-            if (state != null) container.put(id, state);
+            if (state != null)
+                container.put(id, state);
         }
     }
 
@@ -789,7 +995,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     protected void dispatchRestoreInstanceState(SparseArray<Parcelable> container) {
         if (id != NO_ID && container != null) {
             Parcelable state = container.get(id);
-            if (state != null) onRestoreInstanceState(state);
+            if (state != null)
+                onRestoreInstanceState(state);
         }
     }
 
@@ -838,6 +1045,18 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public boolean isActivated() {
         return activated;
+    }
+
+    public boolean isHovered() {
+        return hovered;
+    }
+
+    public void setHovered(boolean hovered) {
+        if (this.hovered != hovered) {
+            this.hovered = hovered;
+            refreshDrawableState();
+            invalidate();
+        }
     }
 
     public void setActivated(boolean activated) {
@@ -923,8 +1142,41 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         postDelayed(action, delayMillis);
     }
 
+    public void setWindowTokenInternal(IBinder token) {
+        this.windowToken = token;
+    }
+
     public IBinder getWindowToken() {
+        if (windowToken != null)
+            return windowToken;
+        ViewParent p = parent;
+        while (p instanceof View pv) {
+            if (pv.windowToken != null)
+                return pv.windowToken;
+            p = pv.parent;
+        }
+        if (attachedToWindow) {
+            windowToken = new android.os.Binder();
+            return windowToken;
+        }
         return null;
+    }
+
+    public IBinder getApplicationWindowToken() {
+        return getWindowToken();
+    }
+
+    public boolean hasWindowFocus() {
+        return attachedToWindow && hasWindowFocus;
+    }
+
+    public void dispatchWindowFocusChanged(boolean hasFocus) {
+        this.hasWindowFocus = hasFocus;
+        onWindowFocusChanged(hasFocus);
+    }
+
+    public void onWindowFocusChanged(boolean hasWindowFocus) {
+        this.hasWindowFocus = hasWindowFocus;
     }
 
     public ViewTreeObserver getViewTreeObserver() {
@@ -942,7 +1194,23 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public int[] getDrawableState() {
-        return new int[0];
+        int[] buf = new int[6];
+        int n = 0;
+        if (enabled)
+            buf[n++] = 0x0101009e; // state_enabled
+        if (hasWindowFocus)
+            buf[n++] = 0x0101009d; // state_window_focused
+        if (focused)
+            buf[n++] = 0x0101009c; // state_focused
+        if (selected)
+            buf[n++] = 0x010100a1; // state_selected
+        if (pressed)
+            buf[n++] = 0x010100a7; // state_pressed
+        if (activated)
+            buf[n++] = 0x010102fe; // state_activated
+        int[] out = new int[n];
+        System.arraycopy(buf, 0, out, 0, n);
+        return out;
     }
 
     public void getLocationOnScreen(int[] outLocation) {
@@ -950,7 +1218,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public void getLocationInWindow(int[] outLocation) {
-        if (outLocation == null || outLocation.length < 2) return;
+        if (outLocation == null || outLocation.length < 2)
+            return;
         int x = left;
         int y = top;
         ViewParent p = parent;
@@ -972,13 +1241,18 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public boolean requestFocus(int direction) {
-        if (!focusable || !enabled || visibility != VISIBLE) return false;
+        if (!focusable || !enabled || visibility != VISIBLE)
+            return false;
         setFocusedInternal(true);
         return true;
     }
 
     public void clearFocus() {
         setFocusedInternal(false);
+    }
+
+    public void cancelPendingInputEvents() {
+        setPressed(false);
     }
 
     public void setWillNotDraw(boolean willNotDraw) {
@@ -1083,7 +1357,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public void setFocusableInTouchMode(boolean focusableInTouchMode) {
         this.focusableInTouchMode = focusableInTouchMode;
-        if (focusableInTouchMode) this.focusable = true;
+        if (focusableInTouchMode)
+            this.focusable = true;
     }
 
     public boolean isScrollContainer() {
@@ -1374,6 +1649,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         this.background = background;
         if (this.background != null) {
             this.background.setCallback(this);
+            if (this.backgroundTintList != null) {
+                this.background.setTintList(this.backgroundTintList);
+            }
         }
         invalidate();
     }
@@ -1391,7 +1669,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     public void setOnClickListener(OnClickListener l) {
         this.onClickListener = l;
-        if (l != null) this.clickable = true;
+        if (l != null)
+            this.clickable = true;
     }
 
     public boolean hasOnClickListeners() {
@@ -1418,6 +1697,13 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         this.onScrollChangeListener = l;
     }
 
+    public void setOnCreateContextMenuListener(OnCreateContextMenuListener l) {
+        this.onCreateContextMenuListener = l;
+        if (l != null) {
+            setLongClickable(true);
+        }
+    }
+
     public boolean performClick() {
         if (onClickListener != null && enabled) {
             onClickListener.onClick(this);
@@ -1439,7 +1725,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     @SuppressWarnings("unchecked")
     public final <T extends View> T findViewById(int id) {
-        if (id == NO_ID) return null;
+        if (id == NO_ID)
+            return null;
         return (T) findViewTraversal(id);
     }
 
@@ -1450,16 +1737,24 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     // --------------------------------------------------------- Measure & Layout
 
     public final int getMeasuredWidth() {
+        return measuredWidth & MEASURED_SIZE_MASK;
+    }
+
+    public final int getMeasuredWidthAndState() {
         return measuredWidth;
     }
 
     public final int getMeasuredHeight() {
+        return measuredHeight & MEASURED_SIZE_MASK;
+    }
+
+    public final int getMeasuredHeightAndState() {
         return measuredHeight;
     }
 
     public final void setMeasuredDimension(int measuredWidth, int measuredHeight) {
-        this.measuredWidth = Math.max(0, measuredWidth);
-        this.measuredHeight = Math.max(0, measuredHeight);
+        this.measuredWidth = measuredWidth;
+        this.measuredHeight = measuredHeight;
     }
 
     public final void measure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -1469,8 +1764,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         setMeasuredDimension(
                 getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec),
-                getDefaultSize(getSuggestedMinimumHeight(), heightMeasureSpec)
-        );
+                getDefaultSize(getSuggestedMinimumHeight(), heightMeasureSpec));
     }
 
     protected int getSuggestedMinimumWidth() {
@@ -1608,7 +1902,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     public boolean isShown() {
         View cur = this;
         while (cur != null) {
-            if (cur.getVisibility() != VISIBLE) return false;
+            if (cur.getVisibility() != VISIBLE)
+                return false;
             ViewParent p = cur.getParent();
             cur = p instanceof View pv ? pv : null;
         }
@@ -1626,7 +1921,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public boolean getGlobalVisibleRect(Rect r) {
-        if (r == null || visibility != VISIBLE) return false;
+        if (r == null || visibility != VISIBLE)
+            return false;
         int[] loc = new int[2];
         getLocationInWindow(loc);
         r.set(loc[0], loc[1], loc[0] + getWidth(), loc[1] + getHeight());
@@ -1692,10 +1988,12 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public void draw(Canvas canvas) {
-        if (visibility != VISIBLE || alpha <= 0f) return;
+        if (visibility != VISIBLE || alpha <= 0f)
+            return;
         int w = getWidth();
         int h = getHeight();
-        if (w <= 0 || h <= 0) return;
+        if (w <= 0 || h <= 0)
+            return;
 
         boolean hasTransform = rotation != 0f || scaleX != 1f || scaleY != 1f;
         int saveCount = hasTransform ? canvas.save() : -1;
@@ -1703,8 +2001,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
             float px = getPivotX();
             float py = getPivotY();
             canvas.translate(px, py);
-            if (rotation != 0f) canvas.rotate(rotation);
-            if (scaleX != 1f || scaleY != 1f) canvas.scale(scaleX, scaleY);
+            if (rotation != 0f)
+                canvas.rotate(rotation);
+            if (scaleX != 1f || scaleY != 1f)
+                canvas.scale(scaleX, scaleY);
             canvas.translate(-px, -py);
         }
 
@@ -1721,6 +2021,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         }
 
         try {
+            computeScroll();
             if (background != null) {
                 background.setBounds(0, 0, w, h);
                 background.draw(canvas);
@@ -1825,6 +2126,46 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         }
     }
 
+    private boolean nestedScrollingEnabled;
+
+    public void setNestedScrollingEnabled(boolean enabled) {
+        if (nestedScrollingEnabled && !enabled) {
+            stopNestedScroll();
+        }
+        this.nestedScrollingEnabled = enabled;
+    }
+
+    public boolean isNestedScrollingEnabled() {
+        return nestedScrollingEnabled;
+    }
+
+    public boolean startNestedScroll(int axes) {
+        return false;
+    }
+
+    public void stopNestedScroll() {
+    }
+
+    public boolean hasNestedScrollingParent() {
+        return false;
+    }
+
+    public boolean dispatchNestedScroll(int dxConsumed, int dyConsumed, int dxUnconsumed, int dyUnconsumed, int[] offsetInWindow) {
+        return false;
+    }
+
+    public boolean dispatchNestedPreScroll(int dx, int dy, int[] consumed, int[] offsetInWindow) {
+        return false;
+    }
+
+    public boolean dispatchNestedFling(float velocityX, float velocityY, boolean consumed) {
+        return false;
+    }
+
+    public boolean dispatchNestedPreFling(float velocityX, float velocityY) {
+        return false;
+    }
+
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         return false;
@@ -1848,7 +2189,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     // --------------------------------------------------------- Touch & Keyboard
 
     public boolean dispatchTouchEvent(MotionEvent event) {
-        if (!enabled || visibility != VISIBLE) return false;
+        if (!enabled || visibility != VISIBLE)
+            return false;
         if (onTouchListener != null && onTouchListener.onTouch(this, event)) {
             return true;
         }
@@ -1856,7 +2198,8 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public boolean onTouchEvent(MotionEvent event) {
-        if (!isClickable() && !focusable) return false;
+        if (!isClickable() && !focusable)
+            return false;
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN -> {
                 setPressed(true);

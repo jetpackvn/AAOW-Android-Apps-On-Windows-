@@ -154,9 +154,37 @@ public final class Bitmap implements Parcelable {
 
     public boolean compress(CompressFormat format, int quality, OutputStream stream) {
         if (stream == null || recycled || image == null) return false;
-        String fmt = format == CompressFormat.JPEG ? "jpg" : "png";
         try {
-            return ImageIO.write(image, fmt, stream);
+            if (format == CompressFormat.JPEG) {
+                BufferedImage rgb = image;
+                if (image.getType() != BufferedImage.TYPE_INT_RGB && image.getColorModel().hasAlpha()) {
+                    rgb = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);
+                    Graphics2D g = rgb.createGraphics();
+                    g.setColor(java.awt.Color.WHITE);
+                    g.fillRect(0, 0, rgb.getWidth(), rgb.getHeight());
+                    g.drawImage(image, 0, 0, null);
+                    g.dispose();
+                }
+                java.util.Iterator<javax.imageio.ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
+                if (writers.hasNext()) {
+                    javax.imageio.ImageWriter writer = writers.next();
+                    try (javax.imageio.stream.ImageOutputStream ios = ImageIO.createImageOutputStream(stream)) {
+                        writer.setOutput(ios);
+                        javax.imageio.ImageWriteParam param = writer.getDefaultWriteParam();
+                        if (param.canWriteCompressed()) {
+                            param.setCompressionMode(javax.imageio.ImageWriteParam.MODE_EXPLICIT);
+                            param.setCompressionQuality(Math.max(0.05f, Math.min(1.0f, quality / 100f)));
+                        }
+                        writer.write(null, new javax.imageio.IIOImage(rgb, null, null), param);
+                        ios.flush();
+                        return true;
+                    } finally {
+                        writer.dispose();
+                    }
+                }
+                return ImageIO.write(rgb, "jpg", stream);
+            }
+            return ImageIO.write(image, "png", stream);
         } catch (Exception e) {
             return false;
         }

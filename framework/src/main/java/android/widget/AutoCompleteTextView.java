@@ -16,6 +16,7 @@ public class AutoCompleteTextView extends EditText implements Filter.FilterListe
     private AdapterView.OnItemClickListener itemClickListener;
     private AdapterView.OnItemSelectedListener itemSelectedListener;
     private OnDismissListener dismissListener;
+    private android.graphics.drawable.Drawable dropDownBackground;
 
     public AutoCompleteTextView(Context context) {
         this(context, null, 0);
@@ -97,6 +98,20 @@ public class AutoCompleteTextView extends EditText implements Filter.FilterListe
 
     public void setDropDownWidth(int width) {
         this.dropDownWidth = width;
+    }
+
+    public android.graphics.drawable.Drawable getDropDownBackground() {
+        return dropDownBackground;
+    }
+
+    public void setDropDownBackgroundDrawable(android.graphics.drawable.Drawable d) {
+        this.dropDownBackground = d;
+    }
+
+    public void setDropDownBackgroundResource(int id) {
+        if (getResources() != null && id != 0) {
+            this.dropDownBackground = getResources().getDrawable(id);
+        }
     }
 
     public int getListSelection() {

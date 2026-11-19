@@ -134,7 +134,34 @@ public class Canvas {
     }
 
     public boolean clipRect(Rect rect) {
-        return clipRect(rect.left, rect.top, rect.right, rect.bottom);
+        return rect != null && clipRect(rect.left, rect.top, rect.right, rect.bottom);
+    }
+
+    public boolean clipRect(RectF rect) {
+        return rect != null && clipRect(rect.left, rect.top, rect.right, rect.bottom);
+    }
+
+    public boolean clipOutRect(float left, float top, float right, float bottom) {
+        if (g == null || right <= left || bottom <= top) return true;
+        Shape cur = g.getClip();
+        java.awt.geom.Area area = cur != null
+                ? new java.awt.geom.Area(cur)
+                : new java.awt.geom.Area(new java.awt.geom.Rectangle2D.Float(0, 0, Math.max(1, getWidth()), Math.max(1, getHeight())));
+        area.subtract(new java.awt.geom.Area(new java.awt.geom.Rectangle2D.Float(left, top, right - left, bottom - top)));
+        g.setClip(area);
+        return !area.isEmpty();
+    }
+
+    public boolean clipOutRect(int left, int top, int right, int bottom) {
+        return clipOutRect((float) left, (float) top, (float) right, (float) bottom);
+    }
+
+    public boolean clipOutRect(Rect rect) {
+        return rect == null || clipOutRect(rect.left, rect.top, rect.right, rect.bottom);
+    }
+
+    public boolean clipOutRect(RectF rect) {
+        return rect == null || clipOutRect(rect.left, rect.top, rect.right, rect.bottom);
     }
 
     public boolean clipPath(Path path) {
@@ -142,6 +169,17 @@ public class Canvas {
             g.clip(path.awtPath);
         }
         return true;
+    }
+
+    public boolean clipOutPath(Path path) {
+        if (g == null || path == null) return true;
+        Shape cur = g.getClip();
+        java.awt.geom.Area area = cur != null
+                ? new java.awt.geom.Area(cur)
+                : new java.awt.geom.Area(new java.awt.geom.Rectangle2D.Float(0, 0, Math.max(1, getWidth()), Math.max(1, getHeight())));
+        area.subtract(new java.awt.geom.Area(path.awtPath));
+        g.setClip(area);
+        return !area.isEmpty();
     }
 
     public void drawColor(int color) {
@@ -163,9 +201,53 @@ public class Canvas {
         drawColor(Color.rgb(r, g, b));
     }
 
+    public static int applyColorFilter(int baseColor, ColorFilter filter) {
+        if (!(filter instanceof PorterDuffColorFilter pdcf)) {
+            return baseColor;
+        }
+        int fc = pdcf.getColor();
+        PorterDuff.Mode mode = pdcf.getMode();
+        if (mode == null) mode = PorterDuff.Mode.SRC_IN;
+        int ba = Color.alpha(baseColor);
+        int fa = Color.alpha(fc);
+        return switch (mode) {
+            case SRC -> fc;
+            case SRC_IN -> Color.argb((ba * fa) / 255, Color.red(fc), Color.green(fc), Color.blue(fc));
+            case SRC_ATOP -> Color.argb(ba, Color.red(fc), Color.green(fc), Color.blue(fc));
+            case MULTIPLY -> Color.argb(
+                    (ba * fa) / 255,
+                    (Color.red(baseColor) * Color.red(fc)) / 255,
+                    (Color.green(baseColor) * Color.green(fc)) / 255,
+                    (Color.blue(baseColor) * Color.blue(fc)) / 255);
+            case SRC_OVER -> {
+                if (fa == 255) yield fc;
+                if (fa == 0) yield baseColor;
+                int inv = 255 - fa;
+                int outA = fa + (ba * inv) / 255;
+                if (outA == 0) yield 0;
+                int outR = (Color.red(fc) * fa + Color.red(baseColor) * ba * inv / 255) / outA;
+                int outG = (Color.green(fc) * fa + Color.green(baseColor) * ba * inv / 255) / outA;
+                int outB = (Color.blue(fc) * fa + Color.blue(baseColor) * ba * inv / 255) / outA;
+                yield Color.argb(Math.min(255, outA), Math.min(255, outR), Math.min(255, outG), Math.min(255, outB));
+            }
+            case CLEAR -> Color.TRANSPARENT;
+            case DST -> baseColor;
+            default -> Color.argb((ba * fa) / 255, Color.red(fc), Color.green(fc), Color.blue(fc));
+        };
+    }
+
+    private void applyPaintToGraphics(Paint paint) {
+        if (paint.getShader() instanceof LinearGradient lg) {
+            g.setPaint(lg.toAwtPaint());
+        } else {
+            int effective = applyColorFilter(paint.getColor(), paint.getColorFilter());
+            g.setColor(Color.toAwt(effective));
+        }
+    }
+
     private void drawShape(Shape shape, Paint paint) {
         if (g == null || paint == null) return;
-        g.setColor(Color.toAwt(paint.getColor()));
+        applyPaintToGraphics(paint);
         Paint.Style style = paint.getStyle();
         if (style == Paint.Style.FILL || style == Paint.Style.FILL_AND_STROKE) {
             g.fill(shape);
@@ -178,7 +260,7 @@ public class Canvas {
 
     public void drawLine(float startX, float startY, float stopX, float stopY, Paint paint) {
         if (g == null || paint == null) return;
-        g.setColor(Color.toAwt(paint.getColor()));
+        applyPaintToGraphics(paint);
         g.setStroke(paint.toAwtStroke());
         g.draw(new Line2D.Float(startX, startY, stopX, stopY));
     }
@@ -232,7 +314,7 @@ public class Canvas {
         if (g == null || text == null || paint == null) return;
         Font font = paint.toAwtFont();
         g.setFont(font);
-        g.setColor(Color.toAwt(paint.getColor()));
+        g.setColor(Color.toAwt(applyColorFilter(paint.getColor(), paint.getColorFilter())));
         FontMetrics fm = g.getFontMetrics(font);
         float drawX = switch (paint.getTextAlign()) {
             case CENTER -> x - fm.stringWidth(text) / 2f;

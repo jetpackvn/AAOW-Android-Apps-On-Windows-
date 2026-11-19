@@ -545,6 +545,38 @@ public class Activity extends ContextThemeWrapper
         return false;
     }
 
+    @Override
+    public boolean onCreatePanelMenu(int featureId, Menu menu) {
+        if (featureId == Window.FEATURE_OPTIONS_PANEL) {
+            boolean show = onCreateOptionsMenu(menu);
+            if (fragmentManager != null) {
+                show |= fragmentManager.dispatchCreateOptionsMenu(menu, getMenuInflater());
+            }
+            return show;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean onPreparePanel(int featureId, View view, Menu menu) {
+        if (featureId == Window.FEATURE_OPTIONS_PANEL && menu != null) {
+            boolean goforit = onPrepareOptionsMenu(menu);
+            if (fragmentManager != null) {
+                goforit |= fragmentManager.dispatchPrepareOptionsMenu(menu);
+            }
+            return goforit;
+        }
+        return true;
+    }
+
+    @Override
+    public boolean onMenuItemSelected(int featureId, MenuItem item) {
+        if (featureId == Window.FEATURE_OPTIONS_PANEL) {
+            return dispatchOptionsItemSelected(item);
+        }
+        return false;
+    }
+
     public boolean onCreateOptionsMenu(Menu menu) {
         return true;
     }
@@ -606,7 +638,7 @@ public class Activity extends ContextThemeWrapper
         if (application != null) application.dispatchActivityResumed(this);
         if (fragmentManager != null) fragmentManager.dispatchResume();
         onPostResume();
-        rebuildOptionsMenu();
+        invalidateOptionsMenu();
     }
 
     public final void performPause() {

@@ -20,6 +20,8 @@ import android.view.WindowManager;
 import android.window.OnBackInvokedDispatcher;
 
 public class Dialog implements DialogInterface, Window.Callback {
+    private static volatile java.util.function.BiConsumer<Dialog, Boolean> hostDialogLifecycleBridge;
+
     protected final Context context;
     protected final Window window;
     protected CharSequence title = "";
@@ -33,6 +35,18 @@ public class Dialog implements DialogInterface, Window.Callback {
     protected OnDismissListener onDismissListener;
     protected OnShowListener onShowListener;
     protected OnKeyListener onKeyListener;
+
+    public static void setHostDialogLifecycleBridge(java.util.function.BiConsumer<Dialog, Boolean> bridge) {
+        hostDialogLifecycleBridge = bridge;
+    }
+
+    public boolean isCancelable() {
+        return cancelable;
+    }
+
+    public boolean isCanceledOnTouchOutside() {
+        return canceledOnTouchOutside;
+    }
 
     public Dialog(Context context) {
         this(context, 0);
@@ -85,11 +99,12 @@ public class Dialog implements DialogInterface, Window.Callback {
     }
 
     public View getCurrentFocus() {
-        return null;
+        return window != null ? window.getCurrentFocus() : null;
     }
 
     public void setTitle(CharSequence title) {
         this.title = title != null ? title : "";
+        if (window != null) window.setTitle(this.title);
     }
 
     public void setTitle(int titleId) {
@@ -199,13 +214,20 @@ public class Dialog implements DialogInterface, Window.Callback {
         }
         onStart();
         showing = true;
+        if (hostDialogLifecycleBridge != null) {
+            hostDialogLifecycleBridge.accept(this, Boolean.TRUE);
+        }
         if (onShowListener != null) {
             onShowListener.onShow(this);
         }
     }
 
     public void hide() {
+        if (!showing) return;
         showing = false;
+        if (hostDialogLifecycleBridge != null) {
+            hostDialogLifecycleBridge.accept(this, Boolean.FALSE);
+        }
     }
 
     @Override
@@ -218,6 +240,9 @@ public class Dialog implements DialogInterface, Window.Callback {
     public void dismiss() {
         if (!showing) return;
         showing = false;
+        if (hostDialogLifecycleBridge != null) {
+            hostDialogLifecycleBridge.accept(this, Boolean.FALSE);
+        }
         onStop();
         if (onDismissListener != null) onDismissListener.onDismiss(this);
     }
@@ -318,6 +343,15 @@ public class Dialog implements DialogInterface, Window.Callback {
         if (onKeyListener != null && event != null && onKeyListener.onKey(this, event.getKeyCode(), event)) {
             return true;
         }
+        if (window != null && window.superDispatchKeyEvent(event)) {
+            return true;
+        }
+        if (event != null && event.getAction() == KeyEvent.ACTION_DOWN) {
+            return onKeyDown(event.getKeyCode(), event);
+        }
+        if (event != null && event.getAction() == KeyEvent.ACTION_UP) {
+            return onKeyUp(event.getKeyCode(), event);
+        }
         return false;
     }
 
@@ -327,6 +361,9 @@ public class Dialog implements DialogInterface, Window.Callback {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (window != null && window.superDispatchTouchEvent(ev)) {
+            return true;
+        }
         return onTouchEvent(ev);
     }
 

@@ -58,6 +58,18 @@ public class ViewConfiguration {
         return Math.round(8 * density);
     }
 
+    public static int getWindowTouchSlop() {
+        return 16;
+    }
+
+    public int getScaledWindowTouchSlop() {
+        return Math.round(16 * density);
+    }
+
+    public int getScaledHoverSlop() {
+        return Math.round(4 * density);
+    }
+
     public int getScaledPagingTouchSlop() {
         return Math.round(16 * density);
     }

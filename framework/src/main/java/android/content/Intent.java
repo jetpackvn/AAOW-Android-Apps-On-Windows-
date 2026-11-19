@@ -16,6 +16,8 @@ public class Intent implements Cloneable, Parcelable {
     public static final String ACTION_MAIN = "android.intent.action.MAIN";
     public static final String ACTION_VIEW = "android.intent.action.VIEW";
     public static final String ACTION_SEND = "android.intent.action.SEND";
+    public static final String ACTION_SEND_MULTIPLE = "android.intent.action.SEND_MULTIPLE";
+    public static final String ACTION_PICK = "android.intent.action.PICK";
     public static final String ACTION_CHOOSER = "android.intent.action.CHOOSER";
     public static final String ACTION_GET_CONTENT = "android.intent.action.GET_CONTENT";
     public static final String ACTION_OPEN_DOCUMENT = "android.intent.action.OPEN_DOCUMENT";
@@ -26,9 +28,12 @@ public class Intent implements Cloneable, Parcelable {
     public static final String CATEGORY_OPENABLE = "android.intent.category.OPENABLE";
 
     public static final String EXTRA_TEXT = "android.intent.extra.TEXT";
+    public static final String EXTRA_SUBJECT = "android.intent.extra.SUBJECT";
     public static final String EXTRA_TITLE = "android.intent.extra.TITLE";
     public static final String EXTRA_STREAM = "android.intent.extra.STREAM";
     public static final String EXTRA_INTENT = "android.intent.extra.INTENT";
+    public static final String EXTRA_INITIAL_INTENTS = "android.intent.extra.INITIAL_INTENTS";
+    public static final String EXTRA_EXCLUDE_COMPONENTS = "android.intent.extra.EXCLUDE_COMPONENTS";
     public static final String EXTRA_ALLOW_MULTIPLE = "android.intent.extra.ALLOW_MULTIPLE";
     public static final String EXTRA_MIME_TYPES = "android.intent.extra.MIME_TYPES";
 
@@ -400,6 +405,10 @@ public class Intent implements Cloneable, Parcelable {
 
     public Bundle getExtras() {
         return new Bundle(extras);
+    }
+
+    public void setExtrasClassLoader(ClassLoader loader) {
+        extras.setClassLoader(loader);
     }
 
     @Override

@@ -162,6 +162,14 @@ public class Path {
         return awtPath.getCurrentPoint() == null;
     }
 
+    public boolean isConvex() {
+        return true;
+    }
+
+    public boolean isRect(RectF rect) {
+        return false;
+    }
+
     public boolean op(Path path, Op op) {
         if (path == null || op == null) return false;
         java.awt.geom.Area a = new java.awt.geom.Area(this.awtPath);

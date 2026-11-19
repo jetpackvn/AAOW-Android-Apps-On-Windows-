@@ -42,7 +42,7 @@ public class Button extends TextView {
             setGravity(Gravity.CENTER);
             setTypeface(Typeface.DEFAULT_BOLD);
         }
-        if (getBackground() == null && !hasExplicitTextColor) {
+        if (getBackground() == null && !hasExplicitTextColor && defStyleAttr == 0) {
             this.textColor = Color.WHITE;
         }
     }
@@ -54,10 +54,18 @@ public class Button extends TextView {
     }
 
     @Override
+    public void setTextColor(android.content.res.ColorStateList colors) {
+        if (colors != null) hasExplicitTextColor = true;
+        super.setTextColor(colors);
+    }
+
+    @Override
     public void draw(Canvas canvas) {
         if (getVisibility() != VISIBLE) return;
         int w = getWidth();
         int h = getHeight();
+        int savedTextColor = this.textColor;
+        boolean drewDefaultPill = false;
         if (getBackground() == null) {
             float r = Math.min(20f, h / 2f);
             int baseColor = !isEnabled()
@@ -66,7 +74,17 @@ public class Button extends TextView {
             bgPaint.setStyle(Paint.Style.FILL);
             bgPaint.setColor(baseColor);
             canvas.drawRoundRect(0, 1, w, h - 1, r, r, bgPaint);
+            if (!hasExplicitTextColor) {
+                this.textColor = Color.WHITE;
+                drewDefaultPill = true;
+            }
         }
-        super.draw(canvas);
+        try {
+            super.draw(canvas);
+        } finally {
+            if (drewDefaultPill) {
+                this.textColor = savedTextColor;
+            }
+        }
     }
 }

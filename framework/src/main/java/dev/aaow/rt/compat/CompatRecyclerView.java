@@ -38,9 +38,29 @@ public class CompatRecyclerView extends ViewGroup {
             for (Runnable r : observers) r.run();
         }
 
+        public final void notifyItemChanged(int position) {
+            notifyDataSetChanged();
+        }
+
+        public final void notifyItemInserted(int position) {
+            notifyDataSetChanged();
+        }
+
+        public final void notifyItemRemoved(int position) {
+            notifyDataSetChanged();
+        }
+
+        public final void notifyItemRangeChanged(int positionStart, int itemCount) {
+            notifyDataSetChanged();
+        }
+
         void registerObserver(Runnable r) {
             if (r != null && !observers.contains(r)) observers.add(r);
         }
+    }
+
+    public interface OnItemClickListener {
+        void onItemClick(CompatRecyclerView parent, View itemView, int position);
     }
 
     private Adapter<ViewHolder> adapter;
@@ -48,6 +68,8 @@ public class CompatRecyclerView extends ViewGroup {
     private int contentHeight;
     private float dragLastY;
     private boolean dragging;
+    private boolean hasFixedSize;
+    private OnItemClickListener onItemClickListener;
 
     public CompatRecyclerView(Context context) {
         this(context, null, 0);
@@ -59,6 +81,30 @@ public class CompatRecyclerView extends ViewGroup {
 
     public CompatRecyclerView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+    }
+
+    public void setHasFixedSize(boolean hasFixedSize) {
+        this.hasFixedSize = hasFixedSize;
+    }
+
+    public boolean hasFixedSize() {
+        return hasFixedSize;
+    }
+
+    public void setOnItemClickListener(OnItemClickListener listener) {
+        this.onItemClickListener = listener;
+    }
+
+    public void scrollToPosition(int position) {
+        if (position < 0 || position >= getChildCount()) return;
+        View target = getChildAt(position);
+        int max = Math.max(0, contentHeight - getHeight());
+        scrollTo(0, Math.max(0, Math.min(max, target.getTop())));
+        invalidate();
+    }
+
+    public void smoothScrollToPosition(int position) {
+        scrollToPosition(position);
     }
 
     @SuppressWarnings("unchecked")
@@ -84,10 +130,18 @@ public class CompatRecyclerView extends ViewGroup {
         if (adapter == null) return;
         int count = adapter.getItemCount();
         for (int i = 0; i < count; i++) {
+            int pos = i;
             int type = adapter.getItemViewType(i);
             ViewHolder vh = adapter.onCreateViewHolder(this, type);
             if (vh != null && vh.itemView != null) {
                 adapter.onBindViewHolder(vh, i);
+                if (onItemClickListener != null && !vh.itemView.hasOnClickListeners()) {
+                    vh.itemView.setOnClickListener(v -> {
+                        if (onItemClickListener != null) {
+                            onItemClickListener.onItemClick(CompatRecyclerView.this, v, pos);
+                        }
+                    });
+                }
                 addView(vh.itemView);
             }
         }

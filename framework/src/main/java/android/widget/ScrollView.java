@@ -15,18 +15,37 @@ import android.view.ViewGroup;
 public class ScrollView extends FrameLayout {
     private float lastTouchY;
     private boolean dragging;
+    private boolean fillViewport;
     private final Paint scrollbarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     public ScrollView(Context context) {
-        super(context);
+        this(context, null, 0);
     }
 
     public ScrollView(Context context, AttributeSet attrs) {
-        super(context, attrs);
+        this(context, attrs, 0);
     }
 
     public ScrollView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        if (attrs instanceof AttributeSet.XmlAttributeSet xas && context != null) {
+            dev.aaow.apk.XmlElement.Attribute fv = xas.element.attr("fillViewport");
+            if (fv != null) {
+                dev.aaow.apk.ResValue rv = context.getResources().getTable().resolve(fv.value);
+                if (rv != null) this.fillViewport = rv.data() != 0;
+            }
+        }
+    }
+
+    public boolean isFillViewport() {
+        return fillViewport;
+    }
+
+    public void setFillViewport(boolean fillViewport) {
+        if (fillViewport != this.fillViewport) {
+            this.fillViewport = fillViewport;
+            requestLayout();
+        }
     }
 
     @Override
@@ -40,6 +59,12 @@ public class ScrollView extends FrameLayout {
                 paddingLeft + paddingRight + lp.leftMargin + lp.rightMargin, lp.width);
         int childHeightSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
         child.measure(childWidthSpec, childHeightSpec);
+        if (fillViewport && MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            int viewportH = Math.max(0, getMeasuredHeight() - paddingTop - paddingBottom - lp.topMargin - lp.bottomMargin);
+            if (child.getMeasuredHeight() < viewportH) {
+                child.measure(childWidthSpec, MeasureSpec.makeMeasureSpec(viewportH, MeasureSpec.EXACTLY));
+            }
+        }
     }
 
     @Override

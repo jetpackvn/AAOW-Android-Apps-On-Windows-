@@ -73,15 +73,22 @@ public final class Main {
             boolean silent = "--install-silent".equals(effectiveArgs[0]);
             Path apkPath = Path.of(effectiveArgs[1]);
             if (!Files.exists(apkPath)) {
-                System.err.println("Không tìm thấy file APK: " + apkPath.toAbsolutePath());
+                System.err.println("Không tìm thấy file/thư mục APK: " + apkPath.toAbsolutePath());
                 System.exit(1);
             }
             AppRepository repo = new AppRepository(dataRoot, samplesDir);
-            AppRepository.InstalledApp installed = repo.installApk(apkPath);
-            System.out.println("Đã cài đặt vào AAOW: " + installed.label() + " (" + installed.packageName() + ")");
+            AppRepository.InstalledApp selected = null;
+            if (Files.isDirectory(apkPath)) {
+                List<AppRepository.InstalledApp> list = repo.installApksFromDirectory(apkPath);
+                System.out.println("Đã cài đặt " + list.size() + " APK từ thư mục: " + apkPath.toAbsolutePath());
+                if (!list.isEmpty()) selected = list.get(0);
+            } else {
+                selected = repo.installApk(apkPath);
+                System.out.println("Đã cài đặt vào AAOW: " + selected.label() + " (" + selected.packageName() + ")");
+            }
             if (!silent) {
                 AppHubWindow hub = new AppHubWindow(repo);
-                hub.selectApp(installed);
+                if (selected != null) hub.selectApp(selected);
                 hub.show();
             }
             return;

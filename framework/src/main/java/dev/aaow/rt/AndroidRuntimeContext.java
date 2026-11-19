@@ -132,14 +132,15 @@ public final class AndroidRuntimeContext extends Context {
     public AndroidRuntimeContext(ApkFile apk, ClassLoader classLoader, Path dataRoot) {
         this.apk = apk;
         this.manifest = apk.getManifest();
-        android.os.Environment.setDataRoot(dataRoot);
+        Path absRoot = dataRoot.toAbsolutePath().normalize();
+        android.os.Environment.setDataRoot(absRoot);
         this.resources = new Resources(apk);
         this.theme = resources.newTheme();
         if (manifest.themeRes != 0) {
             this.theme.applyStyle(manifest.themeRes, true);
         }
         this.classLoader = classLoader;
-        this.dataDir = dataRoot.resolve(manifest.packageName.isEmpty() ? "default_app" : manifest.packageName);
+        this.dataDir = absRoot.resolve(manifest.packageName.isEmpty() ? "default_app" : manifest.packageName);
         try {
             Files.createDirectories(dataDir.resolve("files"));
             Files.createDirectories(dataDir.resolve("cache"));
@@ -780,6 +781,11 @@ public final class AndroidRuntimeContext extends Context {
     public void startActivity(Intent intent, Bundle options) {
         if (intent == null)
             return;
+        if (intent.getComponent() == null && WindowsShareBridge.isShareIntent(intent)) {
+            if (WindowsShareBridge.handleShare(this, intent)) {
+                return;
+            }
+        }
         if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null
                 && intent.getComponent() == null) {
             try {

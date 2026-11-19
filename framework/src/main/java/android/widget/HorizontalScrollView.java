@@ -11,17 +11,36 @@ import android.view.View;
 public class HorizontalScrollView extends FrameLayout {
     private float lastTouchX;
     private boolean dragging;
+    private boolean fillViewport;
 
     public HorizontalScrollView(Context context) {
-        super(context);
+        this(context, null, 0);
     }
 
     public HorizontalScrollView(Context context, AttributeSet attrs) {
-        super(context, attrs);
+        this(context, attrs, 0);
     }
 
     public HorizontalScrollView(Context context, AttributeSet attrs, int defStyleAttr) {
         super(context, attrs, defStyleAttr);
+        if (attrs instanceof AttributeSet.XmlAttributeSet xas && context != null) {
+            dev.aaow.apk.XmlElement.Attribute fv = xas.element.attr("fillViewport");
+            if (fv != null) {
+                dev.aaow.apk.ResValue rv = context.getResources().getTable().resolve(fv.value);
+                if (rv != null) this.fillViewport = rv.data() != 0;
+            }
+        }
+    }
+
+    public boolean isFillViewport() {
+        return fillViewport;
+    }
+
+    public void setFillViewport(boolean fillViewport) {
+        if (fillViewport != this.fillViewport) {
+            this.fillViewport = fillViewport;
+            requestLayout();
+        }
     }
 
     @Override
@@ -35,6 +54,12 @@ public class HorizontalScrollView extends FrameLayout {
         int childHeightSpec = getChildMeasureSpec(heightMeasureSpec,
                 paddingTop + paddingBottom + lp.topMargin + lp.bottomMargin, lp.height);
         child.measure(childWidthSpec, childHeightSpec);
+        if (fillViewport && MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            int viewportW = Math.max(0, getMeasuredWidth() - paddingLeft - paddingRight - lp.leftMargin - lp.rightMargin);
+            if (child.getMeasuredWidth() < viewportW) {
+                child.measure(MeasureSpec.makeMeasureSpec(viewportW, MeasureSpec.EXACTLY), childHeightSpec);
+            }
+        }
     }
 
     @Override

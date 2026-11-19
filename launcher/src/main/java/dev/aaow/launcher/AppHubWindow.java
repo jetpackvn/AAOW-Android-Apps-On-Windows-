@@ -235,6 +235,10 @@ public final class AppHubWindow {
         JButton btnInstall = createStyledButton("+ Cài đặt APK...", ACCENT_BLUE, Color.WHITE);
         btnInstall.addActionListener(e -> promptInstallApk());
 
+        JButton btnBatch = createStyledButton("Nạp APK Offline", new Color(0x1E3A34), new Color(0x7CE8B4));
+        btnBatch.setToolTipText("Nạp nhanh bộ ứng dụng Android Offline có sẵn hoặc chọn một thư mục chứa nhiều file .apk");
+        btnBatch.addActionListener(e -> promptImportOfflineBundle());
+
         JButton btnAssoc = createStyledButton("", new Color(0x252A3E), new Color(0xD8DAE8));
         updateAssocButtonLabel(btnAssoc);
         btnAssoc.addActionListener(e -> toggleApkAssociation(btnAssoc));
@@ -242,6 +246,7 @@ public final class AppHubWindow {
         actions.add(searchLbl);
         actions.add(searchField);
         actions.add(btnAssoc);
+        actions.add(btnBatch);
         actions.add(btnInstall);
         header.add(actions, BorderLayout.EAST);
 
@@ -586,11 +591,79 @@ public final class AppHubWindow {
 
     private void promptInstallApk() {
         JFileChooser chooser = new JFileChooser(".");
-        chooser.setDialogTitle("Chọn file Android APK để cài vào AAOW App Hub");
+        chooser.setDialogTitle("Chọn một hoặc nhiều file Android APK để cài vào AAOW App Hub");
+        chooser.setMultiSelectionEnabled(true);
         chooser.setFileFilter(new FileNameExtensionFilter("Android Package (*.apk)", "apk"));
         if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
-            installApkFromFile(chooser.getSelectedFile().toPath());
+            File[] files = chooser.getSelectedFiles();
+            if (files != null && files.length > 0) {
+                for (File f : files) {
+                    installApkFromFile(f.toPath());
+                }
+            } else if (chooser.getSelectedFile() != null) {
+                installApkFromFile(chooser.getSelectedFile().toPath());
+            }
         }
+    }
+
+    private void promptImportOfflineBundle() {
+        Path defaultDir = AppRepository.findDefaultOfflineApkDir();
+        Path targetDir = null;
+        if (defaultDir != null) {
+            Object[] options = { "Nạp từ " + defaultDir.getFileName(), "Chọn thư mục khác...", "Hủy" };
+            int choice = JOptionPane.showOptionDialog(frame,
+                    "Tìm thấy thư mục chứa bộ APK Offline:\n" + defaultDir + "\nBạn muốn nạp toàn bộ APK trong thư mục này vào AAOW App Hub?",
+                    "Nạp bộ ứng dụng Offline",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.QUESTION_MESSAGE,
+                    null, options, options[0]);
+            if (choice == 0) {
+                targetDir = defaultDir;
+            } else if (choice == 1) {
+                targetDir = chooseDirectory("Chọn thư mục chứa các file .apk");
+            }
+        } else {
+            targetDir = chooseDirectory("Chọn thư mục chứa các file .apk");
+        }
+        if (targetDir == null) return;
+
+        final Path dirToImport = targetDir;
+        appendLog("[AAOW-Hub] Đang nạp hàng loạt APK từ " + dirToImport + "...");
+        new javax.swing.SwingWorker<List<AppRepository.InstalledApp>, Void>() {
+            @Override
+            protected List<AppRepository.InstalledApp> doInBackground() throws Exception {
+                return repository.installApksFromDirectory(dirToImport);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<AppRepository.InstalledApp> list = get();
+                    if (!list.isEmpty()) {
+                        selectedApp = list.get(0);
+                        updateInspector(selectedApp);
+                    }
+                    refreshCards();
+                    if (frame != null) {
+                        JOptionPane.showMessageDialog(frame,
+                                "Đã nạp thành công " + list.size() + " ứng dụng Android vào AAOW App Hub.",
+                                "Hoàn tất nạp APK", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    appendLog("[AAOW-ERROR] Lỗi nạp thư mục APK: " + ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private Path chooseDirectory(String title) {
+        JFileChooser chooser = new JFileChooser(".");
+        chooser.setDialogTitle(title);
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION && chooser.getSelectedFile() != null) {
+            return chooser.getSelectedFile().toPath();
+        }
+        return null;
     }
 
     private void installApkFromFile(Path file) {

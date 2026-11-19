@@ -4,6 +4,7 @@ import android.app.ActionBar;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Application;
+import android.app.Dialog;
 import android.content.ComponentName;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -168,7 +169,8 @@ public final class HostWindow {
     private volatile long layoutSkips = 0;
 
     private View focusedView;
-    private AlertDialog activeDialog;
+    private final List<Dialog> activeDialogs = new ArrayList<>();
+    private int lastCustomDialogX, lastCustomDialogY, lastCustomDialogW, lastCustomDialogH;
     private PopupWindow activePopup;
     private SimpleMenu activeOptionsMenu;
     private final List<SimpleMenu.SimpleMenuItem> activeOverflowItems = new ArrayList<>();
@@ -199,14 +201,40 @@ public final class HostWindow {
                     .getDrawable(runtimeContext.getManifest().iconRes);
         }
         Toast.setHostToastBridge(this::showToast);
-        AlertDialog.setHostDialogBridge(d -> {
-            this.activeDialog = d;
+        Dialog.setHostDialogLifecycleBridge((dialog, shown) -> {
+            if (dialog == null) return;
+            if (Boolean.TRUE.equals(shown)) {
+                activeDialogs.remove(dialog);
+                activeDialogs.add(dialog);
+                if (dialog.getWindow() != null && dialog.getWindow().getDecorView() != null) {
+                    dialog.getWindow().getDecorView().setInvalidateCallback(this::repaintViewport);
+                }
+            } else {
+                activeDialogs.remove(dialog);
+                if (activeDialogs.isEmpty()) {
+                    Activity top = activityStack.peek();
+                    if (top != null && top.getWindow() != null && top.getWindow().getDecorView() != null) {
+                        top.getWindow().getDecorView().dispatchWindowFocusChanged(true);
+                    }
+                }
+            }
             repaintViewport();
         });
+        AlertDialog.setHostDialogBridge(null);
         PopupWindow.setHostPopupBridge(pw -> {
             this.activePopup = pw;
             repaintViewport();
         });
+    }
+
+    public Dialog getActiveDialog() {
+        return activeDialogs.isEmpty() ? null : activeDialogs.get(activeDialogs.size() - 1);
+    }
+
+    private static boolean usesNativeAlertOverlay(Dialog d) {
+        if (!(d instanceof AlertDialog)) return false;
+        if (d.getWindow() == null || !(d.getWindow().getDecorView() instanceof ViewGroup vg)) return true;
+        return vg.getChildCount() == 0;
     }
 
     private void resolveThemeColors(int themeRes) {
@@ -632,10 +660,15 @@ public final class HostWindow {
                 View decor = top.getWindow().getDecorView();
                 int ch = Math.max(0, height - viewport.contentTopOffset(top) - NAV_BAR_H);
                 runtimeContext.getResources().updateViewportMetrics(width, ch, landscape);
+                if (!decor.isAttachedToWindow()) {
+                    decor.dispatchAttachedToWindow();
+                    decor.dispatchWindowFocusChanged(activeDialogs.isEmpty());
+                }
                 decor.measure(
                         View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY));
                 decor.layout(0, 0, width, ch);
+                decor.dispatchWindowFocusChanged(activeDialogs.isEmpty());
                 lastLayoutW = width;
                 lastLayoutH = ch;
                 lastLayoutActivity = top;
@@ -715,6 +748,218 @@ public final class HostWindow {
             parentDir.mkdirs();
         }
         ImageIO.write(img, "png", outFile);
+    }
+
+    // --------------------------------------------------------- API tương tác tự động (Headless / End-to-End Test)
+
+    /** Bắt đầu Activity trên viewport headless mà chưa chụp ảnh, sẵn sàng nhận sự kiện tương tác. */
+    public void launchHeadless(String activityClass, int width, int height) throws Exception {
+        Runnable launch = () -> {
+            this.viewportZoom = 0f;
+            this.logicalWidth = width;
+            this.logicalHeight = height;
+            this.landscape = width > height;
+            this.forceNextLayout = true;
+
+            Intent mainIntent = new Intent(Intent.ACTION_MAIN);
+            mainIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+            mainIntent.setClassName(runtimeContext.getPackageName(), activityClass);
+            viewport = new DeviceViewport();
+            viewport.setSize(width, height);
+            startActivity(mainIntent);
+            layoutCurrentIfNeeded();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            launch.run();
+        } else {
+            SwingUtilities.invokeAndWait(launch);
+        }
+        pumpEventsAndLayout(250);
+    }
+
+    /** Chờ các tác vụ bất đồng bộ (Main Looper, Room, WebView, Drawer/ViewPager animations) và đo/vẽ lại khung hình. */
+    public void pumpEventsAndLayout(long waitMs) throws Exception {
+        Runnable pass = () -> {
+            if (viewport == null) return;
+            layoutCurrentIfNeeded();
+            BufferedImage tmp = new BufferedImage(Math.max(1, logicalWidth), Math.max(1, logicalHeight), BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = tmp.createGraphics();
+            viewport.paintComponent(g2);
+            g2.dispose();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            pass.run();
+            return;
+        }
+        long deadline = System.currentTimeMillis() + Math.max(0L, waitMs);
+        do {
+            SwingUtilities.invokeAndWait(pass);
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) break;
+            Thread.sleep(Math.min(32L, remaining));
+        } while (true);
+        WebViewEngineBridge.awaitAllIdle(1500);
+        SwingUtilities.invokeAndWait(pass);
+    }
+
+    private void layoutCurrentIfNeeded() {
+        Activity top = activityStack.peek();
+        if (top == null || viewport == null) return;
+        View decor = top.getWindow().getDecorView();
+        int w = Math.max(1, logicalWidth);
+        int ch = Math.max(0, logicalHeight - viewport.contentTopOffset(top) - NAV_BAR_H);
+        runtimeContext.getResources().updateViewportMetrics(w, ch, landscape);
+        if (!decor.isAttachedToWindow()) {
+            decor.dispatchAttachedToWindow();
+        }
+        decor.measure(
+                View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY));
+        decor.layout(0, 0, w, ch);
+        decor.dispatchWindowFocusChanged(activeDialogs.isEmpty());
+        lastLayoutW = w;
+        lastLayoutH = ch;
+        lastLayoutActivity = top;
+        forceNextLayout = false;
+        layoutPasses++;
+    }
+
+    public void simulateClick(int logicalX, int logicalY) throws Exception {
+        Runnable r = () -> {
+            if (viewport == null) return;
+            viewport.handleMouse(MotionEvent.ACTION_DOWN, logicalX, logicalY);
+            viewport.handleMouse(MotionEvent.ACTION_UP, logicalX, logicalY);
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeAndWait(r);
+    }
+
+    public void simulateSwipe(int x1, int y1, int x2, int y2, int steps) throws Exception {
+        int safeSteps = Math.max(2, steps);
+        Runnable r = () -> {
+            if (viewport == null) return;
+            viewport.handleMouse(MotionEvent.ACTION_DOWN, x1, y1);
+            for (int i = 1; i <= safeSteps; i++) {
+                int x = x1 + (x2 - x1) * i / safeSteps;
+                int y = y1 + (y2 - y1) * i / safeSteps;
+                viewport.handleMouse(MotionEvent.ACTION_MOVE, x, y);
+            }
+            viewport.handleMouse(MotionEvent.ACTION_UP, x2, y2);
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeAndWait(r);
+    }
+
+    /** Tính tọa độ tâm của một View (trong Activity hoặc trong Dialog đang mở) và bắn click chuột thật qua HostWindow. */
+    public void simulateClickView(View target) throws Exception {
+        if (target == null) throw new IllegalArgumentException("Target view is null");
+        pumpEventsAndLayout(50);
+        int[] coords = new int[2];
+        Runnable calcAndClick = () -> {
+            int[] loc = new int[2];
+            target.getLocationInWindow(loc);
+            int cx = loc[0] + Math.max(1, target.getWidth()) / 2;
+            int cy = loc[1] + Math.max(1, target.getHeight()) / 2;
+            Dialog topDialog = getActiveDialog();
+            boolean inDialog = false;
+            if (topDialog != null && !usesNativeAlertOverlay(topDialog)) {
+                View cur = target;
+                View dialogDecor = topDialog.getWindow().getDecorView();
+                while (cur != null) {
+                    if (cur == dialogDecor) {
+                        inDialog = true;
+                        break;
+                    }
+                    cur = cur.getParent() instanceof View pv ? pv : null;
+                }
+            }
+            if (inDialog) {
+                coords[0] = lastCustomDialogX + cx;
+                coords[1] = lastCustomDialogY + cy;
+            } else {
+                Activity top = activityStack.peek();
+                int topOff = viewport != null ? viewport.contentTopOffset(top) : (STATUS_BAR_H + ACTION_BAR_H);
+                coords[0] = cx;
+                coords[1] = topOff + cy;
+            }
+            if (viewport != null) {
+                viewport.handleMouse(MotionEvent.ACTION_DOWN, coords[0], coords[1]);
+                viewport.handleMouse(MotionEvent.ACTION_UP, coords[0], coords[1]);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) calcAndClick.run();
+        else SwingUtilities.invokeAndWait(calcAndClick);
+    }
+
+    public void simulateTypeText(String text) throws Exception {
+        if (text == null) return;
+        Runnable r = () -> {
+            if (focusedView == null) return;
+            for (int i = 0; i < text.length(); i++) {
+                char ch = text.charAt(i);
+                if (ch == '\n') {
+                    KeyEvent ke = new KeyEvent(viewport, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_ENTER, '\n');
+                    focusedView.onHostKeyPressed(ke);
+                } else {
+                    focusedView.onHostKeyTyped(ch);
+                }
+            }
+            repaintViewport();
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeAndWait(r);
+    }
+
+    public void simulateKeyPressed(int awtKeyCode, boolean ctrl) throws Exception {
+        Runnable r = () -> {
+            if (viewport == null) return;
+            int mods = ctrl ? InputEvent.CTRL_DOWN_MASK : 0;
+            KeyEvent ke = new KeyEvent(viewport, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), mods, awtKeyCode, KeyEvent.CHAR_UNDEFINED);
+            if (focusedView != null) {
+                focusedView.onHostKeyPressed(ke);
+            } else if (awtKeyCode == KeyEvent.VK_ESCAPE) {
+                Dialog topDialog = getActiveDialog();
+                if (topDialog != null) topDialog.onBackPressed();
+                else if (activityStack.peek() != null) activityStack.peek().onBackPressed();
+            }
+            repaintViewport();
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeAndWait(r);
+    }
+
+    public void simulateBack() throws Exception {
+        Runnable r = () -> {
+            Dialog topDialog = getActiveDialog();
+            if (topDialog != null) {
+                topDialog.onBackPressed();
+            } else {
+                Activity top = activityStack.peek();
+                if (top != null) top.onBackPressed();
+            }
+            repaintViewport();
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeAndWait(r);
+    }
+
+    public boolean simulateOptionsMenuItem(int itemId) throws Exception {
+        final boolean[] handled = { false };
+        Runnable r = () -> {
+            Activity top = activityStack.peek();
+            if (top == null) return;
+            SimpleMenu menu = top.getOptionsMenu();
+            if (menu != null) {
+                MenuItem item = menu.findItem(itemId);
+                if (item != null) {
+                    handled[0] = top.dispatchOptionsItemSelected(item);
+                    repaintViewport();
+                }
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) r.run();
+        else SwingUtilities.invokeAndWait(r);
+        return handled[0];
     }
 
     public void startActivity(Intent intent) {
@@ -1208,11 +1453,22 @@ public final class HostWindow {
 
                 @Override
                 public void mouseWheelMoved(MouseWheelEvent e) {
-                    Activity act = activityStack.peek();
-                    if (act == null || activeDialog != null)
-                        return;
                     int lx = toLogicalCoord(e.getX());
                     int ly = toLogicalCoord(e.getY());
+                    Dialog topDialog = getActiveDialog();
+                    if (topDialog != null) {
+                        if (!usesNativeAlertOverlay(topDialog) && topDialog.getWindow() != null
+                                && lx >= lastCustomDialogX && lx <= lastCustomDialogX + lastCustomDialogW
+                                && ly >= lastCustomDialogY && ly <= lastCustomDialogY + lastCustomDialogH) {
+                            topDialog.getWindow().getDecorView().onMouseWheel(
+                                    e.getWheelRotation(), lx - lastCustomDialogX, ly - lastCustomDialogY);
+                            repaintViewport();
+                        }
+                        return;
+                    }
+                    Activity act = activityStack.peek();
+                    if (act == null)
+                        return;
                     int contentTop = contentTopOffset(act);
                     float cy = ly - contentTop;
                     if (cy >= 0 && cy < contentHeight(act)) {
@@ -1258,8 +1514,10 @@ public final class HostWindow {
                         return;
                     }
                     if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                        if (activeDialog != null) {
-                            activeDialog.cancel();
+                        Dialog topDialog = getActiveDialog();
+                        if (topDialog != null) {
+                            topDialog.onBackPressed();
+                            repaint();
                             return;
                         }
                         Activity act = activityStack.peek();
@@ -1273,7 +1531,7 @@ public final class HostWindow {
                         return;
                     }
                     Activity act = activityStack.peek();
-                    if (act != null && activeDialog == null) {
+                    if (act != null && activeDialogs.isEmpty()) {
                         int androidCode = switch (e.getKeyCode()) {
                             case KeyEvent.VK_UP, KeyEvent.VK_W -> android.view.KeyEvent.KEYCODE_DPAD_UP;
                             case KeyEvent.VK_DOWN, KeyEvent.VK_S -> android.view.KeyEvent.KEYCODE_DPAD_DOWN;
@@ -1369,10 +1627,15 @@ public final class HostWindow {
                 return;
             }
 
-            // 3. Nếu đang mở AlertDialog thì xử lý click nút / mục danh sách trên hộp thoại
-            if (activeDialog != null) {
-                if (action == MotionEvent.ACTION_UP) {
-                    handleDialogClick(mx, my, w, h);
+            // 3. Nếu đang mở Dialog (AlertDialog, AppCompat AlertDialog, MaterialAlertDialogBuilder, ComponentDialog...)
+            Dialog topDialog = getActiveDialog();
+            if (topDialog != null) {
+                if (usesNativeAlertOverlay(topDialog)) {
+                    if (action == MotionEvent.ACTION_UP) {
+                        handleAlertDialogClick((AlertDialog) topDialog, mx, my, w, h);
+                    }
+                } else {
+                    handleCustomDialogTouch(topDialog, action, mx, my, w, h);
                 }
                 return;
             }
@@ -1495,6 +1758,7 @@ public final class HostWindow {
                 View decor = act.getWindow().getDecorView();
                 if (!decor.isAttachedToWindow()) {
                     decor.dispatchAttachedToWindow();
+                    decor.dispatchWindowFocusChanged(activeDialogs.isEmpty());
                 }
                 if (forceNextLayout || decor.isLayoutRequested() || !decor.isLaidOut()
                         || w != lastLayoutW || ch != lastLayoutH || act != lastLayoutActivity) {
@@ -1522,8 +1786,13 @@ public final class HostWindow {
                 if (activeOptionsMenu != null) {
                     drawOptionsMenuOverlay(g2, w, h, act);
                 }
-                if (activeDialog != null) {
-                    drawAlertDialog(g2, w, h, activeDialog);
+                Dialog topDialog = getActiveDialog();
+                if (topDialog != null) {
+                    if (usesNativeAlertOverlay(topDialog)) {
+                        drawAlertDialog(g2, w, h, (AlertDialog) topDialog);
+                    } else {
+                        drawCustomDialogOverlay(g2, w, h, topDialog);
+                    }
                 }
                 if (toastMessage != null) {
                     drawToastOverlay(g2, w, h - NAV_BAR_H, toastMessage);
@@ -1922,6 +2191,10 @@ public final class HostWindow {
             g2.setFont(FONT_DIALOG_BTN);
             g2.setColor(new java.awt.Color(0x4F5BD5));
             int btnY = dy + dh - 22;
+            if (d.getNeutralText() != null) {
+                String neu = d.getNeutralText().toString();
+                g2.drawString(neu, dx + 24, btnY);
+            }
             if (d.getPositiveText() != null) {
                 String p = d.getPositiveText().toString();
                 int pw = g2.getFontMetrics().stringWidth(p);
@@ -1934,17 +2207,103 @@ public final class HostWindow {
             }
         }
 
-        private void handleDialogClick(int mx, int my, int w, int h) {
-            if (activeDialog == null)
+        private void drawCustomDialogOverlay(Graphics2D g2, int w, int h, Dialog d) {
+            if (d == null || d.getWindow() == null) return;
+            View decor = d.getWindow().getDecorView();
+            if (decor == null) return;
+
+            g2.setColor(new java.awt.Color(0, 0, 0, 135));
+            g2.fillRect(0, 0, w, h);
+
+            int maxW = Math.min(w - 36, 368);
+            int maxH = Math.max(140, h - STATUS_BAR_H - NAV_BAR_H - 48);
+            if (!decor.isAttachedToWindow()) {
+                decor.dispatchAttachedToWindow();
+            }
+            if (decor.getPaddingLeft() == 0 && decor.getPaddingTop() == 0
+                    && decor.getPaddingRight() == 0 && decor.getPaddingBottom() == 0) {
+                decor.setPadding(16, 16, 16, 10);
+            }
+            decor.measure(
+                    View.MeasureSpec.makeMeasureSpec(maxW, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
+            int dw = Math.max(240, Math.min(maxW, decor.getMeasuredWidth() > 0 ? decor.getMeasuredWidth() : maxW));
+            int dh = Math.max(120, Math.min(maxH, decor.getMeasuredHeight() > 0 ? decor.getMeasuredHeight() : 220));
+            int dx = (w - dw) / 2;
+            int dy = Math.max(STATUS_BAR_H + 16, (h - NAV_BAR_H - dh) / 2);
+
+            lastCustomDialogX = dx;
+            lastCustomDialogY = dy;
+            lastCustomDialogW = dw;
+            lastCustomDialogH = dh;
+
+            decor.layout(0, 0, dw, dh);
+
+            // Vẽ thẻ nền Material trắng sạch phía sau decorView của Dialog (AppCompat/MaterialAlertDialog)
+            g2.setColor(new java.awt.Color(0, 0, 0, 48));
+            g2.fill(new RoundRectangle2D.Float(dx + 2, dy + 4, dw, dh, 20, 20));
+            g2.setColor(java.awt.Color.WHITE);
+            g2.fill(new RoundRectangle2D.Float(dx, dy, dw, dh, 20, 20));
+
+            Graphics2D dg = (Graphics2D) g2.create(dx, dy, dw, dh);
+            dg.setClip(new RoundRectangle2D.Float(0, 0, dw, dh, 20, 20));
+            decor.draw(new Canvas(dg));
+            dg.dispose();
+        }
+
+        private void handleCustomDialogTouch(Dialog d, int action, int mx, int my, int w, int h) {
+            if (d == null || d.getWindow() == null || d.getWindow().getDecorView() == null) {
+                if (d != null) d.dismiss();
                 return;
-            AlertDialog d = activeDialog;
+            }
+            View decor = d.getWindow().getDecorView();
+            if (lastCustomDialogW <= 0 || lastCustomDialogH <= 0) {
+                int maxW = Math.min(w - 36, 368);
+                int maxH = Math.max(140, h - STATUS_BAR_H - NAV_BAR_H - 48);
+                decor.measure(
+                        View.MeasureSpec.makeMeasureSpec(maxW, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
+                lastCustomDialogW = Math.max(240, Math.min(maxW, decor.getMeasuredWidth() > 0 ? decor.getMeasuredWidth() : maxW));
+                lastCustomDialogH = Math.max(120, Math.min(maxH, decor.getMeasuredHeight() > 0 ? decor.getMeasuredHeight() : 220));
+                lastCustomDialogX = (w - lastCustomDialogW) / 2;
+                lastCustomDialogY = Math.max(STATUS_BAR_H + 16, (h - NAV_BAR_H - lastCustomDialogH) / 2);
+                decor.layout(0, 0, lastCustomDialogW, lastCustomDialogH);
+            }
+
+            if (mx < lastCustomDialogX || mx > lastCustomDialogX + lastCustomDialogW
+                    || my < lastCustomDialogY || my > lastCustomDialogY + lastCustomDialogH) {
+                if (action == MotionEvent.ACTION_UP && d.isCanceledOnTouchOutside()) {
+                    d.cancel();
+                }
+                repaintViewport();
+                return;
+            }
+
+            float vx = mx - lastCustomDialogX;
+            float vy = my - lastCustomDialogY;
+            long now = SystemClock.uptimeMillis();
+            if (action == MotionEvent.ACTION_DOWN) {
+                touchDownTime = now;
+                View hit = findFocusableAt(decor, vx, vy);
+                setFocusedView(hit);
+            }
+            MotionEvent ev = new MotionEvent(action, vx, vy, mx, my, touchDownTime, now);
+            d.dispatchTouchEvent(ev);
+            repaintViewport();
+        }
+
+        private void handleAlertDialogClick(AlertDialog d, int mx, int my, int w, int h) {
+            if (d == null)
+                return;
             int dw = Math.min(w - 48, 340);
             int dh = computeDialogHeight(d, dw);
             int dx = (w - dw) / 2;
             int dy = (h - dh) / 2;
 
             if (mx < dx || mx > dx + dw || my < dy || my > dy + dh) {
-                d.cancel();
+                if (d.isCanceledOnTouchOutside()) {
+                    d.cancel();
+                }
                 return;
             }
             int itemCount = getDialogItemCount(d);
@@ -1960,11 +2319,13 @@ public final class HostWindow {
             }
             if (d.getCustomView() != null && my >= dy + 52 && my < dy + dh - 52) {
                 long now = SystemClock.uptimeMillis();
-                MotionEvent ev = new MotionEvent(MotionEvent.ACTION_DOWN, mx - (dx + 22), my - (dy + 52), mx, my, now,
-                        now);
+                float vx = mx - (dx + 22);
+                float vy = my - (dy + 52);
+                View hit = findFocusableAt(d.getCustomView(), vx, vy);
+                setFocusedView(hit);
+                MotionEvent ev = new MotionEvent(MotionEvent.ACTION_DOWN, vx, vy, mx, my, now, now);
                 d.getCustomView().dispatchTouchEvent(ev);
-                MotionEvent evUp = new MotionEvent(MotionEvent.ACTION_UP, mx - (dx + 22), my - (dy + 52), mx, my, now,
-                        now);
+                MotionEvent evUp = new MotionEvent(MotionEvent.ACTION_UP, vx, vy, mx, my, now, now);
                 d.getCustomView().dispatchTouchEvent(evUp);
                 repaintViewport();
                 return;
@@ -1975,9 +2336,14 @@ public final class HostWindow {
                         d.getPositiveListener().onClick(d, DialogInterface.BUTTON_POSITIVE);
                     }
                     d.dismiss();
-                } else if (d.getNegativeText() != null) {
+                } else if (mx >= dx + dw - 200 && d.getNegativeText() != null) {
                     if (d.getNegativeListener() != null) {
                         d.getNegativeListener().onClick(d, DialogInterface.BUTTON_NEGATIVE);
+                    }
+                    d.dismiss();
+                } else if (d.getNeutralText() != null) {
+                    if (d.getNeutralListener() != null) {
+                        d.getNeutralListener().onClick(d, DialogInterface.BUTTON_NEUTRAL);
                     }
                     d.dismiss();
                 }

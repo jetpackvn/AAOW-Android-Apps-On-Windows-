@@ -217,12 +217,31 @@ public final class SQLiteDatabase extends SQLiteClosable {
         }
     }
 
+    private static final List<java.lang.ref.WeakReference<SQLiteDatabase>> OPEN_DATABASES =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
     static {
         try {
             Class.forName("org.sqlite.JDBC");
         } catch (ClassNotFoundException e) {
             Log.e(TAG, "Không nạp được driver org.sqlite.JDBC", e);
         }
+    }
+
+    public static int releaseMemory() {
+        int closed = 0;
+        for (java.lang.ref.WeakReference<SQLiteDatabase> ref : OPEN_DATABASES) {
+            SQLiteDatabase db = ref.get();
+            if (db != null && db.isOpen()) {
+                try {
+                    db.close();
+                    closed++;
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        OPEN_DATABASES.clear();
+        return closed;
     }
 
     private final String path;
@@ -243,6 +262,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         this.cursorFactory = cursorFactory;
         this.errorHandler = errorHandler != null ? errorHandler : new DefaultDatabaseErrorHandler();
         openConnection();
+        OPEN_DATABASES.add(new java.lang.ref.WeakReference<>(this));
     }
 
     private void openConnection() {
@@ -366,10 +386,6 @@ public final class SQLiteDatabase extends SQLiteClosable {
             return tables;
         }
         throw new IllegalStateException("Invalid tables");
-    }
-
-    public static int releaseMemory() {
-        return 0;
     }
 
     public String getPath() {

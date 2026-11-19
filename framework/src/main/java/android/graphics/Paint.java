@@ -89,8 +89,14 @@ public class Paint {
         join = Join.MITER;
         strokeWidth = 1.0f;
         textSize = 14.0f;
+        textScaleX = 1.0f;
+        textSkewX = 0.0f;
+        letterSpacing = 0.0f;
         textAlign = Align.LEFT;
         typeface = Typeface.DEFAULT;
+        xfermode = null;
+        shader = null;
+        colorFilter = null;
     }
 
     public void set(Paint src) {
@@ -102,8 +108,14 @@ public class Paint {
         this.join = src.join;
         this.strokeWidth = src.strokeWidth;
         this.textSize = src.textSize;
+        this.textScaleX = src.textScaleX;
+        this.textSkewX = src.textSkewX;
+        this.letterSpacing = src.letterSpacing;
         this.textAlign = src.textAlign;
         this.typeface = src.typeface;
+        this.xfermode = src.xfermode;
+        this.shader = src.shader;
+        this.colorFilter = src.colorFilter;
     }
 
     public int getFlags() {

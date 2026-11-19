@@ -106,6 +106,7 @@ public class LayoutInflater {
                 inflateElement(childEl, vg, true);
             }
         }
+        view.onFinishInflate();
 
         if (parent != null && attachToRoot) {
             parent.addView(view, lp);
@@ -194,6 +195,12 @@ public class LayoutInflater {
         if (tagName.endsWith("ViewPager") || tagName.endsWith("ViewPager2")) {
             return new dev.aaow.rt.compat.CompatViewPager(context, attrs);
         }
+        if (tagName.endsWith("DrawerLayout")) {
+            return new dev.aaow.rt.compat.CompatDrawerLayout(context, attrs);
+        }
+        if (tagName.endsWith("TextInputLayout")) {
+            return new dev.aaow.rt.compat.CompatTextInputLayout(context, attrs);
+        }
         if (tagName.endsWith("CardView")) {
             return new dev.aaow.rt.compat.CompatCardView(context, attrs);
         }
@@ -212,6 +219,12 @@ public class LayoutInflater {
         }
         if (tagName.contains("FloatingActionButton") || tagName.endsWith("ImageButton")) {
             return new android.widget.ImageButton(context, attrs);
+        }
+        if (tagName.endsWith("ImageView")) {
+            return new android.widget.ImageView(context, attrs);
+        }
+        if (tagName.endsWith("CheckBox")) {
+            return new android.widget.CheckBox(context, attrs);
         }
         if (tagName.endsWith("Layout") || tagName.endsWith("ContainerView") || tagName.endsWith("Group")) {
             return new android.widget.FrameLayout(context, attrs);

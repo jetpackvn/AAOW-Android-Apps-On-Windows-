@@ -8,6 +8,8 @@ import java.util.ArrayList;
 public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     public static final Bundle EMPTY = new Bundle();
 
+    private ClassLoader classLoader;
+
     public Bundle() {
     }
 
@@ -15,13 +17,22 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     public Bundle(ClassLoader loader) {
+        this.classLoader = loader;
     }
 
     public Bundle(Bundle b) {
-        if (b != null) map.putAll(b.map);
+        if (b != null) {
+            map.putAll(b.map);
+            this.classLoader = b.classLoader;
+        }
     }
 
     public void setClassLoader(ClassLoader loader) {
+        this.classLoader = loader;
+    }
+
+    public ClassLoader getClassLoader() {
+        return classLoader;
     }
 
     public void putAll(Bundle bundle) {

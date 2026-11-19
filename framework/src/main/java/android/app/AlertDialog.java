@@ -29,6 +29,7 @@ public class AlertDialog extends Dialog {
     private Button positiveButton;
     private Button negativeButton;
     private Button neutralButton;
+    private android.widget.LinearLayout titleTemplateContainer;
 
     public AlertDialog(Context context) {
         super(context);
@@ -166,6 +167,22 @@ public class AlertDialog extends Dialog {
             dismiss();
         });
         return b;
+    }
+
+    @Override
+    public <T extends View> T findViewById(int id) {
+        T found = super.findViewById(id);
+        if (found != null) return found;
+        if (id == 0x01020901) { // android.R.id.title_template
+            if (titleTemplateContainer == null) {
+                titleTemplateContainer = new android.widget.LinearLayout(context);
+                titleTemplateContainer.setId(0x01020901);
+            }
+            @SuppressWarnings("unchecked")
+            T cast = (T) titleTemplateContainer;
+            return cast;
+        }
+        return null;
     }
 
     @Override

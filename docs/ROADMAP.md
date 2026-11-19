@@ -115,7 +115,7 @@ Giai đoạn 1 (Sprint 1–8) đã dựng xong nền tảng kỹ thuật và b�
 
 ---
 
-## Sprint 10 (Phase B): Chạy & Tương tác Trọn vẹn Các Ứng dụng Offline (Offline Apps)
+## Sprint 10 (Phase B): Chạy & Tương tác Trọn vẹn Các Ứng dụng Offline (Offline Apps) (Đã hoàn thành)
 - **Mục tiêu:** Mở lên và **bấm dùng thật trọn vẹn luồng tính năng chính** của 5 ứng dụng Offline thực tế từ AAOW App Hub (không chỉ hiện khung màn hình tĩnh).
 - **Hạng mục chính:**
   1. Hoàn thiện tương tác cho bộ 5 APK Offline:
@@ -126,7 +126,7 @@ Giai đoạn 1 (Sprint 1–8) đã dựng xong nền tảng kỹ thuật và b�
      - `org.secuso.privacyfriendlynotes` (bấm Skip/Next qua `TutorialActivity` → `MainActivity` → mở Drawer / bấm FAB `+` → tạo Text/Checklist Note → lưu Room SQLite → hiện danh sách trên `RecyclerView` và mở xem lại).
   2. Hoàn thiện tương tác các thành phần AndroidX/Material: `CompatViewPager`, `CompatRecyclerView` (cuộn, click item, refresh adapter), `DrawerLayout` cơ bản, `TextInputLayout`.
   3. Viết bộ kiểm thử tương tác tự động (mô phỏng click/nhập liệu) và bổ sung cấu hình nạp tiện lợi trong `AppHubWindow`.
-- **Tiêu chí nghiệm thu:** Mở và thao tác đầu-cuối thành công trên cả 5 APK Offline thực tế.
+- **Tiêu chí nghiệm thu:** Mở và thao tác đầu-cuối thành công trên cả 5 APK Offline thực tế (Đã nghiệm thu 19/11/2026).
 
 ---
 

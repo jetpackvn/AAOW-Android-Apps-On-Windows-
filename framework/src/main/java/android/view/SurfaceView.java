@@ -158,7 +158,8 @@ public class SurfaceView extends View {
             for (SurfaceHolder.Callback cb : callbacks) {
                 try {
                     cb.surfaceCreated(holder);
-                } catch (Throwable ignored) {
+                } catch (Throwable t) {
+                    android.util.Log.w("AAOW-SurfaceView", "surfaceCreated error: " + t, t);
                 }
             }
             creating = false;
@@ -166,7 +167,8 @@ public class SurfaceView extends View {
         for (SurfaceHolder.Callback cb : callbacks) {
             try {
                 cb.surfaceChanged(holder, PixelFormat.RGBA_8888, w, h);
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                android.util.Log.w("AAOW-SurfaceView", "surfaceChanged error: " + t, t);
             }
         }
     }

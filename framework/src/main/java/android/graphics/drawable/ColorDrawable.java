@@ -25,8 +25,9 @@ public class ColorDrawable extends Drawable {
 
     @Override
     public void draw(Canvas canvas) {
-        if ((color >>> 24) == 0) return;
-        paint.setColor(color);
+        int effective = resolveTintedColor(color);
+        if ((effective >>> 24) == 0) return;
+        paint.setColor(effective);
         paint.setStyle(Paint.Style.FILL);
         Rect b = getBounds();
         canvas.drawRect(b, paint);

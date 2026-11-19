@@ -1,6 +1,13 @@
 package android.graphics;
 
+import android.content.res.AssetManager;
+
 import java.awt.Font;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Typeface {
     public static final int NORMAL = 0;
@@ -14,12 +21,20 @@ public class Typeface {
     public static final Typeface SERIF = new Typeface("Georgia", NORMAL);
     public static final Typeface MONOSPACE = new Typeface("Consolas", NORMAL);
 
+    private static final Map<String, Typeface> ASSET_CACHE = new ConcurrentHashMap<>();
+
     private final String family;
     private final int style;
+    private final Font customBaseFont;
 
     public Typeface(String family, int style) {
+        this(family, style, null);
+    }
+
+    private Typeface(String family, int style, Font customBaseFont) {
         this.family = mapFamily(family);
         this.style = style & 0x3;
+        this.customBaseFont = customBaseFont;
     }
 
     private static String mapFamily(String family) {
@@ -47,17 +62,55 @@ public class Typeface {
     }
 
     public static Typeface create(Typeface family, int style) {
-        return new Typeface(family != null ? family.family : "Segoe UI", style);
+        if (family == null) return new Typeface("Segoe UI", style);
+        return new Typeface(family.family, style, family.customBaseFont);
+    }
+
+    public static Typeface create(Typeface family, int weight, boolean italic) {
+        int st = (weight >= 600 ? BOLD : NORMAL) | (italic ? ITALIC : NORMAL);
+        return create(family, st);
     }
 
     public static Typeface defaultFromStyle(int style) {
         return new Typeface("Segoe UI", style);
     }
 
+    public static Typeface createFromAsset(AssetManager mgr, String path) {
+        if (mgr == null || path == null || path.isEmpty()) return DEFAULT;
+        return ASSET_CACHE.computeIfAbsent(System.identityHashCode(mgr) + ":" + path, k -> {
+            try (InputStream in = mgr.open(path)) {
+                if (in != null) {
+                    Font loaded = Font.createFont(Font.TRUETYPE_FONT, in);
+                    return new Typeface(loaded.getFamily(), NORMAL, loaded);
+                }
+            } catch (Throwable ignored) {
+            }
+            return DEFAULT;
+        });
+    }
+
+    public static Typeface createFromFile(File file) {
+        if (file == null || !file.isFile()) return DEFAULT;
+        try (InputStream in = new FileInputStream(file)) {
+            Font loaded = Font.createFont(Font.TRUETYPE_FONT, in);
+            return new Typeface(loaded.getFamily(), NORMAL, loaded);
+        } catch (Throwable ignored) {
+            return DEFAULT;
+        }
+    }
+
+    public static Typeface createFromFile(String path) {
+        return path != null ? createFromFile(new File(path)) : DEFAULT;
+    }
+
     public Font toAwtFont(float sizePx) {
         int awtStyle = Font.PLAIN;
         if (isBold()) awtStyle |= Font.BOLD;
         if (isItalic()) awtStyle |= Font.ITALIC;
-        return new Font(family, awtStyle, Math.max(1, Math.round(sizePx))).deriveFont(sizePx);
+        float safeSize = Math.max(1f, sizePx);
+        if (customBaseFont != null) {
+            return customBaseFont.deriveFont(awtStyle, safeSize);
+        }
+        return new Font(family, awtStyle, Math.max(1, Math.round(safeSize))).deriveFont(safeSize);
     }
 }

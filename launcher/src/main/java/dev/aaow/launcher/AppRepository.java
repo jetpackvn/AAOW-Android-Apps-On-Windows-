@@ -158,6 +158,62 @@ public final class AppRepository {
         return finalApp;
     }
 
+    /**
+     * Cài đặt hàng loạt tất cả file {@code *.apk} trong một thư mục (ví dụ thư mục Offline Apps).
+     */
+    public synchronized List<InstalledApp> installApksFromDirectory(Path dir) throws IOException {
+        List<InstalledApp> installed = new ArrayList<>();
+        if (dir == null || !Files.isDirectory(dir)) {
+            return installed;
+        }
+        List<Path> apkFiles = new ArrayList<>();
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, "*.apk")) {
+            for (Path p : ds) {
+                if (Files.isRegularFile(p)) {
+                    apkFiles.add(p);
+                }
+            }
+        }
+        apkFiles.sort(Comparator.comparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER));
+        for (Path apkPath : apkFiles) {
+            try {
+                installed.add(installApk(apkPath));
+            } catch (Exception e) {
+                log("[AAOW-PM] Bỏ qua " + apkPath.getFileName() + ": " + e.getMessage());
+            }
+        }
+        log("[AAOW-PM] Đã nạp " + installed.size() + "/" + apkFiles.size() + " APK từ " + dir.toAbsolutePath());
+        return installed;
+    }
+
+    /**
+     * Tự động tìm thư mục chứa bộ APK Offline có sẵn trong workspace hoặc thư mục cài đặt AAOW.
+     */
+    public static Path findDefaultOfflineApkDir() {
+        List<Path> candidates = new ArrayList<>();
+        candidates.add(Path.of("build", "benchmark-apks"));
+        candidates.add(Path.of("offline-apks"));
+        try {
+            Path home = WindowsIntegration.resolveAaowHome();
+            if (home != null) {
+                candidates.add(home.resolve("build").resolve("benchmark-apks"));
+                candidates.add(home.resolve("offline-apks"));
+            }
+        } catch (Exception ignored) {
+        }
+        for (Path dir : candidates) {
+            if (Files.isDirectory(dir)) {
+                try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, "*.apk")) {
+                    if (ds.iterator().hasNext()) {
+                        return dir.toAbsolutePath().normalize();
+                    }
+                } catch (IOException ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
     public synchronized boolean uninstallApp(String packageName) {
         stopApp(packageName);
         InstalledApp removed = apps.remove(packageName);

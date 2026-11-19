@@ -49,7 +49,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     protected CharSequence text = "";
     protected CharSequence hint = "";
     protected int textColor = 0xFF1C1B1F;
+    protected ColorStateList textColorList;
     protected int hintTextColor = 0xFF79747E;
+    protected ColorStateList hintTextColorList;
     protected float textSizePx = 14f;
     protected Typeface typeface = Typeface.DEFAULT;
     protected int gravity = Gravity.TOP | Gravity.START;
@@ -109,8 +111,8 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                     if (s != null) this.hint = s;
                 }
                 case "textSize" -> this.textSizePx = res.resolveDimension(a.value, 14f);
-                case "textColor" -> this.textColor = res.resolveColor(a.value, this.textColor);
-                case "textColorHint" -> this.hintTextColor = res.resolveColor(a.value, this.hintTextColor);
+                case "textColor" -> this.textColor = res.resolveColor(a.value, context != null ? context.getTheme() : null, this.textColor);
+                case "textColorHint" -> this.hintTextColor = res.resolveColor(a.value, context != null ? context.getTheme() : null, this.hintTextColor);
                 case "textStyle" -> {
                     ResValue rv = res.getTable().resolve(a.value);
                     if (rv != null) textStyle = rv.data();
@@ -230,16 +232,53 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
     public void setTextColor(int color) {
         this.textColor = color;
+        this.textColorList = ColorStateList.valueOf(color);
         invalidate();
     }
 
     public void setTextColor(ColorStateList colors) {
-        if (colors != null) setTextColor(colors.getDefaultColor());
+        if (colors != null) {
+            this.textColorList = colors;
+            this.textColor = colors.getColorForState(getDrawableState(), colors.getDefaultColor());
+            invalidate();
+        }
     }
 
     public void setHintTextColor(int color) {
         this.hintTextColor = color;
+        this.hintTextColorList = ColorStateList.valueOf(color);
         invalidate();
+    }
+
+    public void setHintTextColor(ColorStateList colors) {
+        if (colors != null) {
+            this.hintTextColorList = colors;
+            this.hintTextColor = colors.getColorForState(getDrawableState(), colors.getDefaultColor());
+            invalidate();
+        }
+    }
+
+    public final ColorStateList getHintTextColors() {
+        return hintTextColorList != null ? hintTextColorList : ColorStateList.valueOf(hintTextColor);
+    }
+
+    @Override
+    protected void drawableStateChanged() {
+        super.drawableStateChanged();
+        if (textColorList != null && textColorList.isStateful()) {
+            int next = textColorList.getColorForState(getDrawableState(), textColorList.getDefaultColor());
+            if (next != textColor) {
+                textColor = next;
+                invalidate();
+            }
+        }
+        if (hintTextColorList != null && hintTextColorList.isStateful()) {
+            int next = hintTextColorList.getColorForState(getDrawableState(), hintTextColorList.getDefaultColor());
+            if (next != hintTextColor) {
+                hintTextColor = next;
+                invalidate();
+            }
+        }
     }
 
     public float getTextSize() {
@@ -389,10 +428,43 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     public void setTextAppearance(int resId) {
+        setTextAppearance(getContext(), resId);
     }
 
     @Deprecated
     public void setTextAppearance(Context context, int resId) {
+        if (context == null || resId == 0) return;
+        int[] attrs = new int[] {
+                0x01010095, // android:textSize
+                0x01010098, // android:textColor
+                0x01010097, // android:textStyle
+                0x0101038c  // android:textAllCaps
+        };
+        android.content.res.TypedArray ta = context.obtainStyledAttributes(resId, attrs);
+        try {
+            if (ta.hasValue(0)) {
+                float sz = ta.getDimension(0, -1f);
+                if (sz > 0f) this.textSizePx = sz;
+            }
+            if (ta.hasValue(1)) {
+                ColorStateList csl = ta.getColorStateList(1);
+                if (csl != null && (csl.getDefaultColor() >>> 24) != 0) {
+                    setTextColor(csl);
+                }
+            }
+            if (ta.hasValue(2)) {
+                int style = ta.getInt(2, Typeface.NORMAL);
+                this.typeface = Typeface.create(this.typeface, style);
+            }
+            if (ta.hasValue(3)) {
+                this.allCaps = ta.getBoolean(3, this.allCaps);
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            ta.recycle();
+        }
+        requestLayout();
+        invalidate();
     }
 
     public void setCompoundDrawables(Drawable left, Drawable top, Drawable right, Drawable bottom) {
@@ -524,20 +596,41 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         requestLayout();
     }
 
+    private int minLines = -1;
+    private int minEms = -1;
+    private int maxEms = Integer.MAX_VALUE;
+
     public void setMinLines(int minLines) {
+        this.minLines = minLines;
         requestLayout();
     }
 
+    public int getMinLines() {
+        return minLines;
+    }
+
     public void setEms(int ems) {
+        this.minEms = ems;
+        this.maxEms = ems;
         requestLayout();
     }
 
     public void setMinEms(int minEms) {
+        this.minEms = minEms;
         requestLayout();
     }
 
+    public int getMinEms() {
+        return minEms;
+    }
+
     public void setMaxEms(int maxEms) {
+        this.maxEms = maxEms;
         requestLayout();
+    }
+
+    public int getMaxEms() {
+        return maxEms;
     }
 
     public void setEllipsize(TextUtils.TruncateAt where) {
@@ -630,6 +723,17 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return tp;
     }
 
+    public int getPaintFlags() {
+        return textPaint.getFlags();
+    }
+
+    public void setPaintFlags(int flags) {
+        if (textPaint.getFlags() != flags) {
+            textPaint.setFlags(flags);
+            invalidate();
+        }
+    }
+
     @Override
     public boolean onPreDraw() {
         return true;
@@ -684,11 +788,15 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         Font font = typeface.toAwtFont(textSizePx);
         FontMetrics fm = METRICS_G.getFontMetrics(font);
+        int padL = getCompoundPaddingLeft();
+        int padR = getCompoundPaddingRight();
+        int padT = getCompoundPaddingTop();
+        int padB = getCompoundPaddingBottom();
         int widthMode = MeasureSpec.getMode(widthMeasureSpec);
         int widthSize = MeasureSpec.getSize(widthMeasureSpec);
         int availContentW = widthMode == MeasureSpec.UNSPECIFIED
                 ? Integer.MAX_VALUE
-                : Math.max(0, widthSize - paddingLeft - paddingRight);
+                : Math.max(0, widthSize - padL - padR);
 
         List<String> lines = wrapLines(fm, availContentW);
         int maxLineW = 0;
@@ -697,8 +805,20 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         }
 
         int lineHeight = Math.max((int) (textSizePx * 1.28f), fm.getHeight());
-        int desiredW = Math.max(getSuggestedMinimumWidth(), maxLineW + paddingLeft + paddingRight);
-        int desiredH = Math.max(getSuggestedMinimumHeight(), lines.size() * lineHeight + paddingTop + paddingBottom);
+        int textH = (lines.size() == 1 && lines.get(0).isEmpty() && hasAnyCompoundDrawable()) ? 0 : lines.size() * lineHeight;
+        int minCompoundH = 0;
+        if (compoundDrawables[0] != null) minCompoundH = Math.max(minCompoundH, compoundDrawables[0].getBounds().height());
+        if (compoundDrawables[2] != null) minCompoundH = Math.max(minCompoundH, compoundDrawables[2].getBounds().height());
+        int minCompoundW = 0;
+        if (compoundDrawables[1] != null) minCompoundW = Math.max(minCompoundW, compoundDrawables[1].getBounds().width());
+        if (compoundDrawables[3] != null) minCompoundW = Math.max(minCompoundW, compoundDrawables[3].getBounds().width());
+
+        int desiredW = Math.max(getSuggestedMinimumWidth(), Math.max(maxLineW, minCompoundW) + padL + padR);
+        int desiredH = Math.max(getSuggestedMinimumHeight(), Math.max(textH, minCompoundH) + padT + padB);
+        if (minWidthPx > 0) desiredW = Math.max(desiredW, minWidthPx);
+        if (minHeightPx > 0) desiredH = Math.max(desiredH, minHeightPx);
+        desiredW = Math.min(desiredW, maxWidthPx);
+        desiredH = Math.min(desiredH, maxHeightPx);
 
         setMeasuredDimension(
                 resolveSize(desiredW, widthMeasureSpec),
@@ -706,12 +826,70 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         );
     }
 
+    private boolean hasAnyCompoundDrawable() {
+        return compoundDrawables[0] != null || compoundDrawables[1] != null
+                || compoundDrawables[2] != null || compoundDrawables[3] != null;
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
         Graphics2D g = canvas.getAwtGraphics();
         if (g == null) return;
 
+        int padL = getCompoundPaddingLeft();
+        int padR = getCompoundPaddingRight();
+        int padT = getCompoundPaddingTop();
+        int padB = getCompoundPaddingBottom();
+
+        // Vẽ compoundDrawables (left/top/right/bottom) — dùng bởi ActionMenuItemView, NavigationView, Button icon
+        if (compoundDrawables[0] != null) {
+            Drawable d = compoundDrawables[0];
+            int dw = Math.max(0, d.getBounds().width());
+            int dh = Math.max(0, d.getBounds().height());
+            int dx = (text == null || text.length() == 0)
+                    ? Math.max(paddingLeft, (getWidth() - dw) / 2)
+                    : paddingLeft;
+            int dy = paddingTop + Math.max(0, (getHeight() - paddingTop - paddingBottom - dh) / 2);
+            int save = canvas.save();
+            canvas.translate(dx, dy);
+            d.draw(canvas);
+            canvas.restoreToCount(save);
+        }
+        if (compoundDrawables[2] != null) {
+            Drawable d = compoundDrawables[2];
+            int dw = Math.max(0, d.getBounds().width());
+            int dh = Math.max(0, d.getBounds().height());
+            int dx = getWidth() - paddingRight - dw;
+            int dy = paddingTop + Math.max(0, (getHeight() - paddingTop - paddingBottom - dh) / 2);
+            int save = canvas.save();
+            canvas.translate(dx, dy);
+            d.draw(canvas);
+            canvas.restoreToCount(save);
+        }
+        if (compoundDrawables[1] != null) {
+            Drawable d = compoundDrawables[1];
+            int dw = Math.max(0, d.getBounds().width());
+            int dx = paddingLeft + Math.max(0, (getWidth() - paddingLeft - paddingRight - dw) / 2);
+            int save = canvas.save();
+            canvas.translate(dx, paddingTop);
+            d.draw(canvas);
+            canvas.restoreToCount(save);
+        }
+        if (compoundDrawables[3] != null) {
+            Drawable d = compoundDrawables[3];
+            int dw = Math.max(0, d.getBounds().width());
+            int dh = Math.max(0, d.getBounds().height());
+            int dx = paddingLeft + Math.max(0, (getWidth() - paddingLeft - paddingRight - dw) / 2);
+            int save = canvas.save();
+            canvas.translate(dx, getHeight() - paddingBottom - dh);
+            d.draw(canvas);
+            canvas.restoreToCount(save);
+        }
+
         boolean showingHint = (text == null || text.length() == 0) && hint != null && hint.length() > 0;
+        if ((text == null || text.length() == 0) && !showingHint) {
+            return;
+        }
         int col = showingHint ? hintTextColor : (isEnabled() ? textColor : Color.argb(110, Color.red(textColor), Color.green(textColor), Color.blue(textColor)));
 
         Font font = typeface.toAwtFont(textSizePx);
@@ -719,17 +897,17 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         g.setColor(Color.toAwt(col));
         FontMetrics fm = g.getFontMetrics(font);
 
-        int contentW = Math.max(0, getWidth() - paddingLeft - paddingRight);
-        int contentH = Math.max(0, getHeight() - paddingTop - paddingBottom);
+        int contentW = Math.max(0, getWidth() - padL - padR);
+        int contentH = Math.max(0, getHeight() - padT - padB);
         List<String> lines = wrapLines(fm, contentW);
         int lineHeight = Math.max((int) (textSizePx * 1.28f), fm.getHeight());
         int totalTextH = lines.size() * lineHeight;
 
         int vg = gravity & Gravity.VERTICAL_GRAVITY_MASK;
         int startY = switch (vg) {
-            case Gravity.CENTER_VERTICAL -> paddingTop + (contentH - totalTextH) / 2 + fm.getAscent();
-            case Gravity.BOTTOM -> getHeight() - paddingBottom - totalTextH + fm.getAscent();
-            default -> paddingTop + fm.getAscent();
+            case Gravity.CENTER_VERTICAL -> padT + (contentH - totalTextH) / 2 + fm.getAscent();
+            case Gravity.BOTTOM -> getHeight() - padB - totalTextH + fm.getAscent();
+            default -> padT + fm.getAscent();
         };
 
         int hg = gravity & Gravity.HORIZONTAL_GRAVITY_MASK;
@@ -737,9 +915,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             String line = lines.get(i);
             int lw = fm.stringWidth(line);
             int drawX = switch (hg) {
-                case Gravity.CENTER_HORIZONTAL -> paddingLeft + (contentW - lw) / 2;
-                case Gravity.RIGHT -> getWidth() - paddingRight - lw;
-                default -> paddingLeft;
+                case Gravity.CENTER_HORIZONTAL -> padL + (contentW - lw) / 2;
+                case Gravity.RIGHT -> getWidth() - padR - lw;
+                default -> padL;
             };
             g.drawString(line, drawX, startY + i * lineHeight);
         }
@@ -806,7 +984,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     public final ColorStateList getTextColors() {
-        return ColorStateList.valueOf(textColor);
+        return textColorList != null ? textColorList : ColorStateList.valueOf(textColor);
     }
 
     public void setFilters(InputFilter[] filters) {

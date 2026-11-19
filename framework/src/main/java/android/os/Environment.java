@@ -17,7 +17,7 @@ public class Environment {
 
     public static void setDataRoot(Path root) {
         if (root != null) {
-            dataRoot = root;
+            dataRoot = root.toAbsolutePath().normalize();
         }
     }
 

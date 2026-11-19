@@ -98,6 +98,32 @@ public abstract class Drawable {
         invalidateSelf();
     }
 
+    protected ColorStateList getTintListInternal() {
+        return tintList;
+    }
+
+    protected int resolveTintedColor(int baseColor) {
+        int col = baseColor;
+        if (tintList != null) {
+            int tintCol = tintList.getColorForState(stateSet, tintList.getDefaultColor());
+            int ba = android.graphics.Color.alpha(col);
+            int ta = android.graphics.Color.alpha(tintCol);
+            if (ba == 0) ba = 255;
+            col = android.graphics.Color.argb((ba * ta) / 255,
+                    android.graphics.Color.red(tintCol),
+                    android.graphics.Color.green(tintCol),
+                    android.graphics.Color.blue(tintCol));
+        }
+        if (colorFilter != null) {
+            col = Canvas.applyColorFilter(col, colorFilter);
+        }
+        if (alpha < 255) {
+            int a = (android.graphics.Color.alpha(col) * alpha) / 255;
+            col = (col & 0x00FFFFFF) | (a << 24);
+        }
+        return col;
+    }
+
     public void setBounds(int left, int top, int right, int bottom) {
         boolean changed = bounds.left != left || bounds.top != top
                 || bounds.right != right || bounds.bottom != bottom;
@@ -149,6 +175,10 @@ public abstract class Drawable {
     public boolean getPadding(Rect padding) {
         if (padding != null) padding.set(0, 0, 0, 0);
         return false;
+    }
+
+    public android.graphics.Insets getOpticalInsets() {
+        return android.graphics.Insets.NONE;
     }
 
     public void getOutline(Outline outline) {

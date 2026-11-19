@@ -75,7 +75,7 @@ public final class DexLoader {
         Path apkPath = apk.getPath();
         long size = Files.size(apkPath);
         long mtime = Files.getLastModifiedTime(apkPath).toMillis();
-        String cacheKey = String.format("%s-%d-%d-v9.jar",
+        String cacheKey = String.format("%s-%d-%d-v10.jar",
                 apkPath.getFileName().toString().replaceAll("[^a-zA-Z0-9._-]", "_"), size, mtime);
         Path jarFile = cacheDir.resolve(cacheKey);
         Path refsFile = cacheDir.resolve(cacheKey + ".refs");
@@ -301,6 +301,18 @@ public final class DexLoader {
                                         "load", "(Ljava/lang/String;)V", false);
                                 return;
                             }
+                        }
+                        if ((currentInternal.endsWith("/FileProvider") || currentInternal.contains("/FileProvider$"))
+                                && opcode == Opcodes.INVOKEVIRTUAL
+                                && "java/io/File".equals(owner)
+                                && "()Ljava/lang/String;".equals(mDesc)
+                                && ("getCanonicalPath".equals(mName) || "getPath".equals(mName))) {
+                            super.visitMethodInsn(opcode, owner, mName, mDesc, isInterface);
+                            super.visitIntInsn(Opcodes.BIPUSH, '\\');
+                            super.visitIntInsn(Opcodes.BIPUSH, '/');
+                            super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "replace",
+                                    "(CC)Ljava/lang/String;", false);
+                            return;
                         }
                         super.visitMethodInsn(opcode, owner, mName, mDesc, isInterface);
                     }

@@ -11,8 +11,19 @@ import java.util.Comparator;
 import java.util.List;
 
 public class Window {
+    public static final int FEATURE_OPTIONS_PANEL = 0;
     public static final int FEATURE_NO_TITLE = 1;
+    public static final int FEATURE_PROGRESS = 2;
+    public static final int FEATURE_LEFT_ICON = 3;
+    public static final int FEATURE_RIGHT_ICON = 4;
+    public static final int FEATURE_INDETERMINATE_PROGRESS = 5;
+    public static final int FEATURE_CONTEXT_MENU = 6;
+    public static final int FEATURE_CUSTOM_TITLE = 7;
     public static final int FEATURE_ACTION_BAR = 8;
+    public static final int FEATURE_ACTION_BAR_OVERLAY = 9;
+    public static final int FEATURE_ACTION_MODE_OVERLAY = 10;
+    public static final int FEATURE_CONTENT_TRANSITIONS = 12;
+    public static final int FEATURE_ACTIVITY_TRANSITIONS = 13;
     public static final int ID_ANDROID_CONTENT = 0x01020002; // android.R.id.content
 
     public interface Callback {
@@ -65,11 +76,14 @@ public class Window {
 
     private final Context context;
     private final FrameLayout decorView;
+    private final android.os.Binder windowToken = new android.os.Binder();
     private final WindowManager.LayoutParams attributes = new WindowManager.LayoutParams();
     private Callback callback;
+    private CharSequence title = "";
     private int statusBarColor = 0xFF1A237E;
     private int navigationBarColor = 0xFF121212;
     private boolean noTitle;
+    private float dimAmount = 0.5f;
     private Runnable onContentChanged;
     private final List<BackCallbackEntry> backCallbacks = new ArrayList<>();
     private final WindowInsetsController insetsController = new WindowInsetsController() {
@@ -126,6 +140,79 @@ public class Window {
         this.context = context;
         this.decorView = new FrameLayout(context);
         this.decorView.setId(ID_ANDROID_CONTENT);
+        this.decorView.setWindowTokenInternal(windowToken);
+    }
+
+    public void setTitle(CharSequence title) {
+        this.title = title != null ? title : "";
+    }
+
+    public CharSequence getTitle() {
+        return title;
+    }
+
+    public void setLayout(int width, int height) {
+        attributes.width = width;
+        attributes.height = height;
+        if (callback != null) callback.onWindowAttributesChanged(attributes);
+    }
+
+    public void setGravity(int gravity) {
+        attributes.gravity = gravity;
+        if (callback != null) callback.onWindowAttributesChanged(attributes);
+    }
+
+    public void setDimAmount(float amount) {
+        this.dimAmount = Math.max(0f, Math.min(1f, amount));
+    }
+
+    public float getDimAmount() {
+        return dimAmount;
+    }
+
+    public void setWindowAnimations(int resId) {
+    }
+
+    public void setElevation(float elevation) {
+        decorView.setElevation(elevation);
+    }
+
+    public void setClipToOutline(boolean clipToOutline) {
+        decorView.setClipToOutline(clipToOutline);
+    }
+
+    public View getCurrentFocus() {
+        return decorView.findFocus();
+    }
+
+    public boolean superDispatchTouchEvent(MotionEvent event) {
+        return decorView.dispatchTouchEvent(event);
+    }
+
+    public boolean superDispatchKeyEvent(KeyEvent event) {
+        if (event == null) return false;
+        View focus = getCurrentFocus();
+        if (focus != null) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && focus.onKeyDown(event.getKeyCode(), event)) return true;
+            if (event.getAction() == KeyEvent.ACTION_UP && focus.onKeyUp(event.getKeyCode(), event)) return true;
+        }
+        return false;
+    }
+
+    public void invalidatePanelMenu(int featureId) {
+    }
+
+    public void openPanel(int featureId, KeyEvent event) {
+    }
+
+    public void closePanel(int featureId) {
+    }
+
+    public void closeAllPanels() {
+    }
+
+    public boolean isFloating() {
+        return false;
     }
 
     public Context getContext() {
