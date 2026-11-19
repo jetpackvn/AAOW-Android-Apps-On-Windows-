@@ -69,6 +69,7 @@ public class Paint {
     private Xfermode xfermode;
     private Shader shader;
     private ColorFilter colorFilter;
+    private PathEffect pathEffect;
 
     public Paint() {
     }
@@ -97,6 +98,7 @@ public class Paint {
         xfermode = null;
         shader = null;
         colorFilter = null;
+        pathEffect = null;
     }
 
     public void set(Paint src) {
@@ -116,6 +118,7 @@ public class Paint {
         this.xfermode = src.xfermode;
         this.shader = src.shader;
         this.colorFilter = src.colorFilter;
+        this.pathEffect = src.pathEffect;
     }
 
     public int getFlags() {
@@ -243,6 +246,15 @@ public class Paint {
     public ColorFilter setColorFilter(ColorFilter filter) {
         this.colorFilter = filter;
         return filter;
+    }
+
+    public PathEffect getPathEffect() {
+        return pathEffect;
+    }
+
+    public PathEffect setPathEffect(PathEffect effect) {
+        this.pathEffect = effect;
+        return effect;
     }
 
     public void setSubpixelText(boolean subpixelText) {
@@ -393,6 +405,19 @@ public class Paint {
             case BEVEL -> BasicStroke.JOIN_BEVEL;
             default -> BasicStroke.JOIN_MITER;
         };
+        if (pathEffect instanceof DashPathEffect dash) {
+            float[] intervals = dash.getIntervals();
+            boolean anyPositive = false;
+            for (float v : intervals) {
+                if (v > 0f) {
+                    anyPositive = true;
+                    break;
+                }
+            }
+            if (anyPositive) {
+                return new BasicStroke(Math.max(1f, strokeWidth), awtCap, awtJoin, 10.0f, intervals, dash.getPhase());
+            }
+        }
         return new BasicStroke(Math.max(1f, strokeWidth), awtCap, awtJoin);
     }
 

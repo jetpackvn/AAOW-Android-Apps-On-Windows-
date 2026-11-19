@@ -5,6 +5,11 @@ import android.util.DisplayMetrics;
 
 public class Display {
     public static final int DEFAULT_DISPLAY = 0;
+    public static final int STATE_UNKNOWN = 0;
+    public static final int STATE_OFF = 1;
+    public static final int STATE_ON = 2;
+    public static final int STATE_DOZE = 3;
+    public static final int STATE_DOZE_SUSPEND = 4;
 
     private final DisplayMetrics metrics;
     private volatile int rotation = Surface.ROTATION_0;
@@ -57,5 +62,21 @@ public class Display {
 
     public int getHeight() {
         return metrics.heightPixels;
+    }
+
+    public float getRefreshRate() {
+        return 60.0f;
+    }
+
+    public int getState() {
+        return STATE_ON;
+    }
+
+    public String getName() {
+        return "AAOW Windows Display";
+    }
+
+    public boolean isValid() {
+        return true;
     }
 }

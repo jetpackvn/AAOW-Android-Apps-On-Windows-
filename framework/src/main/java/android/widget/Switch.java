@@ -10,6 +10,9 @@ import android.view.Gravity;
 
 public class Switch extends CompoundButton {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private CharSequence textOn = "ON";
+    private CharSequence textOff = "OFF";
+    private boolean showText = false;
 
     public Switch(Context context) {
         this(context, null);
@@ -20,12 +23,43 @@ public class Switch extends CompoundButton {
     }
 
     public Switch(Context context, AttributeSet attrs, int defStyleAttr) {
+        this(context, attrs, defStyleAttr, 0);
+    }
+
+    public Switch(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr);
         setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         setTypeface(Typeface.DEFAULT);
         setPadding(8, 8, 56, 8);
         setMinimumHeight(40);
         setMinimumWidth(80);
+    }
+
+    public CharSequence getTextOn() {
+        return textOn;
+    }
+
+    public void setTextOn(CharSequence textOn) {
+        this.textOn = textOn;
+        invalidate();
+    }
+
+    public CharSequence getTextOff() {
+        return textOff;
+    }
+
+    public void setTextOff(CharSequence textOff) {
+        this.textOff = textOff;
+        invalidate();
+    }
+
+    public boolean getShowText() {
+        return showText;
+    }
+
+    public void setShowText(boolean showText) {
+        this.showText = showText;
+        invalidate();
     }
 
     @Override

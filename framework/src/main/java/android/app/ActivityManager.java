@@ -204,4 +204,8 @@ public class ActivityManager {
         outState.processName = ActivityThread.currentProcessName();
         outState.importance = RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
     }
+
+    public <T> List<T> getHistoricalProcessExitReasons(String packageName, int pid, int maxNum) {
+        return java.util.Collections.emptyList();
+    }
 }

@@ -359,6 +359,11 @@ public class Activity extends ContextThemeWrapper
 
     public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
         if (intent == null) return;
+        if (dev.aaow.rt.WindowsBrowserBridge.isWebBrowserIntent(intent)) {
+            if (dev.aaow.rt.WindowsBrowserBridge.handleBrowserIntent(this, intent)) {
+                return;
+            }
+        }
         if (WindowsFilePickerBridge.isFilePickerIntent(intent)) {
             Intent picked = WindowsFilePickerBridge.pickFiles(this, intent);
             int code = picked != null ? RESULT_OK : RESULT_CANCELED;

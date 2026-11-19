@@ -103,6 +103,19 @@ public class AlertDialog extends Dialog {
         this.customView = view;
     }
 
+    public void setView(View view, int viewSpacingLeft, int viewSpacingTop,
+                        int viewSpacingRight, int viewSpacingBottom) {
+        if (view != null) {
+            view.setPadding(
+                    view.getPaddingLeft() + viewSpacingLeft,
+                    view.getPaddingTop() + viewSpacingTop,
+                    view.getPaddingRight() + viewSpacingRight,
+                    view.getPaddingBottom() + viewSpacingBottom
+            );
+        }
+        this.customView = view;
+    }
+
     public void setIcon(Drawable icon) {
     }
 

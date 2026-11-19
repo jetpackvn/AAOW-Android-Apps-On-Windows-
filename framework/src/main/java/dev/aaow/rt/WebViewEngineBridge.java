@@ -991,8 +991,19 @@ public final class WebViewEngineBridge {
     private String mapAndroidUrl(String url) {
         if (url != null && url.startsWith("file:///android_asset/") && extractedAssetRoot != null) {
             String rel = url.substring("file:///android_asset/".length());
+            String suffix = "";
+            int qIdx = rel.indexOf('?');
+            int hIdx = rel.indexOf('#');
+            int cut = -1;
+            if (qIdx >= 0 && hIdx >= 0) cut = Math.min(qIdx, hIdx);
+            else if (qIdx >= 0) cut = qIdx;
+            else if (hIdx >= 0) cut = hIdx;
+            if (cut >= 0) {
+                suffix = rel.substring(cut);
+                rel = rel.substring(0, cut);
+            }
             Path resolved = extractedAssetRoot.resolve(rel).normalize();
-            return resolved.toUri().toString();
+            return resolved.toUri().toString() + suffix;
         }
         return url;
     }

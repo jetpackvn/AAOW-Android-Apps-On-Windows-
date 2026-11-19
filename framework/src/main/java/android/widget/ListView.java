@@ -36,6 +36,15 @@ public class ListView extends AbsListView {
         rebuildItems();
     }
 
+    @Override
+    public void setSelection(int position) {
+        super.setSelection(position);
+    }
+
+    public void setSelectionFromTop(int position, int y) {
+        super.setSelection(position);
+    }
+
     private void rebuildItems() {
         removeAllViews();
         if (adapter == null) return;

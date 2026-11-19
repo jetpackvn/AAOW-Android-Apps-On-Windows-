@@ -39,17 +39,52 @@ import android.database.sqlite.SQLiteStatement;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
+import android.graphics.drawable.ShapeDrawable;
+import android.graphics.drawable.shapes.OvalShape;
+import android.graphics.drawable.shapes.RectShape;
+import android.graphics.drawable.shapes.RoundRectShape;
+import android.graphics.drawable.shapes.Shape;
 import android.media.AudioFormat;
 import android.media.AudioRouting;
 import android.media.AudioTrack;
 import android.media.MediaPlayer;
 import android.media.VolumeAutomation;
+import android.animation.LayoutTransition;
+import android.app.AlertDialog;
+import android.app.ProgressDialog;
+import android.appwidget.AppWidgetManager;
+import android.appwidget.AppWidgetProvider;
+import android.appwidget.AppWidgetProviderInfo;
+import android.content.BroadcastReceiver;
+import android.graphics.ColorSpace;
+import android.graphics.DashPathEffect;
+import android.graphics.ImageDecoder;
+import android.graphics.PathEffect;
+import android.graphics.PathMeasure;
+import android.graphics.PostProcessor;
+import android.net.DhcpInfo;
+import android.net.IpPrefix;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.NetworkRequest;
+import android.net.ProxyInfo;
+import android.net.RouteInfo;
+import android.net.TrafficStats;
+import android.net.TransportInfo;
 import android.net.Uri;
+import android.net.wifi.SupplicantState;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
+import android.provider.BaseColumns;
+import android.provider.MediaStore;
+import android.security.NetworkSecurityPolicy;
+import android.util.Size;
+import android.util.SizeF;
 import android.os.BaseBundle;
 import android.os.Bundle;
 import android.os.Message;
@@ -83,7 +118,12 @@ import android.view.Choreographer;
 import android.view.InputEvent;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.PointerIcon;
+import android.view.ViewGroupOverlay;
+import android.view.ViewOverlay;
 import android.view.Window;
+import android.view.WindowId;
+import android.view.WindowMetrics;
 import android.webkit.WebView;
 import android.widget.AbsListView;
 import android.widget.AbsSeekBar;
@@ -167,8 +207,34 @@ class FrameworkHierarchyTest {
         assertNotNull(Choreographer.class);
         assertNotNull(Debug.class);
         assertNotNull(android.media.ExifInterface.class);
-        assertNotNull(android.animation.LayoutTransition.class);
+        assertNotNull(LayoutTransition.class);
         assertTrue(android.util.Property.class.isAssignableFrom(android.util.FloatProperty.class));
+        assertNotNull(TrafficStats.class);
+        assertNotNull(NetworkSecurityPolicy.class);
+        assertNotNull(WifiManager.class);
+        assertTrue(TransportInfo.class.isAssignableFrom(WifiInfo.class));
+        assertTrue(Enum.class.isAssignableFrom(SupplicantState.class));
+        assertTrue(AutoCloseable.class.isAssignableFrom(ImageDecoder.class));
+        assertTrue(PathEffect.class.isAssignableFrom(DashPathEffect.class));
+        assertTrue(AlertDialog.class.isAssignableFrom(ProgressDialog.class));
+        assertTrue(Drawable.class.isAssignableFrom(ShapeDrawable.class));
+        assertTrue(Shape.class.isAssignableFrom(RectShape.class));
+        assertTrue(RectShape.class.isAssignableFrom(OvalShape.class));
+        assertTrue(RectShape.class.isAssignableFrom(RoundRectShape.class));
+        assertTrue(BroadcastReceiver.class.isAssignableFrom(AppWidgetProvider.class));
+        assertNotNull(AppWidgetManager.class);
+        assertNotNull(PathMeasure.class);
+        assertNotNull(android.text.format.DateFormat.class);
+        assertNotNull(android.text.format.DateUtils.class);
+        assertNotNull(ColorSpace.class);
+        assertNotNull(PostProcessor.class);
+        assertNotNull(Size.class);
+        assertNotNull(SizeF.class);
+        assertNotNull(WindowMetrics.class);
+        assertTrue(ViewOverlay.class.isAssignableFrom(ViewGroupOverlay.class));
+        assertTrue(BaseColumns.class.isAssignableFrom(MediaStore.MediaColumns.class));
+        assertTrue(MediaStore.MediaColumns.class.isAssignableFrom(MediaStore.Images.ImageColumns.class));
+        assertTrue(MediaStore.Images.ImageColumns.class.isAssignableFrom(MediaStore.Images.Media.class));
 
         Class<?>[] parcelables = {
                 Intent.class, IntentFilter.class, Bundle.class, PersistableBundle.class,
@@ -178,9 +244,12 @@ class FrameworkHierarchyTest {
                 ServiceInfo.class, ResolveInfo.class, Signature.class,
                 ActivityManager.RunningAppProcessInfo.class, ActivityManager.MemoryInfo.class,
                 Debug.MemoryInfo.class,
-                ColorStateList.class, KeyEvent.class, MotionEvent.class,
+                ColorStateList.class, KeyEvent.class, MotionEvent.class, PointerIcon.class, WindowId.class,
                 Message.class, ParcelFileDescriptor.class, AssetFileDescriptor.class,
                 Network.class, NetworkInfo.class, NetworkCapabilities.class, NetworkRequest.class,
+                IpPrefix.class, LinkAddress.class, RouteInfo.class, ProxyInfo.class,
+                LinkProperties.class, DhcpInfo.class, WifiInfo.class, SupplicantState.class,
+                AppWidgetProviderInfo.class,
                 ClipData.class, ClipDescription.class, Notification.class, Notification.Action.class,
                 NotificationChannel.class, NotificationChannelGroup.class, PendingIntent.class,
                 Icon.class, RemoteViews.class, AudioFormat.class,

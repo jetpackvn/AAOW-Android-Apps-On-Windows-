@@ -117,6 +117,40 @@ public class Path {
         awtPath.append(new Ellipse2D.Float(x - radius, y - radius, radius * 2, radius * 2), false);
     }
 
+    public void addOval(RectF oval, Direction dir) {
+        if (oval != null) {
+            addOval(oval.left, oval.top, oval.right, oval.bottom, dir);
+        }
+    }
+
+    public void addOval(float left, float top, float right, float bottom, Direction dir) {
+        awtPath.append(new Ellipse2D.Float(left, top, right - left, bottom - top), false);
+    }
+
+    public void addPath(Path src) {
+        if (src != null) {
+            awtPath.append(src.awtPath, false);
+        }
+    }
+
+    public void addPath(Path src, float dx, float dy) {
+        if (src != null) {
+            Path copy = new Path(src);
+            Matrix m = new Matrix();
+            m.setTranslate(dx, dy);
+            copy.transform(m);
+            awtPath.append(copy.awtPath, false);
+        }
+    }
+
+    public void addPath(Path src, Matrix matrix) {
+        if (src != null) {
+            Path copy = new Path(src);
+            copy.transform(matrix);
+            awtPath.append(copy.awtPath, false);
+        }
+    }
+
     public void arcTo(RectF oval, float startAngle, float sweepAngle) {
         awtPath.append(new Arc2D.Float(oval.left, oval.top, oval.width(), oval.height(), -startAngle, -sweepAngle, Arc2D.OPEN), true);
     }
@@ -171,9 +205,13 @@ public class Path {
     }
 
     public boolean op(Path path, Op op) {
-        if (path == null || op == null) return false;
-        java.awt.geom.Area a = new java.awt.geom.Area(this.awtPath);
-        java.awt.geom.Area b = new java.awt.geom.Area(path.awtPath);
+        return op(this, path, op);
+    }
+
+    public boolean op(Path path1, Path path2, Op op) {
+        if (path1 == null || path2 == null || op == null) return false;
+        java.awt.geom.Area a = new java.awt.geom.Area(path1.awtPath);
+        java.awt.geom.Area b = new java.awt.geom.Area(path2.awtPath);
         switch (op) {
             case DIFFERENCE -> a.subtract(b);
             case INTERSECT -> a.intersect(b);

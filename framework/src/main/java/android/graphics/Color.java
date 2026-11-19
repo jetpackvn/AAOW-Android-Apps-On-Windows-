@@ -47,6 +47,18 @@ public class Color {
         return ((alpha & 0xFF) << 24) | (rgb & 0x00FFFFFF);
     }
 
+    public static void RGBToHSV(int red, int green, int blue, float[] hsv) {
+        if (hsv == null || hsv.length < 3) {
+            throw new RuntimeException("3 components required for hsv");
+        }
+        java.awt.Color.RGBtoHSB(red & 0xFF, green & 0xFF, blue & 0xFF, hsv);
+        hsv[0] *= 360f;
+    }
+
+    public static void colorToHSV(int color, float[] hsv) {
+        RGBToHSV(red(color), green(color), blue(color), hsv);
+    }
+
     public static int parseColor(String colorString) {
         if (colorString == null || colorString.isEmpty()) {
             throw new IllegalArgumentException("Unknown color");

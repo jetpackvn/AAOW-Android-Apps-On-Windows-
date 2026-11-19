@@ -147,7 +147,7 @@ public class TypedArray implements AutoCloseable {
             ResValue rv = res.resolveStyleAttrRaw(styleId, attrId);
             if (rv != null) return rv;
         }
-        return null;
+        return res.resolveStyleAttrRaw(0, attrId);
     }
 
     private static ResValue resolveAttrChain(Resources res, List<Integer> themeLayers, ResValue raw) {

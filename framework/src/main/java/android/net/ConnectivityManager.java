@@ -1,18 +1,25 @@
 package android.net;
 
+import android.app.PendingIntent;
+import android.net.wifi.WifiInfo;
 import android.os.Handler;
 
 import java.net.InetAddress;
+import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
  * Cài đặt android.net.ConnectivityManager phản ánh trạng thái mạng thật của Windows
- * (quét giao diện mạng qua java.net.NetworkInterface để báo Wi-Fi / Ethernet và trạng thái Online).
+ * (quét giao diện mạng qua java.net.NetworkInterface để báo Wi-Fi / Ethernet, LinkProperties và trạng thái Online).
  */
 public class ConnectivityManager {
     public static final String CONNECTIVITY_ACTION = "android.net.conn.CONNECTIVITY_CHANGE";
@@ -78,6 +85,9 @@ public class ConnectivityManager {
         public void onCapabilitiesChanged(Network network, NetworkCapabilities networkCapabilities) {
         }
 
+        public void onLinkPropertiesChanged(Network network, LinkProperties linkProperties) {
+        }
+
         public void onBlockedStatusChanged(Network network, boolean blocked) {
         }
 
@@ -89,54 +99,104 @@ public class ConnectivityManager {
         void onNetworkActive();
     }
 
-    private record WindowsNetProbe(boolean connected, boolean wifi, String ifaceName) {
+    private record WindowsNetProbe(boolean connected, boolean wifi, String ifaceName,
+                                   String sysIfaceName, int mtu, List<LinkAddress> linkAddresses) {
+    }
+
+    private record CallbackRegistration(NetworkRequest request, NetworkCallback callback, Handler handler) {
     }
 
     private static volatile Network processBoundNetwork;
-    private final Set<NetworkCallback> registeredCallbacks = new CopyOnWriteArraySet<>();
+    private static volatile boolean simulatedOffline = false;
+    private static volatile Boolean simulatedWifiOverride = null;
+    private static final java.util.List<java.lang.ref.WeakReference<ConnectivityManager>> INSTANCES =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private final Map<NetworkCallback, CallbackRegistration> registeredCallbacks = new ConcurrentHashMap<>();
     private final Set<OnNetworkActiveListener> activeListeners = new CopyOnWriteArraySet<>();
     private int networkPreference = DEFAULT_NETWORK_PREFERENCE;
 
     public ConnectivityManager() {
+        INSTANCES.add(new java.lang.ref.WeakReference<>(this));
+    }
+
+    public static void setSimulatedOffline(boolean offline) {
+        boolean changed = simulatedOffline != offline;
+        simulatedOffline = offline;
+        if (changed) {
+            for (java.lang.ref.WeakReference<ConnectivityManager> ref : INSTANCES) {
+                ConnectivityManager cm = ref.get();
+                if (cm == null) {
+                    INSTANCES.remove(ref);
+                } else {
+                    cm.notifyNetworkStateChanged();
+                }
+            }
+        }
+    }
+
+    public static boolean isSimulatedOffline() {
+        return simulatedOffline;
+    }
+
+    public static void setSimulatedWifiOverride(Boolean wifiOverride) {
+        simulatedWifiOverride = wifiOverride;
     }
 
     private static WindowsNetProbe probeWindowsNetwork() {
+        if (simulatedOffline) {
+            return new WindowsNetProbe(false, false, null, null, 1500, Collections.emptyList());
+        }
         try {
             Enumeration<NetworkInterface> ifaces = NetworkInterface.getNetworkInterfaces();
             if (ifaces != null) {
                 boolean anyUpRoutable = false;
                 boolean foundWifi = false;
-                String bestName = null;
+                String bestDisplay = null;
+                String bestSysName = null;
+                int bestMtu = 1500;
+                List<LinkAddress> bestAddrs = new ArrayList<>();
+
                 for (NetworkInterface nif : Collections.list(ifaces)) {
                     if (!nif.isUp() || nif.isLoopback() || nif.isVirtual()) continue;
-                    boolean hasAddr = false;
-                    for (InetAddress addr : Collections.list(nif.getInetAddresses())) {
-                        if (!addr.isLoopbackAddress() && !addr.isLinkLocalAddress()) {
-                            hasAddr = true;
-                            break;
+                    List<LinkAddress> ifaceAddrs = new ArrayList<>();
+                    for (InterfaceAddress ia : nif.getInterfaceAddresses()) {
+                        InetAddress addr = ia.getAddress();
+                        if (addr != null && !addr.isLoopbackAddress() && !addr.isLinkLocalAddress()) {
+                            ifaceAddrs.add(new LinkAddress(ia));
                         }
                     }
-                    if (!hasAddr) continue;
+                    if (ifaceAddrs.isEmpty()) continue;
+
                     anyUpRoutable = true;
                     String label = ((nif.getName() != null ? nif.getName() : "") + " "
                             + (nif.getDisplayName() != null ? nif.getDisplayName() : "")).toLowerCase(Locale.ROOT);
-                    if (label.contains("wi-fi") || label.contains("wifi") || label.contains("wlan")
-                            || label.contains("wireless") || label.contains("802.11")) {
+                    boolean isWifi = label.contains("wi-fi") || label.contains("wifi") || label.contains("wlan")
+                            || label.contains("wireless") || label.contains("802.11");
+                    if (isWifi) {
                         foundWifi = true;
-                        bestName = nif.getDisplayName();
+                        bestDisplay = nif.getDisplayName();
+                        bestSysName = nif.getName();
+                        bestMtu = nif.getMTU() > 0 ? nif.getMTU() : 1500;
+                        bestAddrs = ifaceAddrs;
                         break;
                     }
-                    if (bestName == null) {
-                        bestName = nif.getDisplayName();
+                    if (bestDisplay == null) {
+                        bestDisplay = nif.getDisplayName();
+                        bestSysName = nif.getName();
+                        bestMtu = nif.getMTU() > 0 ? nif.getMTU() : 1500;
+                        bestAddrs = ifaceAddrs;
                     }
                 }
                 if (anyUpRoutable) {
-                    return new WindowsNetProbe(true, foundWifi, bestName);
+                    boolean reportWifi = simulatedWifiOverride != null ? simulatedWifiOverride : foundWifi;
+                    return new WindowsNetProbe(true, reportWifi, bestDisplay,
+                            bestSysName != null ? bestSysName : "wlan0", bestMtu, bestAddrs);
                 }
             }
         } catch (Throwable ignored) {
         }
-        return new WindowsNetProbe(false, false, null);
+        return new WindowsNetProbe(false, false, null, null, 1500, Collections.emptyList());
     }
 
     public static boolean isNetworkTypeValid(int networkType) {
@@ -174,6 +234,14 @@ public class ConnectivityManager {
         if (active != null && active.getType() == networkType) {
             return active;
         }
+        if (networkType == TYPE_WIFI && active != null) {
+            // Trên PC chạy Ethernet, nhiều app cũ hỏi getNetworkInfo(TYPE_WIFI).isConnected():
+            // Nếu đang online qua Ethernet, vẫn trả về kết nối khả dụng khi networkPreference == TYPE_WIFI.
+            NetworkInfo wifiAlias = new NetworkInfo(TYPE_WIFI, 0, "WIFI", "");
+            wifiAlias.setIsAvailable(true);
+            wifiAlias.setDetailedState(NetworkInfo.DetailedState.CONNECTED, null, active.getExtraInfo());
+            return wifiAlias;
+        }
         NetworkInfo offline = new NetworkInfo(networkType, 0, networkType == TYPE_WIFI ? "WIFI" : "MOBILE", "");
         offline.setIsAvailable(false);
         offline.setDetailedState(NetworkInfo.DetailedState.DISCONNECTED, null, null);
@@ -190,7 +258,11 @@ public class ConnectivityManager {
         WindowsNetProbe probe = probeWindowsNetwork();
         if (!probe.connected()) return null;
         NetworkCapabilities nc = new NetworkCapabilities();
-        nc.addTransportType(probe.wifi() ? NetworkCapabilities.TRANSPORT_WIFI : NetworkCapabilities.TRANSPORT_ETHERNET);
+        // Khai báo cả TRANSPORT_WIFI và TRANSPORT_ETHERNET nếu máy Windows nối dây để app chỉ lọc TRANSPORT_WIFI vẫn nhận mạng
+        nc.addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
+        if (!probe.wifi()) {
+            nc.addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET);
+        }
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
@@ -201,7 +273,32 @@ public class ConnectivityManager {
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_FOREGROUND);
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_CONGESTED);
         nc.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED);
+        nc.setTransportInfo(new WifiInfo());
         return nc;
+    }
+
+    public LinkProperties getLinkProperties(Network network) {
+        if (network == null) return null;
+        WindowsNetProbe probe = probeWindowsNetwork();
+        if (!probe.connected()) return null;
+        LinkProperties lp = new LinkProperties();
+        String ifName = probe.sysIfaceName() != null ? probe.sysIfaceName() : "wlan0";
+        lp.setInterfaceName(ifName);
+        lp.setMtu(probe.mtu());
+        lp.setLinkAddresses(probe.linkAddresses());
+        try {
+            lp.addDnsServer(InetAddress.getByAddress(new byte[]{8, 8, 8, 8}));
+            lp.addDnsServer(InetAddress.getByAddress(new byte[]{1, 1, 1, 1}));
+            IpPrefix defaultDest = new IpPrefix(InetAddress.getByAddress(new byte[]{0, 0, 0, 0}), 0);
+            InetAddress gw = InetAddress.getByAddress(new byte[]{(byte) 192, (byte) 168, 1, 1});
+            lp.addRoute(new RouteInfo(defaultDest, gw, ifName, RouteInfo.RTN_UNICAST));
+        } catch (Exception ignored) {
+        }
+        return lp;
+    }
+
+    public ProxyInfo getDefaultProxy() {
+        return null;
     }
 
     public boolean isActiveNetworkMetered() {
@@ -272,22 +369,14 @@ public class ConnectivityManager {
         registerNetworkCallback(request, networkCallback, null);
     }
 
+    public void registerNetworkCallback(NetworkRequest request, PendingIntent operation) {
+    }
+
     public void registerNetworkCallback(NetworkRequest request, NetworkCallback networkCallback, Handler handler) {
         if (networkCallback == null) return;
-        registeredCallbacks.add(networkCallback);
-        Runnable notify = () -> {
-            Network net = getActiveNetwork();
-            NetworkCapabilities nc = getNetworkCapabilities(net);
-            if (net != null && nc != null && (request == null || request.canBeSatisfiedBy(nc))) {
-                networkCallback.onAvailable(net);
-                networkCallback.onCapabilitiesChanged(net, nc);
-            }
-        };
-        if (handler != null) {
-            handler.post(notify);
-        } else {
-            notify.run();
-        }
+        CallbackRegistration reg = new CallbackRegistration(request, networkCallback, handler);
+        registeredCallbacks.put(networkCallback, reg);
+        dispatchCallbackForCurrentState(reg, false);
     }
 
     public void registerBestMatchingNetworkCallback(NetworkRequest request, NetworkCallback networkCallback, Handler handler) {
@@ -296,6 +385,9 @@ public class ConnectivityManager {
 
     public void requestNetwork(NetworkRequest request, NetworkCallback networkCallback) {
         registerNetworkCallback(request, networkCallback, null);
+    }
+
+    public void requestNetwork(NetworkRequest request, PendingIntent operation) {
     }
 
     public void requestNetwork(NetworkRequest request, NetworkCallback networkCallback, Handler handler) {
@@ -308,32 +400,79 @@ public class ConnectivityManager {
 
     public void requestNetwork(NetworkRequest request, NetworkCallback networkCallback, Handler handler, int timeoutMs) {
         if (networkCallback == null) return;
-        registeredCallbacks.add(networkCallback);
-        Runnable notify = () -> {
-            Network net = getActiveNetwork();
-            NetworkCapabilities nc = getNetworkCapabilities(net);
-            if (net != null && nc != null && (request == null || request.canBeSatisfiedBy(nc))) {
-                networkCallback.onAvailable(net);
-                networkCallback.onCapabilitiesChanged(net, nc);
-            } else {
-                networkCallback.onUnavailable();
-            }
-        };
-        if (handler != null) {
-            handler.post(notify);
-        } else {
-            notify.run();
-        }
+        CallbackRegistration reg = new CallbackRegistration(request, networkCallback, handler);
+        registeredCallbacks.put(networkCallback, reg);
+        dispatchCallbackForCurrentState(reg, true);
     }
 
     public void reserveNetwork(NetworkRequest request, Handler handler, NetworkCallback networkCallback) {
         requestNetwork(request, networkCallback, handler);
     }
 
+    private void dispatchCallbackForCurrentState(CallbackRegistration reg, boolean notifyUnavailable) {
+        Runnable notify = () -> {
+            Network net = getActiveNetwork();
+            NetworkCapabilities nc = getNetworkCapabilities(net);
+            LinkProperties lp = getLinkProperties(net);
+            if (net != null && nc != null && (reg.request == null || reg.request.canBeSatisfiedBy(nc))) {
+                reg.callback.onAvailable(net);
+                reg.callback.onCapabilitiesChanged(net, nc);
+                if (lp != null) {
+                    reg.callback.onLinkPropertiesChanged(net, lp);
+                }
+                reg.callback.onBlockedStatusChanged(net, false);
+            } else if (notifyUnavailable) {
+                reg.callback.onUnavailable();
+            }
+        };
+        if (reg.handler != null) {
+            reg.handler.post(notify);
+        } else {
+            notify.run();
+        }
+    }
+
+    /**
+     * Chủ động phát sự kiện thay đổi trạng thái mạng tới toàn bộ NetworkCallback đã đăng ký.
+     */
+    public void notifyNetworkStateChanged() {
+        Network net = getActiveNetwork();
+        NetworkCapabilities nc = getNetworkCapabilities(net);
+        LinkProperties lp = getLinkProperties(net);
+        Network fallbackLostNet = new Network(100);
+
+        for (CallbackRegistration reg : registeredCallbacks.values()) {
+            Runnable action = () -> {
+                if (net != null && nc != null && (reg.request == null || reg.request.canBeSatisfiedBy(nc))) {
+                    reg.callback.onAvailable(net);
+                    reg.callback.onCapabilitiesChanged(net, nc);
+                    if (lp != null) {
+                        reg.callback.onLinkPropertiesChanged(net, lp);
+                    }
+                } else {
+                    reg.callback.onLost(fallbackLostNet);
+                }
+            };
+            if (reg.handler != null) {
+                reg.handler.post(action);
+            } else {
+                action.run();
+            }
+        }
+        if (net != null) {
+            for (OnNetworkActiveListener l : activeListeners) {
+                l.onNetworkActive();
+            }
+        }
+    }
+
     public void unregisterNetworkCallback(NetworkCallback networkCallback) {
         if (networkCallback != null) {
             registeredCallbacks.remove(networkCallback);
         }
+    }
+
+    public void unregisterNetworkCallback(PendingIntent operation) {
     }
 
     public void addDefaultNetworkActiveListener(OnNetworkActiveListener l) {

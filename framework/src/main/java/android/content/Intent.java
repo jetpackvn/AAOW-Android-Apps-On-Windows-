@@ -305,6 +305,16 @@ public class Intent implements Cloneable, Parcelable {
         return this;
     }
 
+    public Intent putIntegerArrayListExtra(String name, ArrayList<Integer> value) {
+        extras.putIntegerArrayList(name, value);
+        return this;
+    }
+
+    public Intent putCharSequenceArrayListExtra(String name, ArrayList<CharSequence> value) {
+        extras.putCharSequenceArrayList(name, value);
+        return this;
+    }
+
     public Intent putExtras(Bundle extras) {
         this.extras.putAll(extras);
         return this;
@@ -381,6 +391,14 @@ public class Intent implements Cloneable, Parcelable {
 
     public ArrayList<String> getStringArrayListExtra(String name) {
         return extras.getStringArrayList(name);
+    }
+
+    public ArrayList<Integer> getIntegerArrayListExtra(String name) {
+        return extras.getIntegerArrayList(name);
+    }
+
+    public ArrayList<CharSequence> getCharSequenceArrayListExtra(String name) {
+        return extras.getCharSequenceArrayList(name);
     }
 
     public Serializable getSerializableExtra(String name) {

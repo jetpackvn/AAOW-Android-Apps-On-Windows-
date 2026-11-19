@@ -117,6 +117,81 @@ public final class MotionEvent extends InputEvent {
         return pointerId >= 0 && pointerId < getPointerCount() ? pointerId : -1;
     }
 
+    public float getPressure() {
+        return 1.0f;
+    }
+
+    public float getPressure(int pointerIndex) {
+        return 1.0f;
+    }
+
+    public int getHistorySize() {
+        return 0;
+    }
+
+    public float getHistoricalX(int pos) {
+        return getX();
+    }
+
+    public float getHistoricalY(int pos) {
+        return getY();
+    }
+
+    public float getHistoricalX(int pointerIndex, int pos) {
+        return getX(pointerIndex);
+    }
+
+    public float getHistoricalY(int pointerIndex, int pos) {
+        return getY(pointerIndex);
+    }
+
+    public float getHistoricalPressure(int pos) {
+        return getPressure();
+    }
+
+    public float getHistoricalPressure(int pointerIndex, int pos) {
+        return getPressure(pointerIndex);
+    }
+
+    public long getHistoricalEventTime(int pos) {
+        return getEventTime();
+    }
+
+    public float getSize() {
+        return 1.0f;
+    }
+
+    public float getSize(int pointerIndex) {
+        return 1.0f;
+    }
+
+    public int getToolType(int pointerIndex) {
+        return 1; // TOOL_TYPE_FINGER
+    }
+
+    public float getAxisValue(int axis) {
+        return getAxisValue(axis, 0);
+    }
+
+    public float getAxisValue(int axis, int pointerIndex) {
+        if (axis == 0) return getX(pointerIndex);
+        if (axis == 1) return getY(pointerIndex);
+        if (axis == 2) return getPressure(pointerIndex);
+        if (axis == 3) return getSize(pointerIndex);
+        return 0f;
+    }
+
+    public int getMetaState() {
+        return 0;
+    }
+
+    public int getButtonState() {
+        return 0;
+    }
+
+    public void recycle() {
+    }
+
     public long getDownTime() {
         return downTime;
     }

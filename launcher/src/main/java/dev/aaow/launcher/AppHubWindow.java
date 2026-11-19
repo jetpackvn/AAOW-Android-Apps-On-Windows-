@@ -235,8 +235,8 @@ public final class AppHubWindow {
         JButton btnInstall = createStyledButton("+ Cài đặt APK...", ACCENT_BLUE, Color.WHITE);
         btnInstall.addActionListener(e -> promptInstallApk());
 
-        JButton btnBatch = createStyledButton("Nạp APK Offline", new Color(0x1E3A34), new Color(0x7CE8B4));
-        btnBatch.setToolTipText("Nạp nhanh bộ ứng dụng Android Offline có sẵn hoặc chọn một thư mục chứa nhiều file .apk");
+        JButton btnBatch = createStyledButton("Nạp bộ APK", new Color(0x1E3A34), new Color(0x7CE8B4));
+        btnBatch.setToolTipText("Nạp nhanh bộ ứng dụng Android (Offline & Online) có sẵn hoặc chọn một thư mục chứa nhiều file .apk");
         btnBatch.addActionListener(e -> promptImportOfflineBundle());
 
         JButton btnAssoc = createStyledButton("", new Color(0x252A3E), new Color(0xD8DAE8));

@@ -31,6 +31,9 @@ public class TypedValue {
     public static final int COMPLEX_UNIT_FRACTION = 0;
     public static final int COMPLEX_UNIT_FRACTION_PARENT = 1;
 
+    public static final int DENSITY_DEFAULT = 0;
+    public static final int DENSITY_NONE = 0xffff;
+
     public int type;
     public CharSequence string;
     public int data;

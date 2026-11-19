@@ -31,6 +31,27 @@ public class KeyEvent extends InputEvent {
         boolean onKeyMultiple(int keyCode, int count, KeyEvent event);
     }
 
+    public static class DispatcherState {
+        public void reset() {
+        }
+
+        public void reset(Object target) {
+        }
+
+        public void startTracking(KeyEvent event, Object target) {
+        }
+
+        public boolean isTracking(KeyEvent event) {
+            return false;
+        }
+
+        public void performedLongPress(KeyEvent event) {
+        }
+
+        public void handleUpEvent(KeyEvent event) {
+        }
+    }
+
     private final int action;
     private final int keyCode;
     private int metaState;
@@ -104,6 +125,27 @@ public class KeyEvent extends InputEvent {
 
     public final int getRepeatCount() {
         return 0;
+    }
+
+    public final void startTracking() {
+    }
+
+    public final boolean isTracking() {
+        return false;
+    }
+
+    public final boolean isLongPress() {
+        return false;
+    }
+
+    public final boolean dispatch(Callback receiver, DispatcherState state, Object target) {
+        if (receiver == null) return false;
+        return switch (action) {
+            case ACTION_DOWN -> receiver.onKeyDown(keyCode, this);
+            case ACTION_UP -> receiver.onKeyUp(keyCode, this);
+            case ACTION_MULTIPLE -> receiver.onKeyMultiple(keyCode, 1, this);
+            default -> false;
+        };
     }
 
     @Override

@@ -37,49 +37,49 @@ public class SpannableStringBuilder implements CharSequence, GetChars, Spannable
     }
 
     @Override
-    public Editable replace(int st, int en, CharSequence source, int start, int end) {
+    public SpannableStringBuilder replace(int st, int en, CharSequence source, int start, int end) {
         sb.replace(st, en, source.subSequence(start, end).toString());
         return this;
     }
 
     @Override
-    public Editable replace(int st, int en, CharSequence text) {
+    public SpannableStringBuilder replace(int st, int en, CharSequence text) {
         sb.replace(st, en, text != null ? text.toString() : "");
         return this;
     }
 
     @Override
-    public Editable insert(int where, CharSequence text, int start, int end) {
+    public SpannableStringBuilder insert(int where, CharSequence text, int start, int end) {
         sb.insert(where, text, start, end);
         return this;
     }
 
     @Override
-    public Editable insert(int where, CharSequence text) {
+    public SpannableStringBuilder insert(int where, CharSequence text) {
         sb.insert(where, text);
         return this;
     }
 
     @Override
-    public Editable delete(int st, int en) {
+    public SpannableStringBuilder delete(int st, int en) {
         sb.delete(st, en);
         return this;
     }
 
     @Override
-    public Editable append(CharSequence text) {
+    public SpannableStringBuilder append(CharSequence text) {
         sb.append(text);
         return this;
     }
 
     @Override
-    public Editable append(CharSequence text, int start, int end) {
+    public SpannableStringBuilder append(CharSequence text, int start, int end) {
         sb.append(text, start, end);
         return this;
     }
 
     @Override
-    public Editable append(char text) {
+    public SpannableStringBuilder append(char text) {
         sb.append(text);
         return this;
     }

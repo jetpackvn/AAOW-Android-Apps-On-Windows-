@@ -66,7 +66,14 @@ public class LinearLayout extends ViewGroup {
     }
 
     public LinearLayout(Context context, AttributeSet attrs, int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
+        this(context, attrs, defStyleAttr, 0);
+    }
+
+    public LinearLayout(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+        super(context, attrs, defStyleAttr, defStyleRes);
+        if (getClass().getName().contains("AppBarLayout")) {
+            this.orientation = VERTICAL;
+        }
         if (attrs instanceof AttributeSet.XmlAttributeSet xas && context != null) {
             Resources res = context.getResources();
             XmlElement.Attribute o = xas.element.attr("orientation");

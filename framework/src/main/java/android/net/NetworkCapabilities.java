@@ -68,6 +68,8 @@ public final class NetworkCapabilities implements Parcelable {
     private int linkUpBandwidthKbps = 50_000;
     private int signalStrength = -50;
     private int ownerUid = -1;
+    private String ssid = "\"AAOW-Windows-WiFi\"";
+    private TransportInfo transportInfo;
 
     public NetworkCapabilities() {
     }
@@ -81,6 +83,8 @@ public final class NetworkCapabilities implements Parcelable {
             this.linkUpBandwidthKbps = nc.linkUpBandwidthKbps;
             this.signalStrength = nc.signalStrength;
             this.ownerUid = nc.ownerUid;
+            this.ssid = nc.ssid;
+            this.transportInfo = nc.transportInfo;
         }
     }
 
@@ -89,8 +93,18 @@ public final class NetworkCapabilities implements Parcelable {
         return this;
     }
 
+    public NetworkCapabilities removeCapability(int capability) {
+        capabilities.remove(capability);
+        return this;
+    }
+
     public NetworkCapabilities addTransportType(int transportType) {
         transports.add(transportType);
+        return this;
+    }
+
+    public NetworkCapabilities removeTransportType(int transportType) {
+        transports.remove(transportType);
         return this;
     }
 
@@ -136,6 +150,22 @@ public final class NetworkCapabilities implements Parcelable {
 
     public int getOwnerUid() {
         return ownerUid;
+    }
+
+    public String getSsid() {
+        return ssid;
+    }
+
+    public void setSsid(String ssid) {
+        this.ssid = ssid;
+    }
+
+    public TransportInfo getTransportInfo() {
+        return transportInfo;
+    }
+
+    public void setTransportInfo(TransportInfo transportInfo) {
+        this.transportInfo = transportInfo;
     }
 
     @Override

@@ -83,4 +83,16 @@ public final class ViewTreeObserver {
         }
         return cancel;
     }
+
+    public void dispatchOnDraw() {
+        for (OnDrawListener l : drawListeners) {
+            l.onDraw();
+        }
+    }
+
+    public void dispatchOnScrollChanged() {
+        for (OnScrollChangedListener l : scrollListeners) {
+            l.onScrollChanged();
+        }
+    }
 }

@@ -35,6 +35,7 @@ artifacts {
 dependencies {
     api(project(":apk"))
     implementation("org.xerial:sqlite-jdbc:3.54.1.0")
+    implementation("org.apache.httpcomponents:httpcore:4.4.16")
     val fxVersion = "21.0.5"
     val fxPlatform = "win"
     implementation("org.openjfx:javafx-base:$fxVersion:$fxPlatform")

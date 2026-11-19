@@ -195,17 +195,19 @@ public final class Looper {
 
     public Thread getThread() {
         if (main) {
-            if (mainEdtThread == null) {
-                if (SwingUtilities.isEventDispatchThread()) {
-                    mainEdtThread = Thread.currentThread();
-                } else {
-                    try {
-                        SwingUtilities.invokeAndWait(() -> mainEdtThread = Thread.currentThread());
-                    } catch (Throwable ignored) {
-                    }
+            if (SwingUtilities.isEventDispatchThread()) {
+                mainEdtThread = Thread.currentThread();
+                return mainEdtThread;
+            }
+            Thread cached = mainEdtThread;
+            if (cached == null || !cached.isAlive()) {
+                try {
+                    SwingUtilities.invokeAndWait(() -> mainEdtThread = Thread.currentThread());
+                    cached = mainEdtThread;
+                } catch (Throwable ignored) {
                 }
             }
-            return mainEdtThread != null ? mainEdtThread : thread;
+            return cached != null ? cached : thread;
         }
         return thread;
     }

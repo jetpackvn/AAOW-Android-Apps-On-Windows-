@@ -86,6 +86,7 @@ public final class AndroidRuntimeContext extends Context {
     private final AlarmManager alarmManager;
     private final JobScheduler jobScheduler;
     private final android.os.UserManager userManager;
+    private final android.net.wifi.WifiManager wifiManager;
     private final ClassLoader classLoader;
     private final Path dataDir;
     private final Map<String, SharedPreferences> prefsCache = new ConcurrentHashMap<>();
@@ -170,6 +171,8 @@ public final class AndroidRuntimeContext extends Context {
         this.contentResolver = new ContentResolver(this);
         this.contentResolver.registerProvider("com.google.android.gsf.gservices",
                 new MicroGServiceRegistry.GServicesProvider());
+        this.contentResolver.registerProvider(android.provider.MediaStore.AUTHORITY,
+                new MediaStoreProvider());
         this.windowManager = new HostWindowManager(new Display(resources.getDisplayMetrics()));
         this.connectivityManager = new ConnectivityManager();
         this.clipboardManager = new ClipboardManager(this);
@@ -181,6 +184,7 @@ public final class AndroidRuntimeContext extends Context {
         this.alarmManager = new AlarmManager();
         this.jobScheduler = JobScheduler.createDefault();
         this.userManager = new android.os.UserManager();
+        this.wifiManager = new android.net.wifi.WifiManager();
     }
 
     private static final class HostWindowManager implements WindowManager {
@@ -786,6 +790,11 @@ public final class AndroidRuntimeContext extends Context {
                 return;
             }
         }
+        if (WindowsBrowserBridge.isWebBrowserIntent(intent)) {
+            if (WindowsBrowserBridge.handleBrowserIntent(this, intent)) {
+                return;
+            }
+        }
         if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null
                 && intent.getComponent() == null) {
             try {
@@ -860,6 +869,9 @@ public final class AndroidRuntimeContext extends Context {
         }
         if (USER_SERVICE.equals(name)) {
             return userManager;
+        }
+        if (WIFI_SERVICE.equals(name)) {
+            return wifiManager;
         }
         return null;
     }

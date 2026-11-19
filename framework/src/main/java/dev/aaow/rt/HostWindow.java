@@ -642,6 +642,7 @@ public final class HostWindow {
 
     /** Chế độ kết xuất ảnh chụp màn hình tự động (kiểm thử trực tiếp từ CLI). */
     public void renderHeadlessScreenshot(String activityClass, File outFile, int width, int height) throws Exception {
+        WindowsBrowserBridge.setSuppressExternalBrowser(true);
         Runnable launch = () -> {
             this.viewportZoom = 0f;
             this.logicalWidth = width;
@@ -690,10 +691,31 @@ public final class HostWindow {
                 SwingUtilities.invokeAndWait(() -> {
                 });
             }
+            // Nếu ứng dụng đang hiển thị ProgressDialog tải dữ liệu trực tuyến, chờ tối đa 3.5s cho xong
+            long deadline = System.currentTimeMillis() + 3500L;
+            while (System.currentTimeMillis() < deadline) {
+                if (getActiveDialog() instanceof android.app.ProgressDialog) {
+                    Thread.sleep(100);
+                    if (!SwingUtilities.isEventDispatchThread()) {
+                        SwingUtilities.invokeAndWait(() -> {
+                        });
+                    }
+                    continue;
+                }
+                Thread.sleep(180);
+                if (!SwingUtilities.isEventDispatchThread()) {
+                    SwingUtilities.invokeAndWait(() -> {
+                    });
+                }
+                if (!(getActiveDialog() instanceof android.app.ProgressDialog)) {
+                    break;
+                }
+            }
             WebViewEngineBridge.awaitAllIdle(2500);
             Thread.sleep(100);
             if (!SwingUtilities.isEventDispatchThread()) {
                 SwingUtilities.invokeAndWait(() -> {
+                    forceNextLayout = true;
                 });
             }
             WebViewEngineBridge.awaitAllIdle(1000);
@@ -710,6 +732,14 @@ public final class HostWindow {
             paint.run();
         } else {
             SwingUtilities.invokeAndWait(paint);
+        }
+        if (Boolean.getBoolean("aaow.dumpTree")) {
+            Activity top = activityStack.peek();
+            if (top != null) {
+                StringBuilder sb = new StringBuilder();
+                dumpViewTree(top.getWindow().getDecorView(), 0, sb);
+                System.out.println(sb);
+            }
         }
         File parentDir = outFile.getParentFile();
         if (parentDir != null) {
@@ -743,6 +773,14 @@ public final class HostWindow {
         } else {
             SwingUtilities.invokeAndWait(paint);
         }
+        if (Boolean.getBoolean("aaow.dumpTree")) {
+            Activity top = activityStack.peek();
+            if (top != null) {
+                StringBuilder sb = new StringBuilder();
+                dumpViewTree(top.getWindow().getDecorView(), 0, sb);
+                System.out.println(sb);
+            }
+        }
         File parentDir = outFile.getParentFile();
         if (parentDir != null) {
             parentDir.mkdirs();
@@ -754,6 +792,7 @@ public final class HostWindow {
 
     /** Bắt đầu Activity trên viewport headless mà chưa chụp ảnh, sẵn sàng nhận sự kiện tương tác. */
     public void launchHeadless(String activityClass, int width, int height) throws Exception {
+        WindowsBrowserBridge.setSuppressExternalBrowser(true);
         Runnable launch = () -> {
             this.viewportZoom = 0f;
             this.logicalWidth = width;
@@ -874,8 +913,14 @@ public final class HostWindow {
                 }
             }
             if (inDialog) {
-                coords[0] = lastCustomDialogX + cx;
-                coords[1] = lastCustomDialogY + cy;
+                int visLeft = Math.max(0, loc[0]);
+                int visRight = Math.min(loc[0] + Math.max(1, target.getWidth()), Math.max(1, lastCustomDialogW));
+                int visTop = Math.max(0, loc[1]);
+                int visBottom = Math.min(loc[1] + Math.max(1, target.getHeight()), Math.max(1, lastCustomDialogH));
+                int clampedCx = visRight > visLeft ? (visLeft + visRight) / 2 : Math.max(2, Math.min(cx, lastCustomDialogW - 2));
+                int clampedCy = visBottom > visTop ? (visTop + visBottom) / 2 : Math.max(2, Math.min(cy, lastCustomDialogH - 2));
+                coords[0] = lastCustomDialogX + clampedCx;
+                coords[1] = lastCustomDialogY + clampedCy;
             } else {
                 Activity top = activityStack.peek();
                 int topOff = viewport != null ? viewport.contentTopOffset(top) : (STATUS_BAR_H + ACTION_BAR_H);

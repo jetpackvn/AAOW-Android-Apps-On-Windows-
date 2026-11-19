@@ -26,6 +26,8 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     protected OnItemClickListener onItemClickListener;
     protected OnItemLongClickListener onItemLongClickListener;
     protected OnItemSelectedListener onItemSelectedListener;
+    protected int selectedPosition = INVALID_POSITION;
+    protected int firstVisiblePosition = 0;
 
     public AdapterView(Context context) {
         super(context);
@@ -63,10 +65,65 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     }
 
     public boolean performItemClick(View view, int position, long id) {
+        this.selectedPosition = position;
         if (onItemClickListener != null) {
             onItemClickListener.onItemClick(this, view, position, id);
             return true;
         }
         return false;
+    }
+
+    public int getSelectedItemPosition() {
+        return selectedPosition;
+    }
+
+    public long getSelectedItemId() {
+        T adapter = getAdapter();
+        if (adapter != null && selectedPosition >= 0 && selectedPosition < adapter.getCount()) {
+            return adapter.getItemId(selectedPosition);
+        }
+        return INVALID_ROW_ID;
+    }
+
+    public Object getSelectedItem() {
+        T adapter = getAdapter();
+        if (adapter != null && selectedPosition >= 0 && selectedPosition < adapter.getCount()) {
+            return adapter.getItem(selectedPosition);
+        }
+        return null;
+    }
+
+    public View getSelectedView() {
+        if (selectedPosition >= 0 && selectedPosition < getChildCount()) {
+            return getChildAt(selectedPosition);
+        }
+        return null;
+    }
+
+    public void setSelection(int position) {
+        this.selectedPosition = position;
+    }
+
+    public int getFirstVisiblePosition() {
+        return firstVisiblePosition;
+    }
+
+    public int getLastVisiblePosition() {
+        return Math.max(0, getChildCount() - 1);
+    }
+
+    public int getCount() {
+        T adapter = getAdapter();
+        return adapter != null ? adapter.getCount() : 0;
+    }
+
+    public Object getItemAtPosition(int position) {
+        T adapter = getAdapter();
+        return (adapter == null || position < 0 || position >= adapter.getCount()) ? null : adapter.getItem(position);
+    }
+
+    public long getItemIdAtPosition(int position) {
+        T adapter = getAdapter();
+        return (adapter == null || position < 0 || position >= adapter.getCount()) ? INVALID_ROW_ID : adapter.getItemId(position);
     }
 }

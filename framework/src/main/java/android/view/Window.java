@@ -337,6 +337,30 @@ public class Window {
         attributes.softInputMode = mode;
     }
 
+    public void setDecorFitsSystemWindows(boolean decorFitsSystemWindows) {
+    }
+
+    public void setNavigationBarContrastEnforced(boolean enforceContrast) {
+    }
+
+    public boolean isNavigationBarContrastEnforced() {
+        return false;
+    }
+
+    public void setStatusBarContrastEnforced(boolean ensureContrast) {
+    }
+
+    public boolean isStatusBarContrastEnforced() {
+        return false;
+    }
+
+    public void setNavigationBarDividerColor(int dividerColor) {
+    }
+
+    public int getNavigationBarDividerColor() {
+        return 0;
+    }
+
     public void setOnContentChanged(Runnable r) {
         this.onContentChanged = r;
     }

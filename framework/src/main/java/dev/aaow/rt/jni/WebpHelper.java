@@ -2,6 +2,7 @@ package dev.aaow.rt.jni;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.ColorSpace;
 
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReadParam;
@@ -15,9 +16,10 @@ import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Iterator;
+import java.util.Locale;
 
 /**
- * Tiện ích giải mã ảnh dùng chung giữa {@link BitmapFactory} và {@link WebpJniHandler}.
+ * Tiện ích giải mã ảnh dùng chung giữa {@link BitmapFactory}, {@link android.graphics.ImageDecoder} và {@link WebpJniHandler}.
  * Hỗ trợ đọc kích thước thực từ header RIFF WebP (VP8 / VP8L / VP8X) và giải mã ảnh qua Java ImageIO.
  */
 public final class WebpHelper {
@@ -72,6 +74,13 @@ public final class WebpHelper {
 
     public static Bitmap decodeWithOptions(byte[] data, int offset, int length, BitmapFactory.Options opts) {
         if (data == null || offset < 0 || length <= 0 || offset + length > data.length) {
+            if (opts != null) {
+                opts.outWidth = -1;
+                opts.outHeight = -1;
+            }
+            return null;
+        }
+        if (opts != null && opts.mCancel) {
             return null;
         }
         try (ImageInputStream iis = ImageIO.createImageInputStream(new ByteArrayInputStream(data, offset, length))) {
@@ -89,8 +98,14 @@ public final class WebpHelper {
                             opts.outHeight = srcH;
                             String fmt = reader.getFormatName();
                             if (fmt != null && !fmt.isEmpty()) {
-                                opts.outMimeType = "image/" + fmt.toLowerCase(java.util.Locale.ROOT);
+                                String lower = fmt.toLowerCase(Locale.ROOT);
+                                if ("jpg".equals(lower)) lower = "jpeg";
+                                opts.outMimeType = "image/" + lower;
                             }
+                            opts.outConfig = opts.inPreferredConfig != null ? opts.inPreferredConfig : Bitmap.Config.ARGB_8888;
+                            opts.outColorSpace = opts.inPreferredColorSpace != null
+                                    ? opts.inPreferredColorSpace
+                                    : ColorSpace.get(ColorSpace.Named.SRGB);
                             if (opts.inJustDecodeBounds) return null;
                         }
                         ImageReadParam param = reader.getDefaultReadParam();
@@ -119,9 +134,13 @@ public final class WebpHelper {
             int outW = Math.max(1, webp.width() / sample);
             int outH = Math.max(1, webp.height() / sample);
             if (opts != null) {
-                opts.outWidth = outW;
-                opts.outHeight = outH;
+                opts.outWidth = opts.inJustDecodeBounds ? webp.width() : outW;
+                opts.outHeight = opts.inJustDecodeBounds ? webp.height() : outH;
                 opts.outMimeType = webp.mimeType();
+                opts.outConfig = opts.inPreferredConfig != null ? opts.inPreferredConfig : Bitmap.Config.ARGB_8888;
+                opts.outColorSpace = opts.inPreferredColorSpace != null
+                        ? opts.inPreferredColorSpace
+                        : ColorSpace.get(ColorSpace.Named.SRGB);
                 if (opts.inJustDecodeBounds) return null;
             }
             int w = Math.min(2048, outW);

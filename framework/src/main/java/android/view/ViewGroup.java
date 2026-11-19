@@ -38,10 +38,11 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
             this.height = WRAP_CONTENT;
             if (attrs instanceof AttributeSet.XmlAttributeSet xas && c != null) {
                 Resources res = c.getResources();
+                Resources.Theme theme = c.getTheme();
                 XmlElement.Attribute w = xas.element.attr("layout_width");
                 XmlElement.Attribute h = xas.element.attr("layout_height");
-                if (w != null) this.width = parseSize(w.value, res);
-                if (h != null) this.height = parseSize(h.value, res);
+                if (w != null) this.width = parseSize(w.value, res, theme);
+                if (h != null) this.height = parseSize(h.value, res, theme);
             }
         }
 
@@ -58,7 +59,21 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
         }
 
         static int parseSize(ResValue v, Resources res) {
-            ResValue r = res.getTable().resolve(v);
+            return parseSize(v, res, null);
+        }
+
+        static int parseSize(ResValue v, Resources res, Resources.Theme theme) {
+            if (v == null || res == null) return WRAP_CONTENT;
+            ResValue cur = v;
+            for (int depth = 0; depth < 6 && cur != null && cur.type() == ResValue.TYPE_ATTRIBUTE; depth++) {
+                ResValue themed = theme != null ? theme.resolveAttributeValue(cur.data()) : null;
+                if (themed == null) {
+                    themed = res.resolveStyleAttrRaw(0, cur.data());
+                }
+                if (themed == null) break;
+                cur = themed;
+            }
+            ResValue r = res.getTable().resolve(cur);
             if (r == null) return WRAP_CONTENT;
             if (r.isDimension()) return Math.round(res.resolveDimension(r, 0f));
             if (r.isInt()) return r.data();
@@ -383,6 +398,16 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
             if (v != null) return v;
         }
         return null;
+    }
+
+    protected void measureChildren(int widthMeasureSpec, int heightMeasureSpec) {
+        final int size = children.size();
+        for (int i = 0; i < size; ++i) {
+            final View child = children.get(i);
+            if (child.getVisibility() != GONE) {
+                measureChild(child, widthMeasureSpec, heightMeasureSpec);
+            }
+        }
     }
 
     protected void measureChild(View child, int parentWidthMeasureSpec, int parentHeightMeasureSpec) {
@@ -769,17 +794,27 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+    }
+
+    @Override
+    public void dispatchAttachedToWindow() {
+        super.dispatchAttachedToWindow();
         for (View child : List.copyOf(children)) {
             child.dispatchAttachedToWindow();
         }
     }
 
     @Override
-    protected void onDetachedFromWindow() {
+    public void dispatchDetachedFromWindow() {
         for (View child : List.copyOf(children)) {
             child.dispatchDetachedFromWindow();
         }
-        super.onDetachedFromWindow();
+        super.dispatchDetachedFromWindow();
     }
 
     @Override
@@ -790,12 +825,20 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
         }
     }
 
+    protected void dispatchFreezeSelfOnly(SparseArray<Parcelable> container) {
+        super.dispatchSaveInstanceState(container);
+    }
+
     @Override
     protected void dispatchRestoreInstanceState(SparseArray<Parcelable> container) {
         super.dispatchRestoreInstanceState(container);
         for (View child : children) {
             child.restoreHierarchyState(container);
         }
+    }
+
+    protected void dispatchThawSelfOnly(SparseArray<Parcelable> container) {
+        super.dispatchRestoreInstanceState(container);
     }
 
     @Override
@@ -866,5 +909,39 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
     @Override
     public boolean hasTransientState() {
         return transientStateCount > 0 || super.hasTransientState();
+    }
+
+    @Override
+    public ViewGroupOverlay getOverlay() {
+        if (!(overlay instanceof ViewGroupOverlay)) {
+            overlay = new ViewGroupOverlay(getContext(), this);
+        }
+        return (ViewGroupOverlay) overlay;
+    }
+
+    public void startViewTransition(View view) {
+    }
+
+    public void endViewTransition(View view) {
+    }
+
+    public final void offsetDescendantRectToMyCoords(View descendant, Rect rect) {
+        if (descendant == null || rect == null) return;
+        View cur = descendant;
+        while (cur != null && cur != this) {
+            rect.offset(cur.getLeft() - cur.getScrollX(), cur.getTop() - cur.getScrollY());
+            ViewParent p = cur.getParent();
+            cur = p instanceof View pv ? pv : null;
+        }
+    }
+
+    public final void offsetRectIntoDescendantCoords(View descendant, Rect rect) {
+        if (descendant == null || rect == null) return;
+        View cur = descendant;
+        while (cur != null && cur != this) {
+            rect.offset(-(cur.getLeft() - cur.getScrollX()), -(cur.getTop() - cur.getScrollY()));
+            ViewParent p = cur.getParent();
+            cur = p instanceof View pv ? pv : null;
+        }
     }
 }

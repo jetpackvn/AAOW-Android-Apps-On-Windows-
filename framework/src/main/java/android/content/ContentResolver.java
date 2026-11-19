@@ -223,11 +223,36 @@ public class ContentResolver {
             if (f == null) throw new FileNotFoundException("Invalid file URI: " + uri);
             return ParcelFileDescriptor.open(f, ParcelFileDescriptor.parseMode(mode));
         }
+        if (SCHEME_ANDROID_RESOURCE.equalsIgnoreCase(uri.getScheme())) {
+            File cached = materializeAndroidResourceToFile(uri);
+            if (cached != null) {
+                return ParcelFileDescriptor.open(cached, ParcelFileDescriptor.MODE_READ_ONLY);
+            }
+            throw new FileNotFoundException("Resource not found: " + uri);
+        }
         ContentProvider provider = acquireProvider(uri);
         if (provider != null) {
             return provider.openFile(uri, mode, cancellationSignal);
         }
         throw new FileNotFoundException("No content provider for URI: " + uri);
+    }
+
+    private File materializeAndroidResourceToFile(Uri uri) {
+        try (InputStream in = openInputStream(uri)) {
+            if (in == null) return null;
+            File baseDir = (context != null && context.getCacheDir() != null)
+                    ? new File(context.getCacheDir(), "aaow-res-fd")
+                    : new File(System.getProperty("java.io.tmpdir"), "aaow-res-fd");
+            if (!baseDir.exists()) baseDir.mkdirs();
+            String safeName = uri.toString().replaceAll("[^a-zA-Z0-9._-]", "_");
+            File target = new File(baseDir, safeName);
+            try (FileOutputStream fos = new FileOutputStream(target)) {
+                in.transferTo(fos);
+            }
+            return target;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public final AssetFileDescriptor openAssetFileDescriptor(Uri uri, String mode) throws FileNotFoundException {
@@ -238,9 +263,10 @@ public class ContentResolver {
                                                              CancellationSignal cancellationSignal) throws FileNotFoundException {
         if (cancellationSignal != null) cancellationSignal.throwIfCanceled();
         if (uri == null) throw new FileNotFoundException("Null URI");
-        if (SCHEME_FILE.equalsIgnoreCase(uri.getScheme())) {
+        if (SCHEME_FILE.equalsIgnoreCase(uri.getScheme())
+                || SCHEME_ANDROID_RESOURCE.equalsIgnoreCase(uri.getScheme())) {
             ParcelFileDescriptor pfd = openFileDescriptor(uri, mode, cancellationSignal);
-            return new AssetFileDescriptor(pfd, 0, -1);
+            return new AssetFileDescriptor(pfd, 0, AssetFileDescriptor.UNKNOWN_LENGTH);
         }
         ContentProvider provider = acquireProvider(uri);
         if (provider != null) {
@@ -390,6 +416,14 @@ public class ContentResolver {
         if (lower.endsWith(".pdf")) return "application/pdf";
         if (lower.endsWith(".png")) return "image/png";
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".bmp")) return "image/bmp";
+        if (lower.endsWith(".svg")) return "image/svg+xml";
+        if (lower.endsWith(".mp3")) return "audio/mpeg";
+        if (lower.endsWith(".wav")) return "audio/wav";
+        if (lower.endsWith(".ogg")) return "audio/ogg";
+        if (lower.endsWith(".mp4")) return "video/mp4";
         return null;
     }
 

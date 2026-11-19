@@ -6,6 +6,10 @@ import java.nio.file.Path;
 
 public class Environment {
     public static final String MEDIA_MOUNTED = "mounted";
+    public static final String MEDIA_MOUNTED_READ_ONLY = "mounted_ro";
+    public static final String MEDIA_UNMOUNTED = "unmounted";
+    public static final String MEDIA_REMOVED = "removed";
+    public static final String MEDIA_UNKNOWN = "unknown";
     public static final String DIRECTORY_DOWNLOADS = "Download";
     public static final String DIRECTORY_PICTURES = "Pictures";
     public static final String DIRECTORY_DCIM = "DCIM";
@@ -64,11 +68,23 @@ public class Environment {
         return MEDIA_MOUNTED;
     }
 
+    public static String getStorageState(File path) {
+        return MEDIA_MOUNTED;
+    }
+
     public static boolean isExternalStorageEmulated() {
         return true;
     }
 
+    public static boolean isExternalStorageEmulated(File path) {
+        return true;
+    }
+
     public static boolean isExternalStorageRemovable() {
+        return false;
+    }
+
+    public static boolean isExternalStorageRemovable(File path) {
         return false;
     }
 

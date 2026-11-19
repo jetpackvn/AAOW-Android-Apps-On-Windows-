@@ -130,13 +130,13 @@ Giai đoạn 1 (Sprint 1–8) đã dựng xong nền tảng kỹ thuật và b�
 
 ---
 
-## Sprint 11 (Phase C): Ứng dụng Không dùng Google Play Services (Non-GMS Online & Media Apps)
+## Sprint 11 (Phase C): Ứng dụng Không dùng Google Play Services (Non-GMS Online & Media Apps) (Đã hoàn thành)
 - **Mục tiêu:** Chạy được các ứng dụng thực tế có kết nối mạng (REST API, tải ảnh, đọc tin/RSS/thời tiết/từ điển) nhưng không phụ thuộc Google Play Services.
 - **Hạng mục chính:**
-  1. Tuyển chọn 2–3 APK F-Droid thực tế có mạng làm bộ kiểm thử Non-GMS Online.
-  2. Hoàn thiện tầng mạng & callback: `ConnectivityManager.registerDefaultNetworkCallback`/`registerNetworkCallback` (chủ động bắn `onAvailable`/`onCapabilitiesChanged`), `WifiManager`, `TrafficStats`, `NetworkSecurityPolicy`, chuẩn hóa TLS/SSL cho `OkHttp`/`Retrofit`.
-  3. Hoàn thiện tải & giải mã media: `ImageDecoder`, mở rộng `BitmapFactory` cho `Glide`/`Picasso`/`Coil`, `MediaStore` ánh xạ sang thư mục dữ liệu Windows, nối `Intent.ACTION_VIEW` (http/https) ra trình duyệt Windows.
-- **Tiêu chí nghiệm thu:** Tối thiểu 2–3 ứng dụng Non-GMS có mạng tải dữ liệu thật từ Internet, hiển thị ảnh và cho phép lướt/tương tác bình thường.
+  1. Tuyển chọn 2–3 APK F-Droid thực tế có mạng làm bộ kiểm thử Non-GMS Online (`org.billthefarmer.currency`, `cz.martykan.forecastie`, `org.woheller69.omweather`).
+  2. Hoàn thiện tầng mạng & callback: `ConnectivityManager.registerDefaultNetworkCallback`/`registerNetworkCallback` (chủ động bắn `onAvailable`/`onCapabilitiesChanged`/`onLinkPropertiesChanged`/`onLost`), `LinkProperties`/`RouteInfo`/`IpPrefix`/`ProxyInfo`, `WifiManager`/`WifiInfo`/`DhcpInfo`, `TrafficStats`, `NetworkSecurityPolicy`, chuẩn hóa TLS/SSL cho `OkHttp`/`Retrofit` và `httpcore` cho `Volley`.
+  3. Hoàn thiện tải & giải mã media: `ImageDecoder`, mở rộng `BitmapFactory` cho `Glide`/`Picasso`/`Coil`, `MediaStore`/`MediaStoreProvider` ánh xạ sang thư mục dữ liệu Windows, nối `Intent.ACTION_VIEW` (http/https) ra trình duyệt Windows (`WindowsBrowserBridge`).
+- **Tiêu chí nghiệm thu:** Tối thiểu 2–3 ứng dụng Non-GMS có mạng tải dữ liệu thật từ Internet, hiển thị ảnh/biểu đồ/bản đồ và cho phép lướt/tương tác bình thường (Đã nghiệm thu 19/11/2026 — 46/46 tests PASS).
 
 ---
 

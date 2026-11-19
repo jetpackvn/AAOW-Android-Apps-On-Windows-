@@ -124,6 +124,10 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         map.put(key, value);
     }
 
+    public void putCharSequenceArrayList(String key, ArrayList<CharSequence> value) {
+        map.put(key, value);
+    }
+
     public void putSerializable(String key, Serializable value) {
         map.put(key, value);
     }
@@ -237,6 +241,12 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     public ArrayList<Integer> getIntegerArrayList(String key) {
         Object o = map.get(key);
         return o instanceof ArrayList<?> list ? (ArrayList<Integer>) list : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    public ArrayList<CharSequence> getCharSequenceArrayList(String key) {
+        Object o = map.get(key);
+        return o instanceof ArrayList<?> list ? (ArrayList<CharSequence>) list : null;
     }
 
     public int[] getIntArray(String key) {

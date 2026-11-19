@@ -68,6 +68,7 @@ public abstract class Context {
     public static final String JOB_SCHEDULER_SERVICE = "jobscheduler";
     public static final String PRINT_SERVICE = "print";
     public static final String USER_SERVICE = "user";
+    public static final String WIFI_SERVICE = "wifi";
 
     public abstract AssetManager getAssets();
 
@@ -254,6 +255,7 @@ public abstract class Context {
         if (serviceClass == android.app.AlarmManager.class) return ALARM_SERVICE;
         if (serviceClass == android.app.job.JobScheduler.class) return JOB_SCHEDULER_SERVICE;
         if (serviceClass == android.os.UserManager.class) return USER_SERVICE;
+        if (serviceClass == android.net.wifi.WifiManager.class) return WIFI_SERVICE;
         return null;
     }
 
@@ -327,6 +329,10 @@ public abstract class Context {
 
     public final int getColor(int id) {
         return getResources().getColor(id, getTheme());
+    }
+
+    public final android.content.res.ColorStateList getColorStateList(int id) {
+        return getResources().getColorStateList(id, getTheme());
     }
 
     public final Drawable getDrawable(int id) {

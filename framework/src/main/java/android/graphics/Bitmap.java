@@ -52,6 +52,34 @@ public final class Bitmap implements Parcelable {
         return new Bitmap(new BufferedImage(Math.max(1, width), Math.max(1, height), BufferedImage.TYPE_INT_ARGB));
     }
 
+    public static Bitmap createBitmap(Bitmap src) {
+        if (src == null) return null;
+        return createBitmap(src, 0, 0, src.getWidth(), src.getHeight());
+    }
+
+    public static Bitmap createBitmap(Bitmap source, int x, int y, int width, int height) {
+        return createBitmap(source, x, y, width, height, null, false);
+    }
+
+    public static Bitmap createBitmap(Bitmap source, int x, int y, int width, int height, Matrix m, boolean filter) {
+        if (source == null || source.isRecycled() || source.image == null) {
+            return createBitmap(width, height, Config.ARGB_8888);
+        }
+        int sx = Math.max(0, Math.min(source.width - 1, x));
+        int sy = Math.max(0, Math.min(source.height - 1, y));
+        int sw = Math.max(1, Math.min(source.width - sx, width));
+        int sh = Math.max(1, Math.min(source.height - sy, height));
+        BufferedImage dst = new BufferedImage(sw, sh, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = dst.createGraphics();
+        if (filter) {
+            g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                    java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        }
+        g.drawImage(source.image, 0, 0, sw, sh, sx, sy, sx + sw, sy + sh, null);
+        g.dispose();
+        return new Bitmap(dst);
+    }
+
     public static Bitmap createScaledBitmap(Bitmap src, int dstWidth, int dstHeight, boolean filter) {
         if (src == null || src.isRecycled() || src.image == null) {
             return createBitmap(dstWidth, dstHeight, Config.ARGB_8888);

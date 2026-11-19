@@ -544,6 +544,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         return context;
     }
 
+    public Display getDisplay() {
+        return context != null ? context.getDisplay() : null;
+    }
+
     public Resources getResources() {
         return context != null ? context.getResources() : null;
     }
@@ -632,13 +636,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public boolean isAttachedToWindow() {
-        if (attachedToWindow)
-            return true;
-        View cur = this;
-        while (cur.parent instanceof View p) {
-            cur = p;
-        }
-        return cur.invalidateCallback != null || cur.parent != null;
+        return attachedToWindow;
     }
 
     public void addOnAttachStateChangeListener(OnAttachStateChangeListener listener) {
@@ -653,27 +651,29 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
 
     protected void onAttachedToWindow() {
         attachedToWindow = true;
-        for (OnAttachStateChangeListener l : attachListeners) {
-            l.onViewAttachedToWindow(this);
-        }
     }
 
     protected void onDetachedFromWindow() {
         attachedToWindow = false;
-        for (OnAttachStateChangeListener l : attachListeners) {
-            l.onViewDetachedFromWindow(this);
-        }
     }
 
     public void dispatchAttachedToWindow() {
         if (!attachedToWindow) {
+            attachedToWindow = true;
             onAttachedToWindow();
+            for (OnAttachStateChangeListener l : attachListeners) {
+                l.onViewAttachedToWindow(this);
+            }
         }
     }
 
     public void dispatchDetachedFromWindow() {
         if (attachedToWindow) {
+            attachedToWindow = false;
             onDetachedFromWindow();
+            for (OnAttachStateChangeListener l : attachListeners) {
+                l.onViewDetachedFromWindow(this);
+            }
         }
     }
 
@@ -1892,6 +1892,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
             onSizeChanged(newW, newH, oldW, oldH);
         }
         onLayout(changed, l, t, r, b);
+        if (viewTreeObserver != null) {
+            viewTreeObserver.dispatchOnGlobalLayout();
+        }
         if (changed && !layoutChangeListeners.isEmpty()) {
             for (OnLayoutChangeListener lcl : layoutChangeListeners) {
                 lcl.onLayoutChange(this, l, t, r, b, l, t, l + oldW, t + oldH);
@@ -2021,6 +2024,10 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
         }
 
         try {
+            if (viewTreeObserver != null) {
+                viewTreeObserver.dispatchOnPreDraw();
+                viewTreeObserver.dispatchOnDraw();
+            }
             computeScroll();
             if (background != null) {
                 background.setBounds(0, 0, w, h);
@@ -2030,6 +2037,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
                 onDraw(canvas);
             }
             dispatchDraw(canvas);
+            if (overlay != null && !overlay.isEmpty()) {
+                overlay.dispatchDraw(canvas);
+            }
             onDrawForeground(canvas);
 
             if (pressed && isClickable() && !(this instanceof ViewGroup)) {
@@ -2235,5 +2245,116 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     }
 
     public void onHostKeyPressed(java.awt.event.KeyEvent e) {
+    }
+
+    private boolean horizontalScrollBarEnabled = true;
+    private boolean verticalScrollBarEnabled = true;
+    private boolean scrollbarFadingEnabled = true;
+    private int scrollBarStyle;
+    private Rect clipBounds;
+    private KeyEvent.DispatcherState keyDispatcherState;
+    private PointerIcon pointerIcon;
+    ViewOverlay overlay;
+
+    public ViewOverlay getOverlay() {
+        if (overlay == null) {
+            overlay = new ViewOverlay(context, this);
+        }
+        return overlay;
+    }
+
+    public void setPointerIcon(PointerIcon pointerIcon) {
+        this.pointerIcon = pointerIcon;
+    }
+
+    public PointerIcon getPointerIcon() {
+        return pointerIcon;
+    }
+
+    public WindowId getWindowId() {
+        View root = getRootView();
+        return new WindowId(root != null ? root : this);
+    }
+
+    public boolean isHorizontalScrollBarEnabled() {
+        return horizontalScrollBarEnabled;
+    }
+
+    public void setHorizontalScrollBarEnabled(boolean horizontalScrollBarEnabled) {
+        this.horizontalScrollBarEnabled = horizontalScrollBarEnabled;
+    }
+
+    public boolean isVerticalScrollBarEnabled() {
+        return verticalScrollBarEnabled;
+    }
+
+    public void setVerticalScrollBarEnabled(boolean verticalScrollBarEnabled) {
+        this.verticalScrollBarEnabled = verticalScrollBarEnabled;
+    }
+
+    public void setScrollbarFadingEnabled(boolean fadeScrollbars) {
+        this.scrollbarFadingEnabled = fadeScrollbars;
+    }
+
+    public boolean isScrollbarFadingEnabled() {
+        return scrollbarFadingEnabled;
+    }
+
+    public void setScrollBarStyle(int style) {
+        this.scrollBarStyle = style;
+    }
+
+    public int getScrollBarStyle() {
+        return scrollBarStyle;
+    }
+
+    public boolean awakenScrollBars() {
+        return false;
+    }
+
+    protected boolean awakenScrollBars(int startDelay) {
+        return false;
+    }
+
+    protected boolean awakenScrollBars(int startDelay, boolean invalidate) {
+        return false;
+    }
+
+    public void setClipBounds(Rect clipBounds) {
+        this.clipBounds = clipBounds != null ? new Rect(clipBounds) : null;
+        invalidate();
+    }
+
+    public Rect getClipBounds() {
+        return clipBounds != null ? new Rect(clipBounds) : null;
+    }
+
+    public boolean getClipBounds(Rect outRect) {
+        if (clipBounds != null) {
+            if (outRect != null) outRect.set(clipBounds);
+            return true;
+        }
+        return false;
+    }
+
+    protected boolean verifyDrawable(Drawable who) {
+        return who == background || who == foreground;
+    }
+
+    public KeyEvent.DispatcherState getKeyDispatcherState() {
+        if (keyDispatcherState == null) {
+            keyDispatcherState = new KeyEvent.DispatcherState();
+        }
+        return keyDispatcherState;
+    }
+
+    public boolean onHoverEvent(MotionEvent event) {
+        return false;
+    }
+
+    public void playSoundEffect(int soundConstant) {
+    }
+
+    protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
     }
 }

@@ -22,7 +22,7 @@ public class Canvas {
     private Bitmap targetBitmap;
     private final Deque<SavedState> stack = new ArrayDeque<>();
 
-    private record SavedState(AffineTransform transform, Shape clip) {
+    private record SavedState(AffineTransform transform, Shape clip, java.awt.Composite composite) {
     }
 
     public Canvas() {
@@ -71,9 +71,59 @@ public class Canvas {
 
     public int save() {
         if (g != null) {
-            stack.push(new SavedState(g.getTransform(), g.getClip()));
+            stack.push(new SavedState(g.getTransform(), g.getClip(), g.getComposite()));
         }
         return stack.size();
+    }
+
+    public int saveLayer(RectF bounds, Paint paint) {
+        int count = save();
+        if (g != null) {
+            if (bounds != null) {
+                clipRect(bounds);
+            }
+            if (paint != null && paint.getAlpha() < 255) {
+                float a = Math.max(0f, Math.min(1f, paint.getAlpha() / 255f));
+                g.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, a));
+            }
+        }
+        return count;
+    }
+
+    public int saveLayer(RectF bounds, Paint paint, int saveFlags) {
+        return saveLayer(bounds, paint);
+    }
+
+    public int saveLayer(float left, float top, float right, float bottom, Paint paint) {
+        return saveLayer(new RectF(left, top, right, bottom), paint);
+    }
+
+    public int saveLayer(float left, float top, float right, float bottom, Paint paint, int saveFlags) {
+        return saveLayer(left, top, right, bottom, paint);
+    }
+
+    public int saveLayerAlpha(RectF bounds, int alpha) {
+        int count = save();
+        if (g != null) {
+            if (bounds != null) {
+                clipRect(bounds);
+            }
+            float a = Math.max(0f, Math.min(1f, alpha / 255f));
+            g.setComposite(java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, a));
+        }
+        return count;
+    }
+
+    public int saveLayerAlpha(RectF bounds, int alpha, int saveFlags) {
+        return saveLayerAlpha(bounds, alpha);
+    }
+
+    public int saveLayerAlpha(float left, float top, float right, float bottom, int alpha) {
+        return saveLayerAlpha(new RectF(left, top, right, bottom), alpha);
+    }
+
+    public int saveLayerAlpha(float left, float top, float right, float bottom, int alpha, int saveFlags) {
+        return saveLayerAlpha(left, top, right, bottom, alpha);
     }
 
     public void restore() {
@@ -81,6 +131,9 @@ public class Canvas {
             SavedState s = stack.pop();
             g.setTransform(s.transform);
             g.setClip(s.clip);
+            if (s.composite != null) {
+                g.setComposite(s.composite);
+            }
         }
     }
 
@@ -263,6 +316,22 @@ public class Canvas {
         applyPaintToGraphics(paint);
         g.setStroke(paint.toAwtStroke());
         g.draw(new Line2D.Float(startX, startY, stopX, stopY));
+    }
+
+    public void drawLines(float[] pts, int offset, int count, Paint paint) {
+        if (g == null || pts == null || paint == null) return;
+        applyPaintToGraphics(paint);
+        g.setStroke(paint.toAwtStroke());
+        int end = Math.min(pts.length, offset + count);
+        for (int i = Math.max(0, offset); i + 3 < end; i += 4) {
+            g.draw(new Line2D.Float(pts[i], pts[i + 1], pts[i + 2], pts[i + 3]));
+        }
+    }
+
+    public void drawLines(float[] pts, Paint paint) {
+        if (pts != null) {
+            drawLines(pts, 0, pts.length, paint);
+        }
     }
 
     public void drawRect(float left, float top, float right, float bottom, Paint paint) {

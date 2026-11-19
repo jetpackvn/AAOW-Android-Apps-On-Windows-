@@ -82,8 +82,16 @@ public class ViewConfiguration {
         return Math.round(12 * density);
     }
 
+    public static int getMinimumFlingVelocity() {
+        return 50;
+    }
+
     public int getScaledMinimumFlingVelocity() {
         return Math.round(50 * density);
+    }
+
+    public static int getMaximumFlingVelocity() {
+        return 8000;
     }
 
     public int getScaledMaximumFlingVelocity() {

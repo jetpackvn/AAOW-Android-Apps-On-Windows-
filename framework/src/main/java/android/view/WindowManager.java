@@ -6,6 +6,21 @@ import android.os.Parcelable;
 public interface WindowManager extends ViewManager {
     Display getDefaultDisplay();
 
+    default WindowMetrics getCurrentWindowMetrics() {
+        Display d = getDefaultDisplay();
+        int w = d != null && d.getWidth() > 0 ? d.getWidth() : 420;
+        int h = d != null && d.getHeight() > 0 ? d.getHeight() : 820;
+        android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+        if (d != null) d.getMetrics(dm);
+        return new WindowMetrics(new android.graphics.Rect(0, 0, w, h),
+                new WindowInsets(android.graphics.Insets.NONE, false),
+                dm.density > 0f ? dm.density : 1.5f);
+    }
+
+    default WindowMetrics getMaximumWindowMetrics() {
+        return getCurrentWindowMetrics();
+    }
+
     class LayoutParams extends ViewGroup.LayoutParams implements Parcelable {
         public static final int FLAG_KEEP_SCREEN_ON = 0x00000080;
         public static final int FLAG_FULLSCREEN = 0x00000400;
