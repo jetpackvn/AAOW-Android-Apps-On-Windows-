@@ -400,6 +400,16 @@ public abstract class ViewGroup extends View implements ViewManager, ViewParent 
         return null;
     }
 
+    @Override
+    protected View findViewWithTagTraversal(Object tag) {
+        if (tag != null && tag.equals(getTag())) return this;
+        for (View child : children) {
+            View v = child.findViewWithTag(tag);
+            if (v != null) return v;
+        }
+        return null;
+    }
+
     protected void measureChildren(int widthMeasureSpec, int heightMeasureSpec) {
         final int size = children.size();
         for (int i = 0; i < size; ++i) {

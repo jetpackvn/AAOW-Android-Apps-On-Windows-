@@ -219,6 +219,29 @@ public class Window {
         return context;
     }
 
+    private WindowManager windowManager;
+
+    public WindowManager getWindowManager() {
+        if (windowManager != null) return windowManager;
+        if (context != null) {
+            Object svc = context.getSystemService(Context.WINDOW_SERVICE);
+            if (svc instanceof WindowManager wm) return wm;
+        }
+        return null;
+    }
+
+    public void setWindowManager(WindowManager wm, android.os.IBinder appToken, String appName) {
+        this.windowManager = wm;
+    }
+
+    public void setWindowManager(WindowManager wm, android.os.IBinder appToken, String appName, boolean hardwareAccelerated) {
+        this.windowManager = wm;
+    }
+
+    public LayoutInflater getLayoutInflater() {
+        return LayoutInflater.from(context);
+    }
+
     public void setCallback(Callback callback) {
         this.callback = callback;
     }

@@ -38,6 +38,10 @@ public abstract class Context {
     public static final int MODE_NO_LOCALIZED_COLLATORS = 0x0010;
     public static final int MODE_APPEND = 0x8000;
 
+    public static final int CONTEXT_INCLUDE_CODE = 0x00000001;
+    public static final int CONTEXT_IGNORE_SECURITY = 0x00000002;
+    public static final int CONTEXT_RESTRICTED = 0x00000004;
+
     public static final int BIND_AUTO_CREATE = 0x0001;
     public static final int BIND_DEBUG_UNBIND = 0x0002;
     public static final int BIND_NOT_FOREGROUND = 0x0004;
@@ -282,6 +286,20 @@ public abstract class Context {
     public void unregisterReceiver(BroadcastReceiver receiver) {
     }
 
+    public void registerComponentCallbacks(ComponentCallbacks callback) {
+        Context app = getApplicationContext();
+        if (app != null && app != this) {
+            app.registerComponentCallbacks(callback);
+        }
+    }
+
+    public void unregisterComponentCallbacks(ComponentCallbacks callback) {
+        Context app = getApplicationContext();
+        if (app != null && app != this) {
+            app.unregisterComponentCallbacks(callback);
+        }
+    }
+
     public void sendBroadcast(Intent intent) {
     }
 
@@ -311,6 +329,15 @@ public abstract class Context {
 
     public Context createDeviceProtectedStorageContext() {
         return this;
+    }
+
+    public Context createPackageContext(String packageName, int flags)
+            throws PackageManager.NameNotFoundException {
+        if (packageName == null || packageName.equals(getPackageName())
+                || dev.aaow.rt.microg.MicroGServiceRegistry.isVirtualGmsPackage(packageName)) {
+            return this;
+        }
+        throw new PackageManager.NameNotFoundException("Package not found: " + packageName);
     }
 
     public boolean isDeviceProtectedStorage() {

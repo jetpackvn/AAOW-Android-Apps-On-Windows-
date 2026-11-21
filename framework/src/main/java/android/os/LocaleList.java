@@ -34,6 +34,10 @@ public final class LocaleList implements Parcelable {
         return defaultList;
     }
 
+    public static LocaleList getAdjustedDefault() {
+        return defaultList;
+    }
+
     public static void setDefault(LocaleList locales) {
         if (locales != null && !locales.isEmpty()) {
             defaultList = locales;

@@ -124,6 +124,12 @@ public class ContextWrapper extends Context {
     }
 
     @Override
+    public Context createPackageContext(String packageName, int flags)
+            throws PackageManager.NameNotFoundException {
+        return base != null ? base.createPackageContext(packageName, flags) : super.createPackageContext(packageName, flags);
+    }
+
+    @Override
     public boolean isDeviceProtectedStorage() {
         return base != null && base.isDeviceProtectedStorage();
     }
@@ -338,6 +344,24 @@ public class ContextWrapper extends Context {
     @Override
     public String getSystemServiceName(Class<?> serviceClass) {
         return base != null ? base.getSystemServiceName(serviceClass) : super.getSystemServiceName(serviceClass);
+    }
+
+    @Override
+    public void registerComponentCallbacks(ComponentCallbacks callback) {
+        if (base != null) {
+            base.registerComponentCallbacks(callback);
+        } else {
+            super.registerComponentCallbacks(callback);
+        }
+    }
+
+    @Override
+    public void unregisterComponentCallbacks(ComponentCallbacks callback) {
+        if (base != null) {
+            base.unregisterComponentCallbacks(callback);
+        } else {
+            super.unregisterComponentCallbacks(callback);
+        }
     }
 
     @Override

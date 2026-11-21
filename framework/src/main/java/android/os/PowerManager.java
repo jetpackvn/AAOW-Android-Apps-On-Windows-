@@ -108,6 +108,14 @@ public final class PowerManager {
         return false;
     }
 
+    public boolean isDeviceIdleMode() {
+        return false;
+    }
+
+    public boolean isLightDeviceIdleMode() {
+        return false;
+    }
+
     public boolean isIgnoringBatteryOptimizations(String packageName) {
         return true;
     }

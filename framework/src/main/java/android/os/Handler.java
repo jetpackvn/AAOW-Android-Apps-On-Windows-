@@ -188,7 +188,12 @@ public class Handler {
         Runnable exec = () -> {
             scheduled.remove(entry);
             if (!entry.cancelled.get()) {
-                dispatchMessage(msg);
+                try {
+                    dispatchMessage(msg);
+                } catch (LinkageError le) {
+                    android.util.Log.e("AAOW-Handler", "LinkageError trong Handler (" + getMessageName(msg) + "): " + le, le);
+                    throw le;
+                }
             }
         };
 

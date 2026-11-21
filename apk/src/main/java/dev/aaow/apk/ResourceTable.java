@@ -66,6 +66,7 @@ public final class ResourceTable {
     private final Map<Integer, Entry> entries = new HashMap<>();
     private final Map<Integer, Integer> scores = new HashMap<>();
     private final Map<String, Integer> nameToId = new HashMap<>();
+    private final Map<String, Integer> attrKeyCounts = new HashMap<>();
     private String packageName = "";
     private int packageId;
     private final String systemLanguage = Locale.getDefault().getLanguage();
@@ -196,9 +197,13 @@ public final class ResourceTable {
                     value = new ResValue(vType, vData, vType == ResValue.TYPE_STRING ? values.get(vData) : null);
                 }
             }
+            boolean isNewEntry = !entries.containsKey(resId);
             entries.put(resId, new Entry(resId, typeName, key, config, value, parent, bag));
             scores.put(resId, score);
             nameToId.put(typeName + "/" + key, resId);
+            if (isNewEntry && "attr".equals(typeName) && key != null && !key.isEmpty()) {
+                attrKeyCounts.merge(key, 1, Integer::sum);
+            }
         }
     }
 
@@ -300,5 +305,10 @@ public final class ResourceTable {
 
     public int size() {
         return entries.size();
+    }
+
+    /** Trả true nếu tên khóa attr là duy nhất (không bị làm rối kiểu AndResGuard/AAPT2 trùng tên 'arg'). */
+    public boolean isUniqueAttrKey(String key) {
+        return key != null && !key.isEmpty() && attrKeyCounts.getOrDefault(key, 0) == 1;
     }
 }

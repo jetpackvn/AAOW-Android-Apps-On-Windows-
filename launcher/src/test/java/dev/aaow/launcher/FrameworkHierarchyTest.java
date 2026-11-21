@@ -15,6 +15,7 @@ import android.content.ContentValues;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.IntentSender;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ComponentInfo;
@@ -40,7 +41,9 @@ import android.database.sqlite.SQLiteStatement;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.ClipDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.DrawableWrapper;
 import android.graphics.drawable.Icon;
 import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.shapes.OvalShape;
@@ -89,6 +92,7 @@ import android.util.SizeF;
 import android.os.BaseBundle;
 import android.os.Bundle;
 import android.os.Message;
+import android.os.MessageQueue;
 import android.os.Messenger;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
@@ -141,6 +145,8 @@ import android.widget.SeekBar;
 import android.widget.SpinnerAdapter;
 import android.widget.TableLayout;
 import android.widget.TableRow;
+import android.widget.ViewAnimator;
+import android.widget.ViewFlipper;
 import dev.aaow.rt.HostWindow;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
@@ -241,15 +247,20 @@ class FrameworkHierarchyTest {
         assertNotNull(SigningInfo.class);
         assertNotNull(Messenger.class);
         assertNotNull(TelephonyManager.class);
+        assertNotNull(MessageQueue.class);
+        assertTrue(DrawableWrapper.class.isAssignableFrom(ClipDrawable.class));
+        assertTrue(ViewAnimator.class.isAssignableFrom(ViewFlipper.class));
+        assertNotNull(IntentSender.class);
+        assertNotNull(ActivityManager.RunningServiceInfo.class);
 
         Class<?>[] parcelables = {
-                Intent.class, IntentFilter.class, Bundle.class, PersistableBundle.class,
+                Intent.class, IntentFilter.class, IntentSender.class, Bundle.class, PersistableBundle.class,
                 ResultReceiver.class, Uri.class, ComponentName.class,
                 ContentValues.class, Bitmap.class, Rect.class, RectF.class, Configuration.class,
                 PackageInfo.class, ActivityInfo.class, ApplicationInfo.class, ProviderInfo.class,
                 ServiceInfo.class, ResolveInfo.class, Signature.class, SigningInfo.class,
-                ActivityManager.RunningAppProcessInfo.class, ActivityManager.MemoryInfo.class,
-                Debug.MemoryInfo.class,
+                ActivityManager.RunningAppProcessInfo.class, ActivityManager.RunningServiceInfo.class,
+                ActivityManager.MemoryInfo.class, Debug.MemoryInfo.class,
                 ColorStateList.class, KeyEvent.class, MotionEvent.class, PointerIcon.class, WindowId.class,
                 Message.class, Messenger.class, ParcelFileDescriptor.class, AssetFileDescriptor.class,
                 Network.class, NetworkInfo.class, NetworkCapabilities.class, NetworkRequest.class,

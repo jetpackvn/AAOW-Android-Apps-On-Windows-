@@ -23,6 +23,9 @@ public class Matrix {
     public static final int MPERSP_1 = 7;
     public static final int MPERSP_2 = 8;
 
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_NATIVE_PTR = new java.util.concurrent.atomic.AtomicLong(0x7000_0001L);
+    public final long native_instance = NEXT_NATIVE_PTR.getAndIncrement();
+    private final long mNativePtr = native_instance;
     private final AffineTransform tx = new AffineTransform();
 
     public Matrix() {

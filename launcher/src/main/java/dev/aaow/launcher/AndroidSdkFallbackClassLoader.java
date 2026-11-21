@@ -297,26 +297,90 @@ public final class AndroidSdkFallbackClassLoader extends ClassLoader {
             mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/Enum", "<init>", "(Ljava/lang/String;I)V", false);
             return;
         }
-        String superCtorDesc = findSimplestSuperCtorDescriptor(superInternalName);
-        Type[] argTypes = Type.getArgumentTypes(superCtorDesc);
-        for (Type t : argTypes) {
-            pushDefaultValue(mv, t);
+        String superCtorDesc = findBestSuperCtorDescriptor(superInternalName, selfDesc);
+        Type[] superArgs = Type.getArgumentTypes(superCtorDesc);
+        Type[] selfArgs = Type.getArgumentTypes(selfDesc);
+        boolean canForward = superArgs.length <= selfArgs.length;
+        if (canForward) {
+            for (int i = 0; i < superArgs.length; i++) {
+                if (!isAssignableType(selfArgs[i], superArgs[i])) {
+                    canForward = false;
+                    break;
+                }
+            }
+        }
+        if (canForward) {
+            int slot = 1;
+            for (int i = 0; i < superArgs.length; i++) {
+                mv.visitVarInsn(selfArgs[i].getOpcode(Opcodes.ILOAD), slot);
+                slot += selfArgs[i].getSize();
+            }
+        } else {
+            for (Type t : superArgs) {
+                pushDefaultValue(mv, t);
+            }
         }
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, superInternalName, "<init>", superCtorDesc, false);
     }
 
-    private String findSimplestSuperCtorDescriptor(String superInternalName) {
+    private boolean isAssignableType(Type src, Type dst) {
+        if (src.equals(dst)) return true;
+        if (src.getSort() == Type.OBJECT && dst.getSort() == Type.OBJECT) {
+            if ("java/lang/Object".equals(dst.getInternalName())) return true;
+            try {
+                Class<?> sc = Class.forName(src.getClassName(), false, this);
+                Class<?> dc = Class.forName(dst.getClassName(), false, this);
+                return dc.isAssignableFrom(sc);
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    private String findBestSuperCtorDescriptor(String superInternalName, String selfDesc) {
         if ("java/lang/Object".equals(superInternalName)) return "()V";
-        try {
-            Class<?> cls = Class.forName(superInternalName.replace('/', '.'), false, this);
-            Constructor<?> best = null;
-            for (Constructor<?> c : cls.getDeclaredConstructors()) {
-                if (c.getParameterCount() == 0) return "()V";
-                if (best == null || c.getParameterCount() < best.getParameterCount()) {
-                    best = c;
+        List<String> candidates = collectSuperCtorDescriptors(superInternalName);
+        if (candidates.isEmpty()) return "()V";
+        if (candidates.contains(selfDesc)) {
+            return selfDesc;
+        }
+        Type[] selfArgs = Type.getArgumentTypes(selfDesc);
+        // Ưu tiên constructor siêu lớp khớp prefix dài nhất của tham số hiện tại (vd: View(Context, AttributeSet))
+        String bestForward = null;
+        int bestForwardLen = -1;
+        for (String desc : candidates) {
+            Type[] sa = Type.getArgumentTypes(desc);
+            if (sa.length > 0 && sa.length <= selfArgs.length) {
+                boolean match = true;
+                for (int i = 0; i < sa.length; i++) {
+                    if (!isAssignableType(selfArgs[i], sa[i])) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match && sa.length > bestForwardLen) {
+                    bestForwardLen = sa.length;
+                    bestForward = desc;
                 }
             }
-            if (best != null) return Type.getConstructorDescriptor(best);
+        }
+        if (bestForward != null) return bestForward;
+        if (candidates.contains("()V")) return "()V";
+        candidates.sort(Comparator.comparingInt(d -> Type.getArgumentTypes(d).length));
+        return candidates.get(0);
+    }
+
+    private List<String> collectSuperCtorDescriptors(String superInternalName) {
+        List<String> out = new ArrayList<>();
+        try {
+            Class<?> cls = Class.forName(superInternalName.replace('/', '.'), false, this);
+            for (Constructor<?> c : cls.getDeclaredConstructors()) {
+                if ((c.getModifiers() & java.lang.reflect.Modifier.PRIVATE) == 0) {
+                    out.add(Type.getConstructorDescriptor(c));
+                }
+            }
+            if (!out.isEmpty()) return out;
         } catch (Throwable ignored) {
         }
         if (androidJar != null) {
@@ -324,27 +388,20 @@ public final class AndroidSdkFallbackClassLoader extends ClassLoader {
             if (entry != null) {
                 try (InputStream in = androidJar.getInputStream(entry)) {
                     ClassReader cr = new ClassReader(in);
-                    final String[] bestDesc = {null};
-                    final int[] bestParams = {Integer.MAX_VALUE};
                     cr.accept(new ClassVisitor(Opcodes.ASM9) {
                         @Override
                         public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
                             if ("<init>".equals(name) && (access & Opcodes.ACC_PRIVATE) == 0) {
-                                int n = Type.getArgumentTypes(descriptor).length;
-                                if (n < bestParams[0]) {
-                                    bestParams[0] = n;
-                                    bestDesc[0] = descriptor;
-                                }
+                                out.add(descriptor);
                             }
                             return null;
                         }
                     }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
-                    if (bestDesc[0] != null) return bestDesc[0];
                 } catch (Throwable ignored) {
                 }
             }
         }
-        return "()V";
+        return out;
     }
 
     static void pushIntConstant(MethodVisitor mv, int value) {

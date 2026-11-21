@@ -34,6 +34,7 @@ public final class Looper {
 
     private final Thread thread;
     private final boolean main;
+    private final MessageQueue messageQueue;
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition avail = lock.newCondition();
     private final PriorityQueue<QueuedTask> queue = new PriorityQueue<>(
@@ -45,6 +46,7 @@ public final class Looper {
     private Looper(Thread thread, boolean main) {
         this.thread = thread;
         this.main = main;
+        this.messageQueue = new MessageQueue(main);
     }
 
     public static void prepare() {
@@ -66,6 +68,15 @@ public final class Looper {
             return MAIN_LOOPER;
         }
         return null;
+    }
+
+    public static MessageQueue myQueue() {
+        Looper l = myLooper();
+        return l != null ? l.messageQueue : MAIN_LOOPER.messageQueue;
+    }
+
+    public MessageQueue getQueue() {
+        return messageQueue;
     }
 
     public static void loop() {

@@ -94,4 +94,45 @@ public class TextUtils {
         }
         return pattern.split(text, -1);
     }
+
+    public static void writeToParcel(CharSequence cs, android.os.Parcel p, int parcelableFlags) {
+        if (p == null) return;
+        p.writeString(cs != null ? cs.toString() : null);
+    }
+
+    public static final android.os.Parcelable.Creator<CharSequence> CHAR_SEQUENCE_CREATOR =
+            new android.os.Parcelable.Creator<>() {
+                @Override
+                public CharSequence createFromParcel(android.os.Parcel source) {
+                    return source != null ? source.readString() : null;
+                }
+
+                @Override
+                public CharSequence[] newArray(int size) {
+                    return new CharSequence[size];
+                }
+            };
+
+    public static int getLayoutDirectionFromLocale(java.util.Locale locale) {
+        if (locale != null) {
+            String lang = locale.getLanguage();
+            if ("ar".equals(lang) || "he".equals(lang) || "iw".equals(lang)
+                    || "fa".equals(lang) || "ur".equals(lang)) {
+                return android.view.View.LAYOUT_DIRECTION_RTL;
+            }
+        }
+        return android.view.View.LAYOUT_DIRECTION_LTR;
+    }
+
+    public static boolean isDigitsOnly(CharSequence str) {
+        if (str == null) return false;
+        final int len = str.length();
+        for (int cp, i = 0; i < len; i += Character.charCount(cp)) {
+            cp = Character.codePointAt(str, i);
+            if (!Character.isDigit(cp)) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

@@ -97,6 +97,9 @@ public class RelativeLayout extends ViewGroup {
         }
     }
 
+    private int gravity = android.view.Gravity.START | android.view.Gravity.TOP;
+    private int ignoreGravity;
+
     public RelativeLayout(Context context) {
         super(context);
     }
@@ -111,6 +114,47 @@ public class RelativeLayout extends ViewGroup {
 
     public RelativeLayout(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
+    }
+
+    public int getGravity() {
+        return gravity;
+    }
+
+    public void setGravity(int gravity) {
+        if (this.gravity != gravity) {
+            if ((gravity & android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) == 0) {
+                gravity |= android.view.Gravity.START;
+            }
+            if ((gravity & android.view.Gravity.VERTICAL_GRAVITY_MASK) == 0) {
+                gravity |= android.view.Gravity.TOP;
+            }
+            this.gravity = gravity;
+            requestLayout();
+        }
+    }
+
+    public void setHorizontalGravity(int horizontalGravity) {
+        int gravity = horizontalGravity & android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK;
+        if ((this.gravity & android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) != gravity) {
+            this.gravity = (this.gravity & ~android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK) | gravity;
+            requestLayout();
+        }
+    }
+
+    public void setVerticalGravity(int verticalGravity) {
+        int gravity = verticalGravity & android.view.Gravity.VERTICAL_GRAVITY_MASK;
+        if ((this.gravity & android.view.Gravity.VERTICAL_GRAVITY_MASK) != gravity) {
+            this.gravity = (this.gravity & ~android.view.Gravity.VERTICAL_GRAVITY_MASK) | gravity;
+            requestLayout();
+        }
+    }
+
+    public void setIgnoreGravity(int viewId) {
+        this.ignoreGravity = viewId;
+    }
+
+    public int getIgnoreGravity() {
+        return ignoreGravity;
     }
 
     @Override

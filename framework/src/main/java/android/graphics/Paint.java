@@ -54,6 +54,9 @@ public class Paint {
         public int leading;
     }
 
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_NATIVE_PTR = new java.util.concurrent.atomic.AtomicLong(0x2000_0001L);
+    private long mNativePaint = NEXT_NATIVE_PTR.getAndIncrement();
+    private long mNativePtr = mNativePaint;
     private int flags = ANTI_ALIAS_FLAG;
     private int color = Color.BLACK;
     private Style style = Style.FILL;
@@ -136,6 +139,24 @@ public class Paint {
     public void setAntiAlias(boolean aa) {
         if (aa) flags |= ANTI_ALIAS_FLAG;
         else flags &= ~ANTI_ALIAS_FLAG;
+    }
+
+    public final boolean isFilterBitmap() {
+        return (flags & FILTER_BITMAP_FLAG) != 0;
+    }
+
+    public void setFilterBitmap(boolean filter) {
+        if (filter) flags |= FILTER_BITMAP_FLAG;
+        else flags &= ~FILTER_BITMAP_FLAG;
+    }
+
+    public final boolean isDither() {
+        return (flags & DITHER_FLAG) != 0;
+    }
+
+    public void setDither(boolean dither) {
+        if (dither) flags |= DITHER_FLAG;
+        else flags &= ~DITHER_FLAG;
     }
 
     public Style getStyle() {

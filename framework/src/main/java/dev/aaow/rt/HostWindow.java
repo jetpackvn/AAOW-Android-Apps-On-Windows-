@@ -202,7 +202,8 @@ public final class HostWindow {
         }
         Toast.setHostToastBridge(this::showToast);
         Dialog.setHostDialogLifecycleBridge((dialog, shown) -> {
-            if (dialog == null) return;
+            if (dialog == null)
+                return;
             if (Boolean.TRUE.equals(shown)) {
                 activeDialogs.remove(dialog);
                 activeDialogs.add(dialog);
@@ -232,8 +233,10 @@ public final class HostWindow {
     }
 
     private static boolean usesNativeAlertOverlay(Dialog d) {
-        if (!(d instanceof AlertDialog)) return false;
-        if (d.getWindow() == null || !(d.getWindow().getDecorView() instanceof ViewGroup vg)) return true;
+        if (!(d instanceof AlertDialog))
+            return false;
+        if (d.getWindow() == null || !(d.getWindow().getDecorView() instanceof ViewGroup vg))
+            return true;
         return vg.getChildCount() == 0;
     }
 
@@ -691,11 +694,29 @@ public final class HostWindow {
                 SwingUtilities.invokeAndWait(() -> {
                 });
             }
-            // Nếu ứng dụng đang hiển thị ProgressDialog tải dữ liệu trực tuyến, chờ tối đa 3.5s cho xong
-            long deadline = System.currentTimeMillis() + 3500L;
+            // Nếu ứng dụng đang hiển thị ProgressDialog tải dữ liệu trực tuyến hoặc đang ở
+            // SplashActivity
+            // chờ tự chuyển tiếp sang MainActivity, chờ tối đa 5.0s cho chuyển xong:
+            boolean startedOnSplash = activityClass != null && activityClass.toLowerCase().contains("splash");
+            boolean leftSplash = false;
+            long deadline = System.currentTimeMillis() + 5000L;
             while (System.currentTimeMillis() < deadline) {
-                if (getActiveDialog() instanceof android.app.ProgressDialog) {
-                    Thread.sleep(100);
+                Activity curTop = activityStack.peek();
+                boolean onSplash = startedOnSplash && curTop != null
+                        && curTop.getClass().getSimpleName().toLowerCase().contains("splash");
+                if (startedOnSplash && !onSplash && !leftSplash) {
+                    leftSplash = true;
+                    // Sau khi rời SplashActivity sang MainActivity, chờ thêm 1.2s để UI & mạng tải
+                    // ổn định
+                    Thread.sleep(1200);
+                    if (!SwingUtilities.isEventDispatchThread()) {
+                        SwingUtilities.invokeAndWait(() -> {
+                        });
+                    }
+                    break;
+                }
+                if (getActiveDialog() instanceof android.app.ProgressDialog || onSplash) {
+                    Thread.sleep(120);
                     if (!SwingUtilities.isEventDispatchThread()) {
                         SwingUtilities.invokeAndWait(() -> {
                         });
@@ -788,9 +809,13 @@ public final class HostWindow {
         ImageIO.write(img, "png", outFile);
     }
 
-    // --------------------------------------------------------- API tương tác tự động (Headless / End-to-End Test)
+    // --------------------------------------------------------- API tương tác tự
+    // động (Headless / End-to-End Test)
 
-    /** Bắt đầu Activity trên viewport headless mà chưa chụp ảnh, sẵn sàng nhận sự kiện tương tác. */
+    /**
+     * Bắt đầu Activity trên viewport headless mà chưa chụp ảnh, sẵn sàng nhận sự
+     * kiện tương tác.
+     */
     public void launchHeadless(String activityClass, int width, int height) throws Exception {
         WindowsBrowserBridge.setSuppressExternalBrowser(true);
         Runnable launch = () -> {
@@ -816,12 +841,17 @@ public final class HostWindow {
         pumpEventsAndLayout(250);
     }
 
-    /** Chờ các tác vụ bất đồng bộ (Main Looper, Room, WebView, Drawer/ViewPager animations) và đo/vẽ lại khung hình. */
+    /**
+     * Chờ các tác vụ bất đồng bộ (Main Looper, Room, WebView, Drawer/ViewPager
+     * animations) và đo/vẽ lại khung hình.
+     */
     public void pumpEventsAndLayout(long waitMs) throws Exception {
         Runnable pass = () -> {
-            if (viewport == null) return;
+            if (viewport == null)
+                return;
             layoutCurrentIfNeeded();
-            BufferedImage tmp = new BufferedImage(Math.max(1, logicalWidth), Math.max(1, logicalHeight), BufferedImage.TYPE_INT_ARGB);
+            BufferedImage tmp = new BufferedImage(Math.max(1, logicalWidth), Math.max(1, logicalHeight),
+                    BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2 = tmp.createGraphics();
             viewport.paintComponent(g2);
             g2.dispose();
@@ -834,7 +864,8 @@ public final class HostWindow {
         do {
             SwingUtilities.invokeAndWait(pass);
             long remaining = deadline - System.currentTimeMillis();
-            if (remaining <= 0) break;
+            if (remaining <= 0)
+                break;
             Thread.sleep(Math.min(32L, remaining));
         } while (true);
         WebViewEngineBridge.awaitAllIdle(1500);
@@ -843,7 +874,8 @@ public final class HostWindow {
 
     private void layoutCurrentIfNeeded() {
         Activity top = activityStack.peek();
-        if (top == null || viewport == null) return;
+        if (top == null || viewport == null)
+            return;
         View decor = top.getWindow().getDecorView();
         int w = Math.max(1, logicalWidth);
         int ch = Math.max(0, logicalHeight - viewport.contentTopOffset(top) - NAV_BAR_H);
@@ -865,18 +897,22 @@ public final class HostWindow {
 
     public void simulateClick(int logicalX, int logicalY) throws Exception {
         Runnable r = () -> {
-            if (viewport == null) return;
+            if (viewport == null)
+                return;
             viewport.handleMouse(MotionEvent.ACTION_DOWN, logicalX, logicalY);
             viewport.handleMouse(MotionEvent.ACTION_UP, logicalX, logicalY);
         };
-        if (SwingUtilities.isEventDispatchThread()) r.run();
-        else SwingUtilities.invokeAndWait(r);
+        if (SwingUtilities.isEventDispatchThread())
+            r.run();
+        else
+            SwingUtilities.invokeAndWait(r);
     }
 
     public void simulateSwipe(int x1, int y1, int x2, int y2, int steps) throws Exception {
         int safeSteps = Math.max(2, steps);
         Runnable r = () -> {
-            if (viewport == null) return;
+            if (viewport == null)
+                return;
             viewport.handleMouse(MotionEvent.ACTION_DOWN, x1, y1);
             for (int i = 1; i <= safeSteps; i++) {
                 int x = x1 + (x2 - x1) * i / safeSteps;
@@ -885,13 +921,19 @@ public final class HostWindow {
             }
             viewport.handleMouse(MotionEvent.ACTION_UP, x2, y2);
         };
-        if (SwingUtilities.isEventDispatchThread()) r.run();
-        else SwingUtilities.invokeAndWait(r);
+        if (SwingUtilities.isEventDispatchThread())
+            r.run();
+        else
+            SwingUtilities.invokeAndWait(r);
     }
 
-    /** Tính tọa độ tâm của một View (trong Activity hoặc trong Dialog đang mở) và bắn click chuột thật qua HostWindow. */
+    /**
+     * Tính tọa độ tâm của một View (trong Activity hoặc trong Dialog đang mở) và
+     * bắn click chuột thật qua HostWindow.
+     */
     public void simulateClickView(View target) throws Exception {
-        if (target == null) throw new IllegalArgumentException("Target view is null");
+        if (target == null)
+            throw new IllegalArgumentException("Target view is null");
         pumpEventsAndLayout(50);
         int[] coords = new int[2];
         Runnable calcAndClick = () -> {
@@ -917,8 +959,10 @@ public final class HostWindow {
                 int visRight = Math.min(loc[0] + Math.max(1, target.getWidth()), Math.max(1, lastCustomDialogW));
                 int visTop = Math.max(0, loc[1]);
                 int visBottom = Math.min(loc[1] + Math.max(1, target.getHeight()), Math.max(1, lastCustomDialogH));
-                int clampedCx = visRight > visLeft ? (visLeft + visRight) / 2 : Math.max(2, Math.min(cx, lastCustomDialogW - 2));
-                int clampedCy = visBottom > visTop ? (visTop + visBottom) / 2 : Math.max(2, Math.min(cy, lastCustomDialogH - 2));
+                int clampedCx = visRight > visLeft ? (visLeft + visRight) / 2
+                        : Math.max(2, Math.min(cx, lastCustomDialogW - 2));
+                int clampedCy = visBottom > visTop ? (visTop + visBottom) / 2
+                        : Math.max(2, Math.min(cy, lastCustomDialogH - 2));
                 coords[0] = lastCustomDialogX + clampedCx;
                 coords[1] = lastCustomDialogY + clampedCy;
             } else {
@@ -932,18 +976,23 @@ public final class HostWindow {
                 viewport.handleMouse(MotionEvent.ACTION_UP, coords[0], coords[1]);
             }
         };
-        if (SwingUtilities.isEventDispatchThread()) calcAndClick.run();
-        else SwingUtilities.invokeAndWait(calcAndClick);
+        if (SwingUtilities.isEventDispatchThread())
+            calcAndClick.run();
+        else
+            SwingUtilities.invokeAndWait(calcAndClick);
     }
 
     public void simulateTypeText(String text) throws Exception {
-        if (text == null) return;
+        if (text == null)
+            return;
         Runnable r = () -> {
-            if (focusedView == null) return;
+            if (focusedView == null)
+                return;
             for (int i = 0; i < text.length(); i++) {
                 char ch = text.charAt(i);
                 if (ch == '\n') {
-                    KeyEvent ke = new KeyEvent(viewport, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, KeyEvent.VK_ENTER, '\n');
+                    KeyEvent ke = new KeyEvent(viewport, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0,
+                            KeyEvent.VK_ENTER, '\n');
                     focusedView.onHostKeyPressed(ke);
                 } else {
                     focusedView.onHostKeyTyped(ch);
@@ -951,26 +1000,34 @@ public final class HostWindow {
             }
             repaintViewport();
         };
-        if (SwingUtilities.isEventDispatchThread()) r.run();
-        else SwingUtilities.invokeAndWait(r);
+        if (SwingUtilities.isEventDispatchThread())
+            r.run();
+        else
+            SwingUtilities.invokeAndWait(r);
     }
 
     public void simulateKeyPressed(int awtKeyCode, boolean ctrl) throws Exception {
         Runnable r = () -> {
-            if (viewport == null) return;
+            if (viewport == null)
+                return;
             int mods = ctrl ? InputEvent.CTRL_DOWN_MASK : 0;
-            KeyEvent ke = new KeyEvent(viewport, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), mods, awtKeyCode, KeyEvent.CHAR_UNDEFINED);
+            KeyEvent ke = new KeyEvent(viewport, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), mods, awtKeyCode,
+                    KeyEvent.CHAR_UNDEFINED);
             if (focusedView != null) {
                 focusedView.onHostKeyPressed(ke);
             } else if (awtKeyCode == KeyEvent.VK_ESCAPE) {
                 Dialog topDialog = getActiveDialog();
-                if (topDialog != null) topDialog.onBackPressed();
-                else if (activityStack.peek() != null) activityStack.peek().onBackPressed();
+                if (topDialog != null)
+                    topDialog.onBackPressed();
+                else if (activityStack.peek() != null)
+                    activityStack.peek().onBackPressed();
             }
             repaintViewport();
         };
-        if (SwingUtilities.isEventDispatchThread()) r.run();
-        else SwingUtilities.invokeAndWait(r);
+        if (SwingUtilities.isEventDispatchThread())
+            r.run();
+        else
+            SwingUtilities.invokeAndWait(r);
     }
 
     public void simulateBack() throws Exception {
@@ -980,19 +1037,23 @@ public final class HostWindow {
                 topDialog.onBackPressed();
             } else {
                 Activity top = activityStack.peek();
-                if (top != null) top.onBackPressed();
+                if (top != null)
+                    top.onBackPressed();
             }
             repaintViewport();
         };
-        if (SwingUtilities.isEventDispatchThread()) r.run();
-        else SwingUtilities.invokeAndWait(r);
+        if (SwingUtilities.isEventDispatchThread())
+            r.run();
+        else
+            SwingUtilities.invokeAndWait(r);
     }
 
     public boolean simulateOptionsMenuItem(int itemId) throws Exception {
         final boolean[] handled = { false };
         Runnable r = () -> {
             Activity top = activityStack.peek();
-            if (top == null) return;
+            if (top == null)
+                return;
             SimpleMenu menu = top.getOptionsMenu();
             if (menu != null) {
                 MenuItem item = menu.findItem(itemId);
@@ -1002,8 +1063,10 @@ public final class HostWindow {
                 }
             }
         };
-        if (SwingUtilities.isEventDispatchThread()) r.run();
-        else SwingUtilities.invokeAndWait(r);
+        if (SwingUtilities.isEventDispatchThread())
+            r.run();
+        else
+            SwingUtilities.invokeAndWait(r);
         return handled[0];
     }
 
@@ -1672,7 +1735,8 @@ public final class HostWindow {
                 return;
             }
 
-            // 3. Nếu đang mở Dialog (AlertDialog, AppCompat AlertDialog, MaterialAlertDialogBuilder, ComponentDialog...)
+            // 3. Nếu đang mở Dialog (AlertDialog, AppCompat AlertDialog,
+            // MaterialAlertDialogBuilder, ComponentDialog...)
             Dialog topDialog = getActiveDialog();
             if (topDialog != null) {
                 if (usesNativeAlertOverlay(topDialog)) {
@@ -1811,6 +1875,10 @@ public final class HostWindow {
                     int hSpec = View.MeasureSpec.makeMeasureSpec(ch, View.MeasureSpec.EXACTLY);
                     decor.measure(wSpec, hSpec);
                     decor.layout(0, 0, w, ch);
+                    if (decor.isLayoutRequested()) {
+                        decor.measure(wSpec, hSpec);
+                        decor.layout(0, 0, w, ch);
+                    }
                     lastLayoutW = w;
                     lastLayoutH = ch;
                     lastLayoutActivity = act;
@@ -2253,9 +2321,11 @@ public final class HostWindow {
         }
 
         private void drawCustomDialogOverlay(Graphics2D g2, int w, int h, Dialog d) {
-            if (d == null || d.getWindow() == null) return;
+            if (d == null || d.getWindow() == null)
+                return;
             View decor = d.getWindow().getDecorView();
-            if (decor == null) return;
+            if (decor == null)
+                return;
 
             g2.setColor(new java.awt.Color(0, 0, 0, 135));
             g2.fillRect(0, 0, w, h);
@@ -2284,7 +2354,8 @@ public final class HostWindow {
 
             decor.layout(0, 0, dw, dh);
 
-            // Vẽ thẻ nền Material trắng sạch phía sau decorView của Dialog (AppCompat/MaterialAlertDialog)
+            // Vẽ thẻ nền Material trắng sạch phía sau decorView của Dialog
+            // (AppCompat/MaterialAlertDialog)
             g2.setColor(new java.awt.Color(0, 0, 0, 48));
             g2.fill(new RoundRectangle2D.Float(dx + 2, dy + 4, dw, dh, 20, 20));
             g2.setColor(java.awt.Color.WHITE);
@@ -2298,7 +2369,8 @@ public final class HostWindow {
 
         private void handleCustomDialogTouch(Dialog d, int action, int mx, int my, int w, int h) {
             if (d == null || d.getWindow() == null || d.getWindow().getDecorView() == null) {
-                if (d != null) d.dismiss();
+                if (d != null)
+                    d.dismiss();
                 return;
             }
             View decor = d.getWindow().getDecorView();
@@ -2308,8 +2380,10 @@ public final class HostWindow {
                 decor.measure(
                         View.MeasureSpec.makeMeasureSpec(maxW, View.MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST));
-                lastCustomDialogW = Math.max(240, Math.min(maxW, decor.getMeasuredWidth() > 0 ? decor.getMeasuredWidth() : maxW));
-                lastCustomDialogH = Math.max(120, Math.min(maxH, decor.getMeasuredHeight() > 0 ? decor.getMeasuredHeight() : 220));
+                lastCustomDialogW = Math.max(240,
+                        Math.min(maxW, decor.getMeasuredWidth() > 0 ? decor.getMeasuredWidth() : maxW));
+                lastCustomDialogH = Math.max(120,
+                        Math.min(maxH, decor.getMeasuredHeight() > 0 ? decor.getMeasuredHeight() : 220));
                 lastCustomDialogX = (w - lastCustomDialogW) / 2;
                 lastCustomDialogY = Math.max(STATUS_BAR_H + 16, (h - NAV_BAR_H - lastCustomDialogH) / 2);
                 decor.layout(0, 0, lastCustomDialogW, lastCustomDialogH);

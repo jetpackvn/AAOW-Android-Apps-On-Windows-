@@ -205,6 +205,67 @@ public class ActivityManager {
         outState.importance = RunningAppProcessInfo.IMPORTANCE_FOREGROUND;
     }
 
+    public static class RunningServiceInfo implements Parcelable {
+        public ComponentName service;
+        public int pid;
+        public int uid;
+        public String process;
+        public boolean foreground;
+        public long activeSince;
+        public boolean started;
+        public int clientCount;
+        public int crashCount;
+        public long lastActivityTime;
+        public long restarting;
+        public int flags;
+        public String clientPackage;
+        public int clientLabel;
+
+        public RunningServiceInfo() {
+        }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeParcelable(service, flags);
+            dest.writeInt(pid);
+            dest.writeInt(uid);
+            dest.writeString(process);
+            dest.writeInt(foreground ? 1 : 0);
+            dest.writeLong(activeSince);
+            dest.writeInt(started ? 1 : 0);
+        }
+
+        public static final Creator<RunningServiceInfo> CREATOR = new Creator<>() {
+            @Override
+            public RunningServiceInfo createFromParcel(Parcel source) {
+                RunningServiceInfo info = new RunningServiceInfo();
+                info.service = source.readParcelable(null);
+                info.pid = source.readInt();
+                info.uid = source.readInt();
+                info.process = source.readString();
+                info.foreground = source.readInt() != 0;
+                info.activeSince = source.readLong();
+                info.started = source.readInt() != 0;
+                return info;
+            }
+
+            @Override
+            public RunningServiceInfo[] newArray(int size) {
+                return new RunningServiceInfo[size];
+            }
+        };
+    }
+
+    @Deprecated
+    public List<RunningServiceInfo> getRunningServices(int maxNum) {
+        return new ArrayList<>();
+    }
+
     public <T> List<T> getHistoricalProcessExitReasons(String packageName, int pid, int maxNum) {
         return java.util.Collections.emptyList();
     }

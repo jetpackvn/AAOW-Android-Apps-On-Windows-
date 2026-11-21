@@ -26,6 +26,8 @@ public final class Bitmap implements Parcelable {
         HARDWARE
     }
 
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_NATIVE_PTR = new java.util.concurrent.atomic.AtomicLong(0x4000_0001L);
+    private final long mNativePtr = NEXT_NATIVE_PTR.getAndIncrement();
     private BufferedImage image;
     private final int width;
     private final int height;
@@ -226,6 +228,23 @@ public final class Bitmap implements Parcelable {
                 image = null;
             }
         }
+    }
+
+    public void prepareToDraw() {
+    }
+
+    public void reconfigure(int width, int height, Config config) {
+        if (width > 0 && height > 0 && (image == null || image.getWidth() != width || image.getHeight() != height)) {
+            this.image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        }
+    }
+
+    public boolean sameAs(Bitmap other) {
+        if (this == other) return true;
+        if (other == null || recycled || other.recycled || width != other.width || height != other.height) {
+            return false;
+        }
+        return image != null && other.image != null;
     }
 
     public boolean isRecycled() {

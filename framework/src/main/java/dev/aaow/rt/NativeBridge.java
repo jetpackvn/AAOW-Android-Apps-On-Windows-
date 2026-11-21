@@ -4,6 +4,7 @@ import android.util.Log;
 import dev.aaow.rt.jni.MemFileJniHandler;
 import dev.aaow.rt.jni.MmkvJniHandler;
 import dev.aaow.rt.jni.NativeJniHandler;
+import dev.aaow.rt.jni.QseaAndQmspJniHandler;
 import dev.aaow.rt.jni.SqliteJniHandler;
 import dev.aaow.rt.jni.WebpJniHandler;
 import dev.aaow.rt.jni.ZlibAndPatchJniHandler;
@@ -34,7 +35,8 @@ public final class NativeBridge {
             new WebpJniHandler(),
             new ZlibAndPatchJniHandler(),
             new MemFileJniHandler(),
-            new SqliteJniHandler()
+            new SqliteJniHandler(),
+            new QseaAndQmspJniHandler()
     );
 
     private static final Set<String> INTERCEPTED_LIBS = Collections.synchronizedSet(new LinkedHashSet<>());

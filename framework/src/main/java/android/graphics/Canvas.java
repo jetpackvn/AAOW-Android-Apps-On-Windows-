@@ -18,6 +18,9 @@ import java.util.Deque;
  * Cài đặt android.graphics.Canvas vẽ trực tiếp lên Graphics2D của Windows.
  */
 public class Canvas {
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_NATIVE_PTR = new java.util.concurrent.atomic.AtomicLong(0x1000_0001L);
+    protected long mNativeCanvasWrapper = NEXT_NATIVE_PTR.getAndIncrement();
+    private long mNativePtr = mNativeCanvasWrapper;
     private Graphics2D g;
     private Bitmap targetBitmap;
     private final Deque<SavedState> stack = new ArrayDeque<>();

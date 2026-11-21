@@ -33,6 +33,17 @@ public final class Uri implements Comparable<Uri>, Parcelable {
         return new Uri(file.toURI().toString());
     }
 
+    public static Uri fromParts(String scheme, String ssp, String fragment) {
+        if (scheme == null) throw new NullPointerException("scheme");
+        if (ssp == null) throw new NullPointerException("ssp");
+        StringBuilder sb = new StringBuilder();
+        sb.append(scheme).append(':').append(encode(ssp, "/:?@!$&'()*+,;="));
+        if (fragment != null) {
+            sb.append('#').append(encode(fragment));
+        }
+        return new Uri(sb.toString());
+    }
+
     public static Uri withAppendedPath(Uri baseUri, String pathSegment) {
         return baseUri.buildUpon().appendEncodedPath(pathSegment).build();
     }
@@ -83,6 +94,43 @@ public final class Uri implements Comparable<Uri>, Parcelable {
         if (u != null) return u.getScheme();
         int i = uriString.indexOf(':');
         return i > 0 ? uriString.substring(0, i) : null;
+    }
+
+    public String getSchemeSpecificPart() {
+        URI u = toJavaUri();
+        if (u != null) return u.getSchemeSpecificPart();
+        int colon = uriString.indexOf(':');
+        if (colon < 0) return uriString;
+        int hash = uriString.indexOf('#', colon + 1);
+        return decode(hash >= 0 ? uriString.substring(colon + 1, hash) : uriString.substring(colon + 1));
+    }
+
+    public String getEncodedSchemeSpecificPart() {
+        URI u = toJavaUri();
+        if (u != null) return u.getRawSchemeSpecificPart();
+        int colon = uriString.indexOf(':');
+        if (colon < 0) return uriString;
+        int hash = uriString.indexOf('#', colon + 1);
+        return hash >= 0 ? uriString.substring(colon + 1, hash) : uriString.substring(colon + 1);
+    }
+
+    public boolean isOpaque() {
+        URI u = toJavaUri();
+        if (u != null) return u.isOpaque();
+        int colon = uriString.indexOf(':');
+        return colon > 0 && (colon + 1 >= uriString.length() || uriString.charAt(colon + 1) != '/');
+    }
+
+    public boolean isHierarchical() {
+        return !isOpaque();
+    }
+
+    public boolean isRelative() {
+        return getScheme() == null;
+    }
+
+    public boolean isAbsolute() {
+        return !isRelative();
     }
 
     public String getAuthority() {
@@ -172,6 +220,13 @@ public final class Uri implements Comparable<Uri>, Parcelable {
     public String getQueryParameter(String key) {
         List<String> vals = getQueryParameters(key);
         return vals.isEmpty() ? null : vals.get(0);
+    }
+
+    public boolean getBooleanQueryParameter(String key, boolean defaultValue) {
+        String flag = getQueryParameter(key);
+        if (flag == null) return defaultValue;
+        String lower = flag.toLowerCase(java.util.Locale.ROOT);
+        return !"false".equals(lower) && !"0".equals(lower);
     }
 
     public Builder buildUpon() {

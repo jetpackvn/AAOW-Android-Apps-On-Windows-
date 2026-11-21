@@ -32,6 +32,14 @@ public class PackageItemInfo implements Parcelable {
         return name != null ? name : packageName;
     }
 
+    public android.graphics.drawable.Drawable loadIcon(PackageManager pm) {
+        if (pm != null && icon != 0) {
+            android.graphics.drawable.Drawable d = pm.getDrawable(packageName, icon, null);
+            if (d != null) return d;
+        }
+        return new android.graphics.drawable.ColorDrawable(0xFF4F5BD5);
+    }
+
     public XmlResourceParser loadXmlMetaData(PackageManager pm, String name) {
         if (metaData != null && pm != null) {
             int resid = metaData.getInt(name);

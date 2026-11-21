@@ -121,62 +121,73 @@ public final class DiskSharedPreferences implements SharedPreferences {
             private boolean clearAll;
 
             @Override
-            public Editor putString(String key, String value) {
-                staged.put(key, value);
+            public synchronized Editor putString(String key, String value) {
+                if (key != null) staged.put(key, value);
                 return this;
             }
 
             @Override
-            public Editor putStringSet(String key, Set<String> set) {
-                staged.put(key, set);
+            public synchronized Editor putStringSet(String key, Set<String> set) {
+                if (key != null) staged.put(key, set);
                 return this;
             }
 
             @Override
-            public Editor putInt(String key, int value) {
-                staged.put(key, value);
+            public synchronized Editor putInt(String key, int value) {
+                if (key != null) staged.put(key, value);
                 return this;
             }
 
             @Override
-            public Editor putLong(String key, long value) {
-                staged.put(key, value);
+            public synchronized Editor putLong(String key, long value) {
+                if (key != null) staged.put(key, value);
                 return this;
             }
 
             @Override
-            public Editor putFloat(String key, float value) {
-                staged.put(key, value);
+            public synchronized Editor putFloat(String key, float value) {
+                if (key != null) staged.put(key, value);
                 return this;
             }
 
             @Override
-            public Editor putBoolean(String key, boolean value) {
-                staged.put(key, value);
+            public synchronized Editor putBoolean(String key, boolean value) {
+                if (key != null) staged.put(key, value);
                 return this;
             }
 
             @Override
-            public Editor remove(String key) {
-                staged.put(key, null);
+            public synchronized Editor remove(String key) {
+                if (key != null) staged.put(key, null);
                 return this;
             }
 
             @Override
-            public Editor clear() {
+            public synchronized Editor clear() {
                 clearAll = true;
                 return this;
             }
 
             @Override
             public boolean commit() {
-                if (clearAll) values.clear();
-                for (Map.Entry<String, Object> e : staged.entrySet()) {
-                    if (e.getValue() == null) values.remove(e.getKey());
-                    else values.put(e.getKey(), e.getValue());
+                Map<String, Object> snapshot;
+                boolean shouldClear;
+                synchronized (this) {
+                    shouldClear = clearAll;
+                    snapshot = new HashMap<>(staged);
+                    staged.clear();
+                    clearAll = false;
+                }
+                if (shouldClear) values.clear();
+                for (Map.Entry<String, Object> e : snapshot.entrySet()) {
+                    String k = e.getKey();
+                    if (k == null) continue;
+                    if (e.getValue() == null) values.remove(k);
+                    else values.put(k, e.getValue());
                 }
                 save();
-                for (String k : staged.keySet()) {
+                for (String k : snapshot.keySet()) {
+                    if (k == null) continue;
                     for (OnSharedPreferenceChangeListener l : listeners) {
                         l.onSharedPreferenceChanged(DiskSharedPreferences.this, k);
                     }

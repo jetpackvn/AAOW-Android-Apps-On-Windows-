@@ -32,7 +32,7 @@ public class TypedArray implements AutoCloseable {
     }
 
     private TypedArray(Resources resources, List<Integer> themeLayers, int[] attrs, ResValue[] values, int[] rawRefs,
-                       int[] indices, String positionDescription) {
+            int[] indices, String positionDescription) {
         this.resources = resources;
         this.themeLayers = themeLayers != null ? List.copyOf(themeLayers) : List.of();
         this.attrs = attrs;
@@ -42,8 +42,26 @@ public class TypedArray implements AutoCloseable {
         this.positionDescription = positionDescription != null ? positionDescription : "";
     }
 
+    static TypedArray fromValues(Resources res, ResValue[] values, int[] rawRefs) {
+        ResValue[] safeVals = values != null ? values : new ResValue[0];
+        int[] safeRefs = rawRefs != null && rawRefs.length == safeVals.length ? rawRefs : new int[safeVals.length];
+        int[] attrs = new int[safeVals.length];
+        List<Integer> idxList = new ArrayList<>();
+        for (int i = 0; i < safeVals.length; i++) {
+            if (safeVals[i] != null && safeVals[i].type() != ResValue.TYPE_NULL) {
+                idxList.add(i);
+            }
+        }
+        int[] idxArr = new int[idxList.size()];
+        for (int i = 0; i < idxList.size(); i++) {
+            idxArr[i] = idxList.get(i);
+        }
+        return new TypedArray(res, List.of(), attrs, safeVals, safeRefs, idxArr, "");
+    }
+
     private Resources.Theme buildTheme() {
-        if (resources == null || themeLayers.isEmpty()) return null;
+        if (resources == null || themeLayers.isEmpty())
+            return null;
         Resources.Theme t = resources.newTheme();
         for (int i = themeLayers.size() - 1; i >= 0; i--) {
             t.applyStyle(themeLayers.get(i), true);
@@ -52,15 +70,17 @@ public class TypedArray implements AutoCloseable {
     }
 
     static TypedArray obtain(Resources res, int themeResId, AttributeSet set, int[] attrs,
-                             int defStyleAttr, int defStyleRes) {
+            int defStyleAttr, int defStyleRes) {
         List<Integer> layers = themeResId != 0 ? List.of(themeResId) : List.of();
         return obtain(res, layers, set, attrs, defStyleAttr, defStyleRes);
     }
 
     static TypedArray obtain(Resources res, List<Integer> themeLayers, AttributeSet set, int[] attrs,
-                             int defStyleAttr, int defStyleRes) {
-        if (attrs == null) attrs = new int[0];
-        if (themeLayers == null) themeLayers = List.of();
+            int defStyleAttr, int defStyleRes) {
+        if (attrs == null)
+            attrs = new int[0];
+        if (themeLayers == null)
+            themeLayers = List.of();
         ResValue[] resolved = new ResValue[attrs.length];
         int[] refs = new int[attrs.length];
         List<Integer> idxList = new ArrayList<>();
@@ -122,11 +142,12 @@ public class TypedArray implements AutoCloseable {
                 if (val != null && val.type() == ResValue.TYPE_ATTRIBUTE && res != null) {
                     ResValue second = resolveAttrChain(res, themeLayers, val);
                     if (second != null) {
-                        if (second.isReference()) refs[i] = second.data();
+                        if (second.isReference())
+                            refs[i] = second.data();
                         val = res.getTable().resolve(second);
                     }
                 }
-                if (val != null && val.type() != ResValue.TYPE_NULL) {
+                if (val != null && val.type() != ResValue.TYPE_NULL && val.type() != ResValue.TYPE_ATTRIBUTE) {
                     resolved[i] = val;
                     idxList.add(i);
                 }
@@ -142,40 +163,61 @@ public class TypedArray implements AutoCloseable {
     }
 
     private static ResValue resolveAttrAcrossThemes(Resources res, List<Integer> themeLayers, int attrId) {
-        if (res == null || attrId == 0) return null;
+        if (res == null || attrId == 0)
+            return null;
         for (int styleId : themeLayers) {
-            ResValue rv = res.resolveStyleAttrRaw(styleId, attrId);
-            if (rv != null) return rv;
+            ResValue rv = res.resolveStyleAttrExact(styleId, attrId);
+            if (rv != null)
+                return rv;
         }
-        return res.resolveStyleAttrRaw(0, attrId);
+        for (int styleId : themeLayers) {
+            ResValue rv = res.resolveStyleAttrCrossNamespace(styleId, attrId);
+            if (rv != null)
+                return rv;
+        }
+        return res.resolveSystemAttrDefault(attrId);
     }
 
     private static ResValue resolveAttrChain(Resources res, List<Integer> themeLayers, ResValue raw) {
-        if (raw == null || res == null) return raw;
+        if (raw == null || res == null)
+            return raw;
         ResValue cur = raw;
         for (int depth = 0; depth < 8 && cur != null && cur.type() == ResValue.TYPE_ATTRIBUTE; depth++) {
             ResValue next = resolveAttrAcrossThemes(res, themeLayers, cur.data());
-            if (next == null) break;
+            if (next == null)
+                break;
             cur = next;
         }
         return cur;
     }
 
     private static ResValue findInXmlElement(Resources res, XmlElement el, int attrId) {
-        if (el == null) return null;
+        if (el == null)
+            return null;
+        if (attrId != 0) {
+            for (XmlElement.Attribute a : el.attributes) {
+                if (a.resourceId == attrId) {
+                    return a.value;
+                }
+            }
+        }
         String sysName = AndroidSystemResources.attrName(attrId);
         String appName = null;
-        ResourceTable.Entry entry = res != null ? res.getTable().getEntry(attrId) : null;
-        if (entry != null) appName = entry.key;
+        if (res != null && attrId != 0 && (attrId >>> 24) != 0x01) {
+            ResourceTable.Entry entry = res.getTable().getEntry(attrId);
+            if (entry != null && res.getTable().isUniqueAttrKey(entry.key)) {
+                appName = entry.key;
+            }
+        }
 
         for (XmlElement.Attribute a : el.attributes) {
-            if (a.resourceId == attrId && attrId != 0) {
-                return a.value;
-            }
             if (sysName != null && sysName.equals(a.name) && XmlElement.ANDROID_NS.equals(a.namespace)) {
-                return a.value;
+                if (a.resourceId == 0 || a.resourceId == attrId) {
+                    return a.value;
+                }
             }
-            if (appName != null && appName.equals(a.name) && !XmlElement.ANDROID_NS.equals(a.namespace)) {
+            if (appName != null && a.resourceId == 0 && appName.equals(a.name)
+                    && !XmlElement.ANDROID_NS.equals(a.namespace)) {
                 return a.value;
             }
         }
@@ -246,7 +288,8 @@ public class TypedArray implements AutoCloseable {
 
     public boolean getValue(int index, TypedValue outValue) {
         ResValue v = valueAt(index);
-        if (v == null) return false;
+        if (v == null)
+            return false;
         if (outValue != null) {
             outValue.type = v.type();
             outValue.data = v.data();
@@ -263,7 +306,8 @@ public class TypedArray implements AutoCloseable {
 
     public String getString(int index) {
         ResValue v = valueAt(index);
-        if (v == null) return null;
+        if (v == null)
+            return null;
         return resources != null ? resources.resolveString(v) : v.coerceToString();
     }
 
@@ -277,19 +321,25 @@ public class TypedArray implements AutoCloseable {
 
     public boolean getBoolean(int index, boolean defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
-        if (v.isInt()) return v.data() != 0;
+        if (v == null)
+            return defValue;
+        if (v.isInt())
+            return v.data() != 0;
         if (v.isString() && v.string() != null) {
-            if ("true".equalsIgnoreCase(v.string())) return true;
-            if ("false".equalsIgnoreCase(v.string())) return false;
+            if ("true".equalsIgnoreCase(v.string()))
+                return true;
+            if ("false".equalsIgnoreCase(v.string()))
+                return false;
         }
         return defValue;
     }
 
     public int getInt(int index, int defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
-        if (v.isInt()) return v.data();
+        if (v == null)
+            return defValue;
+        if (v.isInt())
+            return v.data();
         if (v.isString() && v.string() != null) {
             try {
                 return Integer.decode(v.string());
@@ -301,9 +351,12 @@ public class TypedArray implements AutoCloseable {
 
     public float getFloat(int index, float defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
-        if (v.type() == ResValue.TYPE_FLOAT) return v.getFloat();
-        if (v.isInt()) return v.data();
+        if (v == null)
+            return defValue;
+        if (v.type() == ResValue.TYPE_FLOAT)
+            return v.getFloat();
+        if (v.isInt())
+            return v.data();
         if (v.isString() && v.string() != null) {
             try {
                 return Float.parseFloat(v.string());
@@ -315,7 +368,8 @@ public class TypedArray implements AutoCloseable {
 
     public int getColor(int index, int defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
+        if (v == null)
+            return defValue;
         if (resources != null) {
             if (v.isString() && v.string() != null && v.string().endsWith(".xml")) {
                 ColorStateList csl = getColorStateList(index);
@@ -323,7 +377,8 @@ public class TypedArray implements AutoCloseable {
             }
             return resources.resolveColor(v, buildTheme(), defValue);
         }
-        if (v.isColor() || v.isInt()) return v.data();
+        if (v.isColor() || v.isInt())
+            return v.data();
         if (v.isString() && v.string() != null && v.string().startsWith("#")) {
             try {
                 return Color.parseColor(v.string());
@@ -335,7 +390,8 @@ public class TypedArray implements AutoCloseable {
 
     public ColorStateList getColorStateList(int index) {
         ResValue v = valueAt(index);
-        if (v == null) return null;
+        if (v == null)
+            return null;
         int refId = (index >= 0 && index < rawRefs.length) ? rawRefs[index] : 0;
         if (refId != 0 && resources != null) {
             return resources.getColorStateList(refId, buildTheme());
@@ -364,30 +420,37 @@ public class TypedArray implements AutoCloseable {
 
     public float getDimension(int index, float defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
+        if (v == null)
+            return defValue;
         return resources != null ? resources.resolveDimension(v, defValue) : defValue;
     }
 
     public int getDimensionPixelOffset(int index, int defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
+        if (v == null)
+            return defValue;
         return Math.round(getDimension(index, defValue));
     }
 
     public int getDimensionPixelSize(int index, int defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
+        if (v == null)
+            return defValue;
         float f = getDimension(index, defValue);
         int res = Math.round(f);
-        if (res != 0) return res;
+        if (res != 0)
+            return res;
         return f == 0f ? 0 : (f > 0 ? 1 : -1);
     }
 
     public int getLayoutDimension(int index, int defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
-        if (v.isDimension()) return getDimensionPixelSize(index, defValue);
-        if (v.isInt()) return v.data();
+        if (v == null)
+            return defValue;
+        if (v.isDimension())
+            return getDimensionPixelSize(index, defValue);
+        if (v.isInt())
+            return v.data();
         return defValue;
     }
 
@@ -397,7 +460,8 @@ public class TypedArray implements AutoCloseable {
 
     public float getFraction(int index, int base, int pbase, float defValue) {
         ResValue v = valueAt(index);
-        if (v == null) return defValue;
+        if (v == null)
+            return defValue;
         if (v.type() == ResValue.TYPE_FRACTION) {
             float val = v.complexValue();
             return (v.complexUnit() == 1 ? pbase : base) * val;
@@ -410,7 +474,8 @@ public class TypedArray implements AutoCloseable {
             return rawRefs[index];
         }
         ResValue v = valueAt(index);
-        if (v != null && v.isReference()) return v.data();
+        if (v != null && v.isReference())
+            return v.data();
         return defValue;
     }
 

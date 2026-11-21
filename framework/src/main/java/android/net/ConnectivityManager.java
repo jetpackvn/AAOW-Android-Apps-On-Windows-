@@ -277,6 +277,10 @@ public class ConnectivityManager {
         return nc;
     }
 
+    public LinkProperties getActiveLinkProperties() {
+        return getLinkProperties(getActiveNetwork());
+    }
+
     public LinkProperties getLinkProperties(Network network) {
         if (network == null) return null;
         WindowsNetProbe probe = probeWindowsNetwork();

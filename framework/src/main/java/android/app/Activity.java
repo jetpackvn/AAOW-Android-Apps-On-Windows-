@@ -413,6 +413,26 @@ public class Activity extends ContextThemeWrapper
         return destroyed;
     }
 
+    public boolean isChangingConfigurations() {
+        return false;
+    }
+
+    public int getChangingConfigurations() {
+        return 0;
+    }
+
+    public boolean moveTaskToBack(boolean nonRoot) {
+        return false;
+    }
+
+    public void finishAffinity() {
+        finish();
+    }
+
+    public void finishAndRemoveTask() {
+        finish();
+    }
+
     public void recreate() {
     }
 

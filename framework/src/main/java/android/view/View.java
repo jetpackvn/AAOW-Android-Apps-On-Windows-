@@ -1283,8 +1283,86 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     public void setVisibility(int visibility) {
         if (this.visibility != visibility) {
             this.visibility = visibility;
+            onVisibilityChanged(this, visibility);
             requestLayout();
             invalidate();
+        }
+    }
+
+    protected void onVisibilityChanged(View changedView, int visibility) {
+    }
+
+    private boolean drawingCacheEnabled;
+    private android.graphics.Bitmap drawingCache;
+
+    @Deprecated
+    public void setDrawingCacheEnabled(boolean enabled) {
+        this.drawingCacheEnabled = enabled;
+        if (!enabled) {
+            drawingCache = null;
+        }
+    }
+
+    @Deprecated
+    public boolean isDrawingCacheEnabled() {
+        return drawingCacheEnabled;
+    }
+
+    @Deprecated
+    public void buildDrawingCache() {
+        buildDrawingCache(false);
+    }
+
+    @Deprecated
+    public void buildDrawingCache(boolean autoScale) {
+        int w = Math.max(1, getWidth());
+        int h = Math.max(1, getHeight());
+        android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(bmp);
+        draw(c);
+        this.drawingCache = bmp;
+    }
+
+    @Deprecated
+    public android.graphics.Bitmap getDrawingCache() {
+        return getDrawingCache(false);
+    }
+
+    @Deprecated
+    public android.graphics.Bitmap getDrawingCache(boolean autoScale) {
+        if (drawingCache == null && drawingCacheEnabled) {
+            buildDrawingCache(autoScale);
+        }
+        return drawingCache;
+    }
+
+    @Deprecated
+    public void destroyDrawingCache() {
+        this.drawingCache = null;
+    }
+
+    @SuppressWarnings("unchecked")
+    public final <T extends View> T findViewWithTag(Object tag) {
+        if (tag == null) return null;
+        return (T) findViewWithTagTraversal(tag);
+    }
+
+    protected View findViewWithTagTraversal(Object tag) {
+        if (tag != null && tag.equals(this.tag)) {
+            return this;
+        }
+        return null;
+    }
+
+    public void getWindowVisibleDisplayFrame(Rect outRect) {
+        if (outRect == null) return;
+        Display d = getDisplay();
+        if (d != null) {
+            android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+            d.getMetrics(dm);
+            outRect.set(0, 0, Math.max(1, dm.widthPixels), Math.max(1, dm.heightPixels));
+        } else {
+            outRect.set(0, 0, Math.max(412, getWidth()), Math.max(820, getHeight()));
         }
     }
 
@@ -2119,6 +2197,9 @@ public class View implements Drawable.Callback, KeyEvent.Callback {
     @Override
     public void unscheduleDrawable(Drawable who, Runnable what) {
         removeCallbacks(what);
+    }
+
+    public void unscheduleDrawable(Drawable who) {
     }
 
     protected void onFinishInflate() {

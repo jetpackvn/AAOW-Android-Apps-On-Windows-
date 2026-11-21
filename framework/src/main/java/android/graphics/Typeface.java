@@ -15,6 +15,8 @@ public class Typeface {
     public static final int ITALIC = 2;
     public static final int BOLD_ITALIC = 3;
 
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_NATIVE_PTR = new java.util.concurrent.atomic.AtomicLong(0x5000_0001L);
+
     public static final Typeface DEFAULT = new Typeface("Segoe UI", NORMAL);
     public static final Typeface DEFAULT_BOLD = new Typeface("Segoe UI", BOLD);
     public static final Typeface SANS_SERIF = new Typeface("Segoe UI", NORMAL);
@@ -23,6 +25,8 @@ public class Typeface {
 
     private static final Map<String, Typeface> ASSET_CACHE = new ConcurrentHashMap<>();
 
+    public long native_instance = NEXT_NATIVE_PTR.getAndIncrement();
+    private long mNativePtr = native_instance;
     private final String family;
     private final int style;
     private final Font customBaseFont;

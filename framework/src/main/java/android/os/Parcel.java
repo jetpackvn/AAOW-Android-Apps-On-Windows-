@@ -17,6 +17,8 @@ public final class Parcel {
     private static final int SLOT_BYTES = 4;
     private static final String WIDE_SLOT_TAIL = "\u0000AAOW_PARCEL_WIDE_TAIL\u0000";
 
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_NATIVE_PTR = new java.util.concurrent.atomic.AtomicLong(0x6000_0001L);
+    private long mNativePtr = NEXT_NATIVE_PTR.getAndIncrement();
     private final List<Object> data = new ArrayList<>();
     private int pos;
 
@@ -183,12 +185,19 @@ public final class Parcel {
     }
 
     public void writeIntArray(int[] val) {
-        writeItem(val);
+        writeItem(val != null ? val.clone() : null);
     }
 
     public int[] createIntArray() {
         Object o = readItem();
-        return o instanceof int[] arr ? arr : new int[0];
+        return o instanceof int[] arr ? arr.clone() : new int[0];
+    }
+
+    public void readIntArray(int[] val) {
+        int[] src = createIntArray();
+        if (val != null && src != null) {
+            System.arraycopy(src, 0, val, 0, Math.min(src.length, val.length));
+        }
     }
 
     public void writeStringArray(String[] val) {
@@ -200,13 +209,39 @@ public final class Parcel {
         return o instanceof String[] arr ? arr.clone() : new String[0];
     }
 
+    public void readStringArray(String[] val) {
+        String[] src = createStringArray();
+        if (val != null && src != null) {
+            System.arraycopy(src, 0, val, 0, Math.min(src.length, val.length));
+        }
+    }
+
     public void writeByteArray(byte[] b) {
-        writeItem(b);
+        writeItem(b != null ? b.clone() : null);
+    }
+
+    public void writeByteArray(byte[] b, int offset, int len) {
+        if (b == null) {
+            writeItem(null);
+            return;
+        }
+        byte[] copy = new byte[Math.max(0, Math.min(len, b.length - offset))];
+        if (copy.length > 0 && offset >= 0) {
+            System.arraycopy(b, offset, copy, 0, copy.length);
+        }
+        writeItem(copy);
     }
 
     public byte[] createByteArray() {
         Object o = readItem();
-        return o instanceof byte[] arr ? arr : new byte[0];
+        return o instanceof byte[] arr ? arr.clone() : new byte[0];
+    }
+
+    public void readByteArray(byte[] val) {
+        byte[] src = createByteArray();
+        if (val != null && src != null) {
+            System.arraycopy(src, 0, val, 0, Math.min(src.length, val.length));
+        }
     }
 
     public void writeCharArray(char[] val) {
@@ -218,6 +253,13 @@ public final class Parcel {
         return o instanceof char[] arr ? arr.clone() : new char[0];
     }
 
+    public void readCharArray(char[] val) {
+        char[] src = createCharArray();
+        if (val != null && src != null) {
+            System.arraycopy(src, 0, val, 0, Math.min(src.length, val.length));
+        }
+    }
+
     public void writeBooleanArray(boolean[] val) {
         writeItem(val != null ? val.clone() : null);
     }
@@ -225,6 +267,13 @@ public final class Parcel {
     public boolean[] createBooleanArray() {
         Object o = readItem();
         return o instanceof boolean[] arr ? arr.clone() : new boolean[0];
+    }
+
+    public void readBooleanArray(boolean[] val) {
+        boolean[] src = createBooleanArray();
+        if (val != null && src != null) {
+            System.arraycopy(src, 0, val, 0, Math.min(src.length, val.length));
+        }
     }
 
     public void writeLongArray(long[] val) {
@@ -236,6 +285,13 @@ public final class Parcel {
         return o instanceof long[] arr ? arr.clone() : new long[0];
     }
 
+    public void readLongArray(long[] val) {
+        long[] src = createLongArray();
+        if (val != null && src != null) {
+            System.arraycopy(src, 0, val, 0, Math.min(src.length, val.length));
+        }
+    }
+
     public void writeFloatArray(float[] val) {
         writeItem(val != null ? val.clone() : null);
     }
@@ -245,6 +301,13 @@ public final class Parcel {
         return o instanceof float[] arr ? arr.clone() : new float[0];
     }
 
+    public void readFloatArray(float[] val) {
+        float[] src = createFloatArray();
+        if (val != null && src != null) {
+            System.arraycopy(src, 0, val, 0, Math.min(src.length, val.length));
+        }
+    }
+
     public void writeDoubleArray(double[] val) {
         writeItem(val != null ? val.clone() : null);
     }
@@ -252,6 +315,13 @@ public final class Parcel {
     public double[] createDoubleArray() {
         Object o = readItem();
         return o instanceof double[] arr ? arr.clone() : new double[0];
+    }
+
+    public void readDoubleArray(double[] val) {
+        double[] src = createDoubleArray();
+        if (val != null && src != null) {
+            System.arraycopy(src, 0, val, 0, Math.min(src.length, val.length));
+        }
     }
 
     public void writeBinderArray(IBinder[] val) {
@@ -360,6 +430,14 @@ public final class Parcel {
         writeItem(val != null ? new ArrayList<>(val) : null);
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void readList(List outVal, ClassLoader loader) {
+        Object o = readItem();
+        if (outVal != null && o instanceof List<?> l) {
+            outVal.addAll(l);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     public ArrayList<Object> readArrayList(ClassLoader loader) {
         Object o = readItem();
@@ -368,6 +446,14 @@ public final class Parcel {
 
     public void writeMap(Map<?, ?> val) {
         writeItem(val != null ? new HashMap<>(val) : null);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void readMap(Map outVal, ClassLoader loader) {
+        Object o = readItem();
+        if (outVal != null && o instanceof Map<?, ?> m) {
+            outVal.putAll(m);
+        }
     }
 
     @SuppressWarnings("unchecked")

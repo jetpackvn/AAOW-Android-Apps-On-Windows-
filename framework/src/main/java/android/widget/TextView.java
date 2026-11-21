@@ -6,9 +6,11 @@ import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.PorterDuff;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.os.LocaleList;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.Layout;
@@ -1010,6 +1012,31 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return textCursorDrawable;
     }
 
+    private CharSequence errorText;
+    private String fontVariationSettings;
+
+    public String getFontVariationSettings() {
+        return fontVariationSettings;
+    }
+
+    public boolean setFontVariationSettings(String fontVariationSettings) {
+        this.fontVariationSettings = fontVariationSettings;
+        return true;
+    }
+
+    public CharSequence getError() {
+        return errorText;
+    }
+
+    public void setError(CharSequence error) {
+        setError(error, null);
+    }
+
+    public void setError(CharSequence error, Drawable icon) {
+        this.errorText = error;
+        invalidate();
+    }
+
     public void setTextCursorDrawable(Drawable textCursorDrawable) {
         this.textCursorDrawable = textCursorDrawable;
         invalidate();
@@ -1020,6 +1047,129 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             setTextCursorDrawable(getResources().getDrawable(resId));
         } else {
             setTextCursorDrawable((Drawable) null);
+        }
+    }
+
+    private LocaleList textLocales = LocaleList.getDefault();
+    private ColorStateList compoundDrawableTintList;
+    private PorterDuff.Mode compoundDrawableTintMode;
+    private int autoSizeStepGranularity = 1;
+    private int autoSizeMinTextSize = -1;
+    private int autoSizeMaxTextSize = -1;
+    private int[] autoSizeTextAvailableSizes = new int[0];
+    private int breakStrategy = 0;
+    private int hyphenationFrequency = 0;
+    private int justificationMode = 0;
+    private boolean fallbackLineSpacing = true;
+    private int firstBaselineToTopHeight = 0;
+    private int lastBaselineToBottomHeight = 0;
+
+    public LocaleList getTextLocales() {
+        return textLocales != null ? textLocales : LocaleList.getDefault();
+    }
+
+    public void setTextLocales(LocaleList locales) {
+        this.textLocales = locales != null && !locales.isEmpty() ? locales : LocaleList.getDefault();
+    }
+
+    public java.util.Locale getTextLocale() {
+        LocaleList ll = getTextLocales();
+        return ll.isEmpty() ? java.util.Locale.getDefault() : ll.get(0);
+    }
+
+    public void setTextLocale(java.util.Locale locale) {
+        if (locale != null) {
+            this.textLocales = new LocaleList(locale);
+        }
+    }
+
+    public ColorStateList getCompoundDrawableTintList() {
+        return compoundDrawableTintList;
+    }
+
+    public void setCompoundDrawableTintList(ColorStateList tint) {
+        this.compoundDrawableTintList = tint;
+        invalidate();
+    }
+
+    public PorterDuff.Mode getCompoundDrawableTintMode() {
+        return compoundDrawableTintMode;
+    }
+
+    public void setCompoundDrawableTintMode(PorterDuff.Mode tintMode) {
+        this.compoundDrawableTintMode = tintMode;
+        invalidate();
+    }
+
+    public int getAutoSizeStepGranularity() {
+        return autoSizeStepGranularity;
+    }
+
+    public int getAutoSizeMinTextSize() {
+        return autoSizeMinTextSize;
+    }
+
+    public int getAutoSizeMaxTextSize() {
+        return autoSizeMaxTextSize;
+    }
+
+    public int[] getAutoSizeTextAvailableSizes() {
+        return autoSizeTextAvailableSizes;
+    }
+
+    public int getBreakStrategy() {
+        return breakStrategy;
+    }
+
+    public void setBreakStrategy(int breakStrategy) {
+        this.breakStrategy = breakStrategy;
+    }
+
+    public int getHyphenationFrequency() {
+        return hyphenationFrequency;
+    }
+
+    public void setHyphenationFrequency(int hyphenationFrequency) {
+        this.hyphenationFrequency = hyphenationFrequency;
+    }
+
+    public int getJustificationMode() {
+        return justificationMode;
+    }
+
+    public void setJustificationMode(int justificationMode) {
+        this.justificationMode = justificationMode;
+    }
+
+    public boolean isFallbackLineSpacing() {
+        return fallbackLineSpacing;
+    }
+
+    public void setFallbackLineSpacing(boolean enabled) {
+        this.fallbackLineSpacing = enabled;
+    }
+
+    public int getFirstBaselineToTopHeight() {
+        return firstBaselineToTopHeight;
+    }
+
+    public void setFirstBaselineToTopHeight(int firstBaselineToTopHeight) {
+        this.firstBaselineToTopHeight = Math.max(0, firstBaselineToTopHeight);
+    }
+
+    public int getLastBaselineToBottomHeight() {
+        return lastBaselineToBottomHeight;
+    }
+
+    public void setLastBaselineToBottomHeight(int lastBaselineToBottomHeight) {
+        this.lastBaselineToBottomHeight = Math.max(0, lastBaselineToBottomHeight);
+    }
+
+    public void setLineHeight(int lineHeight) {
+        if (lineHeight > 0) {
+            this.lineSpacingAdd = Math.max(0f, lineHeight - textSizePx * 1.28f);
+            cachedLayout = null;
+            requestLayout();
         }
     }
 }

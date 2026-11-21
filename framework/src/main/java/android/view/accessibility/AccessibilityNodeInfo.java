@@ -100,6 +100,80 @@ public class AccessibilityNodeInfo implements Parcelable {
         };
     }
 
+    public static final class CollectionInfo {
+        public static final int SELECTION_MODE_NONE = 0;
+        public static final int SELECTION_MODE_SINGLE = 1;
+        public static final int SELECTION_MODE_MULTIPLE = 2;
+
+        private final int rowCount;
+        private final int columnCount;
+        private final boolean hierarchical;
+        private final int selectionMode;
+
+        public CollectionInfo(int rowCount, int columnCount, boolean hierarchical) {
+            this(rowCount, columnCount, hierarchical, SELECTION_MODE_NONE);
+        }
+
+        public CollectionInfo(int rowCount, int columnCount, boolean hierarchical, int selectionMode) {
+            this.rowCount = rowCount;
+            this.columnCount = columnCount;
+            this.hierarchical = hierarchical;
+            this.selectionMode = selectionMode;
+        }
+
+        public static CollectionInfo obtain(int rowCount, int columnCount, boolean hierarchical) {
+            return new CollectionInfo(rowCount, columnCount, hierarchical, SELECTION_MODE_NONE);
+        }
+
+        public static CollectionInfo obtain(int rowCount, int columnCount, boolean hierarchical, int selectionMode) {
+            return new CollectionInfo(rowCount, columnCount, hierarchical, selectionMode);
+        }
+
+        public int getRowCount() { return rowCount; }
+        public int getColumnCount() { return columnCount; }
+        public boolean isHierarchical() { return hierarchical; }
+        public int getSelectionMode() { return selectionMode; }
+    }
+
+    public static final class CollectionItemInfo {
+        private final int rowIndex;
+        private final int rowSpan;
+        private final int columnIndex;
+        private final int columnSpan;
+        private final boolean heading;
+        private final boolean selected;
+
+        public CollectionItemInfo(int rowIndex, int rowSpan, int columnIndex, int columnSpan, boolean heading) {
+            this(rowIndex, rowSpan, columnIndex, columnSpan, heading, false);
+        }
+
+        public CollectionItemInfo(int rowIndex, int rowSpan, int columnIndex, int columnSpan,
+                                  boolean heading, boolean selected) {
+            this.rowIndex = rowIndex;
+            this.rowSpan = rowSpan;
+            this.columnIndex = columnIndex;
+            this.columnSpan = columnSpan;
+            this.heading = heading;
+            this.selected = selected;
+        }
+
+        public static CollectionItemInfo obtain(int rowIndex, int rowSpan, int columnIndex, int columnSpan, boolean heading) {
+            return new CollectionItemInfo(rowIndex, rowSpan, columnIndex, columnSpan, heading, false);
+        }
+
+        public static CollectionItemInfo obtain(int rowIndex, int rowSpan, int columnIndex, int columnSpan,
+                                                boolean heading, boolean selected) {
+            return new CollectionItemInfo(rowIndex, rowSpan, columnIndex, columnSpan, heading, selected);
+        }
+
+        public int getRowIndex() { return rowIndex; }
+        public int getRowSpan() { return rowSpan; }
+        public int getColumnIndex() { return columnIndex; }
+        public int getColumnSpan() { return columnSpan; }
+        public boolean isHeading() { return heading; }
+        public boolean isSelected() { return selected; }
+    }
+
     private CharSequence className;
     private CharSequence packageName;
     private CharSequence text;
@@ -113,6 +187,8 @@ public class AccessibilityNodeInfo implements Parcelable {
     private boolean focused;
     private boolean enabled = true;
     private int actions;
+    private CollectionInfo collectionInfo;
+    private CollectionItemInfo collectionItemInfo;
 
     public AccessibilityNodeInfo() {
     }
@@ -130,6 +206,38 @@ public class AccessibilityNodeInfo implements Parcelable {
 
     public void addAction(int action) {
         actions |= action;
+    }
+
+    public void addAction(AccessibilityAction action) {
+        if (action != null) {
+            actions |= action.getId();
+        }
+    }
+
+    public boolean removeAction(AccessibilityAction action) {
+        if (action != null) {
+            int id = action.getId();
+            boolean present = (actions & id) != 0;
+            actions &= ~id;
+            return present;
+        }
+        return false;
+    }
+
+    public void setCollectionInfo(CollectionInfo collectionInfo) {
+        this.collectionInfo = collectionInfo;
+    }
+
+    public CollectionInfo getCollectionInfo() {
+        return collectionInfo;
+    }
+
+    public void setCollectionItemInfo(CollectionItemInfo collectionItemInfo) {
+        this.collectionItemInfo = collectionItemInfo;
+    }
+
+    public CollectionItemInfo getCollectionItemInfo() {
+        return collectionItemInfo;
     }
 
     public int getActions() {

@@ -23,9 +23,36 @@ public class Intent implements Cloneable, Parcelable {
     public static final String ACTION_OPEN_DOCUMENT = "android.intent.action.OPEN_DOCUMENT";
     public static final String ACTION_CREATE_DOCUMENT = "android.intent.action.CREATE_DOCUMENT";
     public static final String ACTION_OPEN_DOCUMENT_TREE = "android.intent.action.OPEN_DOCUMENT_TREE";
+    public static final String ACTION_DIAL = "android.intent.action.DIAL";
+    public static final String ACTION_CALL = "android.intent.action.CALL";
+    public static final String ACTION_SENDTO = "android.intent.action.SENDTO";
+    public static final String ACTION_EDIT = "android.intent.action.EDIT";
+    public static final String ACTION_SEARCH = "android.intent.action.SEARCH";
+    public static final String ACTION_WEB_SEARCH = "android.intent.action.WEB_SEARCH";
+    public static final String ACTION_DELETE = "android.intent.action.DELETE";
+    public static final String ACTION_INSTALL_PACKAGE = "android.intent.action.INSTALL_PACKAGE";
+    public static final String ACTION_UNINSTALL_PACKAGE = "android.intent.action.UNINSTALL_PACKAGE";
+    public static final String ACTION_BOOT_COMPLETED = "android.intent.action.BOOT_COMPLETED";
+    public static final String ACTION_PACKAGE_ADDED = "android.intent.action.PACKAGE_ADDED";
+    public static final String ACTION_PACKAGE_REMOVED = "android.intent.action.PACKAGE_REMOVED";
+    public static final String ACTION_PACKAGE_REPLACED = "android.intent.action.PACKAGE_REPLACED";
+    public static final String ACTION_PACKAGE_CHANGED = "android.intent.action.PACKAGE_CHANGED";
+    public static final String ACTION_MY_PACKAGE_REPLACED = "android.intent.action.MY_PACKAGE_REPLACED";
+    public static final String ACTION_BATTERY_CHANGED = "android.intent.action.BATTERY_CHANGED";
+    public static final String ACTION_SCREEN_ON = "android.intent.action.SCREEN_ON";
+    public static final String ACTION_SCREEN_OFF = "android.intent.action.SCREEN_OFF";
+    public static final String ACTION_USER_PRESENT = "android.intent.action.USER_PRESENT";
+    public static final String ACTION_CLOSE_SYSTEM_DIALOGS = "android.intent.action.CLOSE_SYSTEM_DIALOGS";
+    public static final String ACTION_LOCALE_CHANGED = "android.intent.action.LOCALE_CHANGED";
+    public static final String ACTION_TIMEZONE_CHANGED = "android.intent.action.TIMEZONE_CHANGED";
+    public static final String ACTION_TIME_CHANGED = "android.intent.action.TIME_CHANGED";
+    public static final String ACTION_MEDIA_SCANNER_SCAN_FILE = "android.intent.action.MEDIA_SCANNER_SCAN_FILE";
     public static final String CATEGORY_DEFAULT = "android.intent.category.DEFAULT";
     public static final String CATEGORY_LAUNCHER = "android.intent.category.LAUNCHER";
     public static final String CATEGORY_OPENABLE = "android.intent.category.OPENABLE";
+    public static final String CATEGORY_BROWSABLE = "android.intent.category.BROWSABLE";
+    public static final String CATEGORY_HOME = "android.intent.category.HOME";
+    public static final String CATEGORY_APP_MARKET = "android.intent.category.APP_MARKET";
 
     public static final String EXTRA_TEXT = "android.intent.extra.TEXT";
     public static final String EXTRA_SUBJECT = "android.intent.extra.SUBJECT";
@@ -36,15 +63,26 @@ public class Intent implements Cloneable, Parcelable {
     public static final String EXTRA_EXCLUDE_COMPONENTS = "android.intent.extra.EXCLUDE_COMPONENTS";
     public static final String EXTRA_ALLOW_MULTIPLE = "android.intent.extra.ALLOW_MULTIPLE";
     public static final String EXTRA_MIME_TYPES = "android.intent.extra.MIME_TYPES";
+    public static final String EXTRA_REPLACING = "android.intent.extra.REPLACING";
 
     public static final int URI_INTENT_SCHEME = 1 << 0;
 
-    public static final int FLAG_ACTIVITY_NEW_TASK = 0x10000000;
-    public static final int FLAG_ACTIVITY_CLEAR_TOP = 0x04000000;
-    public static final int FLAG_ACTIVITY_SINGLE_TOP = 0x20000000;
-    public static final int FLAG_ACTIVITY_CLEAR_TASK = 0x00008000;
     public static final int FLAG_GRANT_READ_URI_PERMISSION = 0x00000001;
     public static final int FLAG_GRANT_WRITE_URI_PERMISSION = 0x00000002;
+    public static final int FLAG_DEBUG_LOG_RESOLUTION = 0x00000008;
+    public static final int FLAG_EXCLUDE_STOPPED_PACKAGES = 0x00000010;
+    public static final int FLAG_INCLUDE_STOPPED_PACKAGES = 0x00000020;
+    public static final int FLAG_ACTIVITY_CLEAR_TASK = 0x00008000;
+    public static final int FLAG_ACTIVITY_NO_ANIMATION = 0x00010000;
+    public static final int FLAG_ACTIVITY_REORDER_TO_FRONT = 0x00020000;
+    public static final int FLAG_ACTIVITY_RESET_TASK_IF_NEEDED = 0x00200000;
+    public static final int FLAG_ACTIVITY_BROUGHT_TO_FRONT = 0x00400000;
+    public static final int FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS = 0x00800000;
+    public static final int FLAG_ACTIVITY_CLEAR_TOP = 0x04000000;
+    public static final int FLAG_ACTIVITY_NEW_TASK = 0x10000000;
+    public static final int FLAG_ACTIVITY_SINGLE_TOP = 0x20000000;
+    public static final int FLAG_ACTIVITY_NO_HISTORY = 0x40000000;
+    public static final int FLAG_RECEIVER_REGISTERED_ONLY = 0x40000000;
 
     private String action;
     private Uri data;
@@ -133,7 +171,98 @@ public class Intent implements Cloneable, Parcelable {
 
     public Intent setType(String type) {
         this.type = type;
+        this.data = null;
         return this;
+    }
+
+    public Intent setTypeAndNormalize(String type) {
+        return setType(normalizeMimeType(type));
+    }
+
+    public Intent setDataAndNormalize(Uri data) {
+        return setData(data);
+    }
+
+    public Intent setDataAndTypeAndNormalize(Uri data, String type) {
+        return setDataAndType(data, normalizeMimeType(type));
+    }
+
+    public static String normalizeMimeType(String type) {
+        if (type == null) return null;
+        String trimmed = type.trim().toLowerCase(java.util.Locale.ROOT);
+        int semi = trimmed.indexOf(';');
+        if (semi != -1) trimmed = trimmed.substring(0, semi).trim();
+        return trimmed;
+    }
+
+    public String getScheme() {
+        return data != null ? data.getScheme() : null;
+    }
+
+    public String resolveType(Context context) {
+        return resolveType(context != null ? context.getContentResolver() : null);
+    }
+
+    public String resolveType(ContentResolver resolver) {
+        if (type != null) {
+            return type;
+        }
+        if (data != null && "content".equals(data.getScheme()) && resolver != null) {
+            return resolver.getType(data);
+        }
+        return null;
+    }
+
+    public String resolveTypeIfNeeded(ContentResolver resolver) {
+        if (component != null) {
+            return type;
+        }
+        return resolveType(resolver);
+    }
+
+    public void removeCategory(String category) {
+        categories.remove(category);
+    }
+
+    public void removeFlags(int flags) {
+        this.flags &= ~flags;
+    }
+
+    public Intent replaceExtras(Bundle extras) {
+        this.extras.clear();
+        if (extras != null) this.extras.putAll(extras);
+        return this;
+    }
+
+    public Intent replaceExtras(Intent src) {
+        this.extras.clear();
+        if (src != null) this.extras.putAll(src.extras);
+        return this;
+    }
+
+    public boolean filterEquals(Intent other) {
+        if (other == null) return false;
+        return java.util.Objects.equals(action, other.action)
+                && java.util.Objects.equals(data, other.data)
+                && java.util.Objects.equals(type, other.type)
+                && java.util.Objects.equals(packageName, other.packageName)
+                && java.util.Objects.equals(component, other.component)
+                && java.util.Objects.equals(categories, other.categories);
+    }
+
+    public int filterHashCode() {
+        return java.util.Objects.hash(action, data, type, packageName, component, categories);
+    }
+
+    public Intent cloneFilter() {
+        Intent copy = new Intent();
+        copy.action = this.action;
+        copy.data = this.data;
+        copy.type = this.type;
+        copy.packageName = this.packageName;
+        copy.component = this.component;
+        copy.categories.addAll(this.categories);
+        return copy;
     }
 
     public String getPackage() {

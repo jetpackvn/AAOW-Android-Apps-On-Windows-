@@ -91,6 +91,10 @@ public final class PendingIntent implements Parcelable {
         return intents != null && intents.length > 0 ? intents[intents.length - 1] : null;
     }
 
+    public android.content.IntentSender getIntentSender() {
+        return new android.content.IntentSender(this);
+    }
+
     public String getCreatorPackage() {
         return context != null ? context.getPackageName() : "";
     }

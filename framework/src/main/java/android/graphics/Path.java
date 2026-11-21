@@ -27,6 +27,9 @@ public class Path {
         REVERSE_DIFFERENCE
     }
 
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_NATIVE_PTR = new java.util.concurrent.atomic.AtomicLong(0x3000_0001L);
+    public final long mNativePath = NEXT_NATIVE_PTR.getAndIncrement();
+    private final long mNativePtr = mNativePath;
     final Path2D.Float awtPath = new Path2D.Float();
 
     public Path() {

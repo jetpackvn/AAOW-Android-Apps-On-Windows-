@@ -202,6 +202,28 @@ public class PackageManager {
         return null;
     }
 
+    public android.graphics.drawable.Drawable getDrawable(String packageName, int resid, ApplicationInfo appInfo) {
+        if (resources != null && resid != 0) {
+            try {
+                return resources.getDrawable(resid);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    public android.graphics.drawable.Drawable getApplicationIcon(ApplicationInfo info) {
+        if (info != null && info.icon != 0) {
+            android.graphics.drawable.Drawable d = getDrawable(info.packageName, info.icon, info);
+            if (d != null) return d;
+        }
+        return new android.graphics.drawable.ColorDrawable(0xFF4F5BD5);
+    }
+
+    public android.graphics.drawable.Drawable getApplicationIcon(String packageName) throws NameNotFoundException {
+        return getApplicationIcon(getApplicationInfo(packageName, 0));
+    }
+
     public PackageInfo getPackageInfo(String packageName, int flags) throws NameNotFoundException {
         if (MicroGServiceRegistry.isVirtualGmsPackage(packageName)) {
             return MicroGServiceRegistry.createVirtualPackageInfo(packageName, flags);

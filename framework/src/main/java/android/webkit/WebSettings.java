@@ -203,6 +203,10 @@ public class WebSettings {
         return mixedContentMode;
     }
 
+    public static String getDefaultUserAgent(android.content.Context context) {
+        return "Mozilla/5.0 (Linux; Android 15; AAOW Windows Desktop) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36";
+    }
+
     public void setUserAgentString(String ua) {
         if (ua != null && !ua.isEmpty()) {
             this.userAgentString = ua;

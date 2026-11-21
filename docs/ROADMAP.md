@@ -150,10 +150,10 @@ Giai đoạn 1 (Sprint 1–8) đã dựng xong nền tảng kỹ thuật và b�
 
 ---
 
-## Sprint 13 (Phase D2): Thực chiến Ứng dụng Thương mại & Mở rộng Native JNI HLE
+## Sprint 13 (Phase D2): Thực chiến Ứng dụng Thương mại & Mở rộng Native JNI HLE (Đã hoàn thành)
 - **Mục tiêu:** Gỡ các lỗi dây chuyền (`NoSuchMethodError`, `NoSuchFieldError`, reflection `mNativePtr`, Material/Custom View) để đưa các APK thương mại mục tiêu (như `com.apkpure.aegon.apk`) vượt qua màn hình Splash vào màn hình chính.
 - **Hạng mục chính:**
   1. Truy vết và vá triệt để các `NoSuchMethodError`/`NoSuchFieldError` trên luồng UI & luồng nền của APK thương mại mục tiêu.
   2. Tự động hỗ trợ các trường reflection JNI phổ biến (`mNativePtr`) và mở rộng JNI HLE cho các thư viện `.so` thương mại thường gặp.
   3. Đóng gói lại bộ cài Windows (`AAOW-Setup`) sau khi nghiệm thu khả năng chạy APK thật.
-- **Tiêu chí nghiệm thu:** `com.apkpure.aegon.apk` (và/hoặc APK thương mại mục tiêu) vượt qua `SplashActivity` vào được giao diện chính trên cửa sổ Windows.
+- **Tiêu chí nghiệm thu:** `com.apkpure.aegon.apk` (và/hoặc APK thương mại mục tiêu) vượt qua `SplashActivity` vào được giao diện chính trên cửa sổ Windows (Đã nghiệm thu 21/11/2026 — 60/60 tests PASS, 0 `SUPER_MISMATCH`, đóng gói lại `AAOW-Setup-1.0.0.exe`).
