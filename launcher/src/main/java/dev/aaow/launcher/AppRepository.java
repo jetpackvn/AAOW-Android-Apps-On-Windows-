@@ -27,7 +27,10 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /**
@@ -59,6 +62,7 @@ public final class AppRepository {
     private final Path dexCacheDir;
     private final Map<String, InstalledApp> apps = new LinkedHashMap<>();
     private final Map<String, HostWindow> runningWindows = new ConcurrentHashMap<>();
+    private final Set<String> launchingPackages = ConcurrentHashMap.newKeySet();
     private Consumer<String> logListener = System.out::println;
 
     public AppRepository(Path dataRoot, Path samplesDir) {
@@ -138,22 +142,36 @@ public final class AppRepository {
         return runningWindows.containsKey(packageName);
     }
 
+    public boolean isLaunching(String packageName) {
+        return launchingPackages.contains(packageName);
+    }
+
     public int getRunningCount() {
         return runningWindows.size();
     }
 
     public synchronized InstalledApp installApk(Path sourceApk) throws IOException {
+        return installApk(sourceApk, null);
+    }
+
+    public synchronized InstalledApp installApk(
+            Path sourceApk,
+            BiConsumer<Float, String> progressCallback) throws IOException {
+        reportProgress(progressCallback, 0.08f, "Đang đọc Manifest & biểu tượng " + sourceApk.getFileName() + "...");
         InstalledApp inspected = inspectApk(sourceApk);
         Path target = installedDir.resolve(inspected.packageName() + ".apk");
         if (!sourceApk.toAbsolutePath().normalize().equals(target.toAbsolutePath().normalize())) {
+            reportProgress(progressCallback, 0.16f, "Đang sao chép " + inspected.label() + " vào kho...");
             Files.copy(sourceApk, target, StandardCopyOption.REPLACE_EXISTING);
         }
         InstalledApp finalApp = inspectApk(target);
         // Biên dịch sẵn DEX sang JVM bytecode ngay khi cài đặt
         try (ApkFile apk = new ApkFile(target)) {
-            DexLoader.loadApkDex(apk, dexCacheDir, AppRepository.class.getClassLoader());
+            DexLoader.loadApkDex(apk, dexCacheDir, AppRepository.class.getClassLoader(),
+                    (p, msg) -> reportProgress(progressCallback, 0.22f + p * 0.74f, msg));
         }
         apps.put(finalApp.packageName(), finalApp);
+        reportProgress(progressCallback, 1.0f, "Hoàn tất cài đặt " + finalApp.label());
         log("[AAOW-PM] Đã cài đặt: " + finalApp.label() + " (" + finalApp.packageName() + " v" + finalApp.versionName() + ")");
         return finalApp;
     }
@@ -162,6 +180,12 @@ public final class AppRepository {
      * Cài đặt hàng loạt tất cả file {@code *.apk} trong một thư mục (ví dụ thư mục Offline Apps).
      */
     public synchronized List<InstalledApp> installApksFromDirectory(Path dir) throws IOException {
+        return installApksFromDirectory(dir, null);
+    }
+
+    public synchronized List<InstalledApp> installApksFromDirectory(
+            Path dir,
+            BiConsumer<Float, String> progressCallback) throws IOException {
         List<InstalledApp> installed = new ArrayList<>();
         if (dir == null || !Files.isDirectory(dir)) {
             return installed;
@@ -175,15 +199,30 @@ public final class AppRepository {
             }
         }
         apkFiles.sort(Comparator.comparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER));
-        for (Path apkPath : apkFiles) {
+        int total = Math.max(1, apkFiles.size());
+        for (int i = 0; i < apkFiles.size(); i++) {
+            Path apkPath = apkFiles.get(i);
+            final int idx = i;
+            String prefix = "(" + (i + 1) + "/" + apkFiles.size() + ") " + apkPath.getFileName() + ": ";
             try {
-                installed.add(installApk(apkPath));
+                installed.add(installApk(apkPath, (p, msg) ->
+                        reportProgress(progressCallback, (idx + p) / total, prefix + msg)));
             } catch (Exception e) {
                 log("[AAOW-PM] Bỏ qua " + apkPath.getFileName() + ": " + e.getMessage());
             }
         }
+        reportProgress(progressCallback, 1.0f, "Đã nạp " + installed.size() + "/" + apkFiles.size() + " APK");
         log("[AAOW-PM] Đã nạp " + installed.size() + "/" + apkFiles.size() + " APK từ " + dir.toAbsolutePath());
         return installed;
+    }
+
+    private static void reportProgress(BiConsumer<Float, String> cb, float progress, String message) {
+        if (cb != null) {
+            try {
+                cb.accept(Math.max(0f, Math.min(1f, progress)), message);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /**
@@ -247,6 +286,7 @@ public final class AppRepository {
     }
 
     public void stopApp(String packageName) {
+        launchingPackages.remove(packageName);
         HostWindow win = runningWindows.remove(packageName);
         if (win != null) {
             win.forceStop();
@@ -261,38 +301,86 @@ public final class AppRepository {
             log("[AAOW-ActivityManager] Đưa cửa sổ đang chạy lên trước: " + app.label());
             return existing;
         }
-        try {
-            dev.aaow.rt.NativeBridge.clearDiagnostics();
-            ApkFile apk = new ApkFile(app.apkPath());
-            AndroidManifest mf = apk.getManifest();
-            ClassLoader cl = DexLoader.loadApkDex(apk, dexCacheDir, AppRepository.class.getClassLoader());
 
-            AndroidRuntimeContext ctx = new AndroidRuntimeContext(apk, cl, dataRoot);
-            Application androidApp = createAndInitializeApplication(mf, cl, ctx, this::log);
+        HostWindow host = new HostWindow(app.label(), app.packageName(), app.versionName(), app.icon());
+        host.setExitProcessOnClose(false);
+        runningWindows.put(app.packageName(), host);
+        launchingPackages.add(app.packageName());
+        AtomicReference<ApkFile> apkRef = new AtomicReference<>();
 
-            HostWindow host = new HostWindow(ctx, androidApp);
-            host.setExitProcessOnClose(false);
-            runningWindows.put(app.packageName(), host);
-            if (onStateChanged != null) onStateChanged.run();
-
-            host.setOnWindowClosedCallback(() -> {
-                runningWindows.remove(app.packageName());
+        host.setOnWindowClosedCallback(() -> {
+            launchingPackages.remove(app.packageName());
+            runningWindows.remove(app.packageName(), host);
+            ApkFile opened = apkRef.getAndSet(null);
+            if (opened != null) {
                 try {
-                    apk.close();
+                    opened.close();
                 } catch (IOException ignored) {
                 }
-                log("[AAOW-ActivityManager] Đã đóng cửa sổ ứng dụng: " + app.label());
-                if (onStateChanged != null) onStateChanged.run();
-            });
+            }
+            log("[AAOW-ActivityManager] Đã đóng cửa sổ ứng dụng: " + app.label());
+            if (onStateChanged != null) onStateChanged.run();
+        });
 
-            log("[AAOW-ActivityManager] Khởi chạy " + app.label() + " -> " + app.launcherActivity());
-            host.showWindow(app.launcherActivity());
-            return host;
-        } catch (Throwable e) {
-            log("[AAOW-ERROR] Lỗi mở " + app.label() + ": " + e);
-            e.printStackTrace();
-            return null;
-        }
+        host.showLoadingWindow();
+        if (onStateChanged != null) onStateChanged.run();
+        log("[AAOW-ActivityManager] Đang nạp & khởi chạy " + app.label() + " (" + app.packageName() + ")...");
+
+        Thread loaderThread = new Thread(() -> {
+            try {
+                dev.aaow.rt.NativeBridge.clearDiagnostics();
+                host.updateLoadingProgress(0.10f, "Đang mở gói APK & tài nguyên...", app.packageName());
+                ApkFile apk = new ApkFile(app.apkPath());
+                apkRef.set(apk);
+                if (host.isWindowClosed()) {
+                    ApkFile toClose = apkRef.getAndSet(null);
+                    if (toClose != null) toClose.close();
+                    return;
+                }
+
+                AndroidManifest mf = apk.getManifest();
+                ClassLoader cl = DexLoader.loadApkDex(
+                        apk, dexCacheDir, AppRepository.class.getClassLoader(),
+                        (p, msg) -> host.updateLoadingProgress(0.14f + p * 0.64f, msg, app.packageName()));
+                if (host.isWindowClosed()) {
+                    return;
+                }
+
+                host.updateLoadingProgress(0.82f, "Đang khởi tạo môi trường Android...", app.packageName());
+                AndroidRuntimeContext ctx = new AndroidRuntimeContext(apk, cl, dataRoot);
+                if (host.isWindowClosed()) {
+                    return;
+                }
+
+                host.updateLoadingProgress(0.88f, "Đang khởi tạo Application & dịch vụ...",
+                        mf.applicationClass != null && !mf.applicationClass.isEmpty() ? mf.applicationClass : app.packageName());
+                Application androidApp = createAndInitializeApplication(mf, cl, ctx, this::log);
+                if (host.isWindowClosed()) {
+                    return;
+                }
+
+                launchingPackages.remove(app.packageName());
+                log("[AAOW-ActivityManager] Khởi chạy " + app.label() + " -> " + app.launcherActivity());
+                host.attachRuntimeAndLaunch(ctx, androidApp, app.launcherActivity());
+                if (onStateChanged != null) onStateChanged.run();
+            } catch (Throwable e) {
+                launchingPackages.remove(app.packageName());
+                log("[AAOW-ERROR] Lỗi mở " + app.label() + ": " + e);
+                e.printStackTrace();
+                ApkFile opened = apkRef.getAndSet(null);
+                if (opened != null) {
+                    try {
+                        opened.close();
+                    } catch (IOException ignored) {
+                    }
+                }
+                host.showBootFailure("Không thể khởi chạy " + app.label(), e);
+                if (onStateChanged != null) onStateChanged.run();
+            }
+        }, "aaow-launch-" + app.packageName());
+        loaderThread.setDaemon(true);
+        loaderThread.start();
+        return host;
     }
 
     public static Application createAndInitializeApplication(
@@ -425,7 +513,7 @@ public final class AppRepository {
         }
     }
 
-    private static BufferedImage renderAppIcon(Resources res, int iconRes, String label, String pkg) {
+    static BufferedImage renderAppIcon(Resources res, int iconRes, String label, String pkg) {
         int size = 64;
         BufferedImage out = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = out.createGraphics();

@@ -17,10 +17,13 @@ import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
+import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -28,25 +31,31 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.dnd.DnDConstants;
 import java.awt.dnd.DropTarget;
 import java.awt.dnd.DropTargetAdapter;
 import java.awt.dnd.DropTargetDropEvent;
+import java.awt.geom.Arc2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Giao diện trung tâm quản lý ứng dụng Android trên Windows (AAOW App Hub).
- * Hỗ trợ kéo-thả cài đặt APK, mở nhiều ứng dụng đồng thời, soi cấu trúc APK và quản lý dữ liệu.
+ * Hỗ trợ kéo-thả cài đặt APK, mở nhiều ứng dụng đồng thời, soi cấu trúc APK và
+ * quản lý dữ liệu.
  */
 public final class AppHubWindow {
     private static final Color BG_DARK = new Color(0x0F111A);
@@ -67,7 +76,11 @@ public final class AppHubWindow {
     private JTextField searchField;
     private JTextArea inspectorArea;
     private JTextArea logArea;
+    private InstallLoadingBanner installBanner;
     private AppRepository.InstalledApp selectedApp;
+
+    private record ProgressUpdate(float progress, String message) {
+    }
 
     public AppHubWindow(AppRepository repository) {
         this.repository = repository;
@@ -153,7 +166,15 @@ public final class AppHubWindow {
         cardsScroll.setBorder(BorderFactory.createEmptyBorder());
         cardsScroll.getViewport().setBackground(BG_DARK);
         cardsScroll.getVerticalScrollBar().setUnitIncrement(18);
-        leftPane.add(cardsScroll, BorderLayout.CENTER);
+
+        JPanel leftCenter = new JPanel(new BorderLayout(0, 10));
+        leftCenter.setOpaque(false);
+        installBanner = new InstallLoadingBanner();
+        installBanner.setVisible(false);
+        leftCenter.add(installBanner, BorderLayout.NORTH);
+        leftCenter.add(cardsScroll, BorderLayout.CENTER);
+
+        leftPane.add(leftCenter, BorderLayout.CENTER);
         leftPane.add(buildDropHintBanner(), BorderLayout.SOUTH);
 
         // Cột phải: Inspector + Console log
@@ -175,8 +196,7 @@ public final class AppHubWindow {
         header.setBackground(BG_SURFACE);
         header.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, BORDER_COLOR),
-                new EmptyBorder(14, 20, 14, 20)
-        ));
+                new EmptyBorder(14, 20, 14, 20)));
 
         // Cụm tiêu đề bên trái
         JPanel titleBox = new JPanel();
@@ -209,8 +229,7 @@ public final class AppHubWindow {
         searchField.setToolTipText("Lọc theo tên ứng dụng hoặc tên gói (package)");
         searchField.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(BORDER_COLOR, 1, true),
-                new EmptyBorder(6, 10, 6, 10)
-        ));
+                new EmptyBorder(6, 10, 6, 10)));
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
@@ -236,7 +255,8 @@ public final class AppHubWindow {
         btnInstall.addActionListener(e -> promptInstallApk());
 
         JButton btnBatch = createStyledButton("Nạp bộ APK", new Color(0x1E3A34), new Color(0x7CE8B4));
-        btnBatch.setToolTipText("Nạp nhanh bộ ứng dụng Android (Offline & Online) có sẵn hoặc chọn một thư mục chứa nhiều file .apk");
+        btnBatch.setToolTipText(
+                "Nạp nhanh bộ ứng dụng Android (Offline & Online) có sẵn hoặc chọn một thư mục chứa nhiều file .apk");
         btnBatch.addActionListener(e -> promptImportOfflineBundle());
 
         JButton btnAssoc = createStyledButton("", new Color(0x252A3E), new Color(0xD8DAE8));
@@ -295,7 +315,8 @@ public final class AppHubWindow {
         banner.setLayout(new BorderLayout());
         banner.setBorder(new EmptyBorder(10, 14, 10, 14));
 
-        JLabel lbl = new JLabel("Mẹo: Kéo-thả bất kỳ file .apk nào từ Windows Explorer vào cửa sổ này để cài đặt và biên dịch DEX tức thì.");
+        JLabel lbl = new JLabel(
+                "Mẹo: Kéo-thả bất kỳ file .apk nào từ Windows Explorer vào cửa sổ này để cài đặt và biên dịch DEX tức thì.");
         lbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         lbl.setForeground(TEXT_MUTED);
         banner.add(lbl, BorderLayout.CENTER);
@@ -358,7 +379,8 @@ public final class AppHubWindow {
     }
 
     private void updateStatsLabel() {
-        if (statsLabel == null) return;
+        if (statsLabel == null)
+            return;
         int total = repository.listApps().size();
         int running = repository.getRunningCount();
         statsLabel.setText(String.format(
@@ -367,7 +389,12 @@ public final class AppHubWindow {
     }
 
     public void refreshCards() {
-        if (cardsContainer == null) return;
+        if (cardsContainer == null)
+            return;
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::refreshCards);
+            return;
+        }
         cardsContainer.removeAll();
         updateStatsLabel();
 
@@ -387,7 +414,8 @@ public final class AppHubWindow {
         }
 
         if (shown == 0) {
-            JLabel empty = new JLabel("Chưa có ứng dụng nào khớp tìm kiếm. Hãy bấm '+ Cài đặt APK...' hoặc kéo-thả file .apk vào đây.");
+            JLabel empty = new JLabel(
+                    "Chưa có ứng dụng nào khớp tìm kiếm. Hãy bấm '+ Cài đặt APK...' hoặc kéo-thả file .apk vào đây.");
             empty.setFont(new Font("Segoe UI", Font.PLAIN, 13));
             empty.setForeground(TEXT_MUTED);
             empty.setBorder(new EmptyBorder(30, 10, 30, 10));
@@ -399,9 +427,12 @@ public final class AppHubWindow {
     }
 
     private JPanel buildAppCard(AppRepository.InstalledApp app) {
+        boolean launching = repository.isLaunching(app.packageName());
         boolean running = repository.isRunning(app.packageName());
         boolean isSelected = selectedApp != null && selectedApp.packageName().equals(app.packageName());
-        Color borderCol = running ? ACCENT_GREEN : (isSelected ? ACCENT_BLUE : BORDER_COLOR);
+        Color borderCol = launching
+                ? ACCENT_BLUE
+                : (running ? ACCENT_GREEN : (isSelected ? ACCENT_BLUE : BORDER_COLOR));
 
         RoundedPanel card = new RoundedPanel(16, BG_CARD, borderCol);
         card.setLayout(new BorderLayout(16, 0));
@@ -428,10 +459,14 @@ public final class AppHubWindow {
         nameLbl.setForeground(TEXT_PRIMARY);
         titleRow.add(nameLbl);
 
-        JLabel verBadge = createBadge("v" + app.versionName() + " (" + app.versionCode() + ")", new Color(0x2B3048), TEXT_MUTED);
+        JLabel verBadge = createBadge("v" + app.versionName() + " (" + app.versionCode() + ")", new Color(0x2B3048),
+                TEXT_MUTED);
         titleRow.add(verBadge);
 
-        if (running) {
+        if (launching) {
+            JLabel loadBadge = createBadge("◌ ĐANG TẢI...", new Color(0x1B2B4B), new Color(0x7AA2F7));
+            titleRow.add(loadBadge);
+        } else if (running) {
             JLabel runBadge = createBadge("● ĐANG CHẠY", new Color(0x193D29), ACCENT_GREEN);
             titleRow.add(runBadge);
         }
@@ -455,7 +490,18 @@ public final class AppHubWindow {
         btnRow.setOpaque(false);
         btnRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        if (running) {
+        if (launching) {
+            JButton btnFocus = createStyledButton("Xem cửa sổ tải", ACCENT_BLUE, Color.WHITE);
+            btnFocus.addActionListener(e -> repository.launchApp(app, this::refreshCards));
+            btnRow.add(btnFocus);
+
+            JButton btnCancel = createStyledButton("Hủy", ACCENT_RED, Color.WHITE);
+            btnCancel.addActionListener(e -> {
+                repository.stopApp(app.packageName());
+                refreshCards();
+            });
+            btnRow.add(btnCancel);
+        } else if (running) {
             JButton btnFocus = createStyledButton("Đưa lên trước", ACCENT_GREEN, new Color(0x091A10));
             btnFocus.addActionListener(e -> repository.launchApp(app, this::refreshCards));
             btnRow.add(btnFocus);
@@ -471,7 +517,7 @@ public final class AppHubWindow {
             btnLaunch.addActionListener(e -> {
                 selectedApp = app;
                 updateInspector(app);
-                repository.launchApp(app, () -> SwingUtilities.invokeLater(this::refreshCards));
+                repository.launchApp(app, this::refreshCards);
             });
             btnRow.add(btnLaunch);
         }
@@ -520,7 +566,8 @@ public final class AppHubWindow {
     }
 
     private void updateInspector(AppRepository.InstalledApp app) {
-        if (inspectorArea == null) return;
+        if (inspectorArea == null)
+            return;
         if (app == null) {
             inspectorArea.setText("Chưa chọn ứng dụng nào.");
             return;
@@ -528,11 +575,14 @@ public final class AppHubWindow {
         StringBuilder sb = new StringBuilder();
         sb.append("Tên ứng dụng : ").append(app.label()).append('\n');
         sb.append("Package      : ").append(app.packageName()).append('\n');
-        sb.append("Phiên bản    : ").append(app.versionName()).append(" (code ").append(app.versionCode()).append(")\n");
-        sb.append("SDK          : minSdk=").append(app.minSdk()).append(", targetSdk=").append(app.targetSdk()).append('\n');
+        sb.append("Phiên bản    : ").append(app.versionName()).append(" (code ").append(app.versionCode())
+                .append(")\n");
+        sb.append("SDK          : minSdk=").append(app.minSdk()).append(", targetSdk=").append(app.targetSdk())
+                .append('\n');
         sb.append("Launcher     : ").append(app.launcherActivity()).append('\n');
         sb.append("Tài nguyên   : ").append(app.resourceCount()).append(" entries trong resources.arsc\n");
-        sb.append("Native ABIs  : ").append(app.nativeAbis().isEmpty() ? "Không (Thuần DEX/JVM)" : app.nativeAbis()).append('\n');
+        sb.append("Native ABIs  : ").append(app.nativeAbis().isEmpty() ? "Không (Thuần DEX/JVM)" : app.nativeAbis())
+                .append('\n');
         sb.append("Đường dẫn    : ").append(app.apkPath().toAbsolutePath()).append("\n\n");
 
         sb.append("--- DANH SÁCH ACTIVITY (").append(app.activities().size()).append(") ---\n");
@@ -558,7 +608,8 @@ public final class AppHubWindow {
         refreshCards();
         appendLog("[AAOW-Scan] Đang quét tương thích tĩnh cho " + app.label() + " (" + app.packageName() + ")...");
         if (inspectorArea != null) {
-            inspectorArea.setText("Đang phân tích bytecode DEX của " + app.label() + "...\nVui lòng chờ trong giây lát.");
+            inspectorArea
+                    .setText("Đang phân tích bytecode DEX của " + app.label() + "...\nVui lòng chờ trong giây lát.");
         }
         new javax.swing.SwingWorker<ApkCompatibilityScanner.ScanReport, Void>() {
             @Override
@@ -595,13 +646,17 @@ public final class AppHubWindow {
         chooser.setMultiSelectionEnabled(true);
         chooser.setFileFilter(new FileNameExtensionFilter("Android Package (*.apk)", "apk"));
         if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
+            List<Path> toInstall = new ArrayList<>();
             File[] files = chooser.getSelectedFiles();
             if (files != null && files.length > 0) {
                 for (File f : files) {
-                    installApkFromFile(f.toPath());
+                    toInstall.add(f.toPath());
                 }
             } else if (chooser.getSelectedFile() != null) {
-                installApkFromFile(chooser.getSelectedFile().toPath());
+                toInstall.add(chooser.getSelectedFile().toPath());
+            }
+            if (!toInstall.isEmpty()) {
+                installApksAsync(toInstall);
             }
         }
     }
@@ -612,7 +667,8 @@ public final class AppHubWindow {
         if (defaultDir != null) {
             Object[] options = { "Nạp từ " + defaultDir.getFileName(), "Chọn thư mục khác...", "Hủy" };
             int choice = JOptionPane.showOptionDialog(frame,
-                    "Tìm thấy thư mục chứa bộ APK Offline:\n" + defaultDir + "\nBạn muốn nạp toàn bộ APK trong thư mục này vào AAOW App Hub?",
+                    "Tìm thấy thư mục chứa bộ APK Offline:\n" + defaultDir
+                            + "\nBạn muốn nạp toàn bộ APK trong thư mục này vào AAOW App Hub?",
                     "Nạp bộ ứng dụng Offline",
                     JOptionPane.YES_NO_CANCEL_OPTION,
                     JOptionPane.QUESTION_MESSAGE,
@@ -625,18 +681,35 @@ public final class AppHubWindow {
         } else {
             targetDir = chooseDirectory("Chọn thư mục chứa các file .apk");
         }
-        if (targetDir == null) return;
+        if (targetDir == null)
+            return;
 
         final Path dirToImport = targetDir;
         appendLog("[AAOW-Hub] Đang nạp hàng loạt APK từ " + dirToImport + "...");
-        new javax.swing.SwingWorker<List<AppRepository.InstalledApp>, Void>() {
+        if (installBanner != null) {
+            installBanner.start("Đang nạp bộ APK từ " + dirToImport.getFileName() + "...",
+                    "Đang quét danh sách file .apk...");
+        }
+        new SwingWorker<List<AppRepository.InstalledApp>, ProgressUpdate>() {
             @Override
             protected List<AppRepository.InstalledApp> doInBackground() throws Exception {
-                return repository.installApksFromDirectory(dirToImport);
+                return repository.installApksFromDirectory(dirToImport,
+                        (p, msg) -> publish(new ProgressUpdate(p, msg)));
+            }
+
+            @Override
+            protected void process(List<ProgressUpdate> chunks) {
+                if (installBanner != null && !chunks.isEmpty()) {
+                    ProgressUpdate last = chunks.get(chunks.size() - 1);
+                    installBanner.updateProgress(last.progress(), last.message());
+                }
             }
 
             @Override
             protected void done() {
+                if (installBanner != null) {
+                    installBanner.finishAndHide();
+                }
                 try {
                     List<AppRepository.InstalledApp> list = get();
                     if (!list.isEmpty()) {
@@ -666,20 +739,73 @@ public final class AppHubWindow {
         return null;
     }
 
-    private void installApkFromFile(Path file) {
-        try {
-            AppRepository.InstalledApp installed = repository.installApk(file);
-            selectedApp = installed;
-            updateInspector(installed);
-            refreshCards();
-        } catch (Exception e) {
-            appendLog("[AAOW-ERROR] Không cài đặt được " + file.getFileName() + ": " + e.getMessage());
-            if (frame != null) {
-                JOptionPane.showMessageDialog(frame,
-                        "Không thể cài đặt file APK:\n" + e.getMessage(),
-                        "Lỗi cài đặt APK", JOptionPane.ERROR_MESSAGE);
-            }
+    private void installApksAsync(List<Path> files) {
+        if (files == null || files.isEmpty()) {
+            return;
         }
+        final List<Path> batch = new ArrayList<>(files);
+        String headline = batch.size() == 1
+                ? "Đang cài đặt & biên dịch " + batch.get(0).getFileName() + "..."
+                : "Đang cài đặt & biên dịch " + batch.size() + " file APK...";
+        appendLog("[AAOW-Hub] " + headline);
+        if (installBanner != null) {
+            installBanner.start(headline, "Đang đọc cấu trúc APK...");
+        }
+
+        new SwingWorker<List<AppRepository.InstalledApp>, ProgressUpdate>() {
+            private final List<String> errors = new ArrayList<>();
+
+            @Override
+            protected List<AppRepository.InstalledApp> doInBackground() {
+                List<AppRepository.InstalledApp> installed = new ArrayList<>();
+                int total = batch.size();
+                for (int i = 0; i < total; i++) {
+                    Path file = batch.get(i);
+                    final int idx = i;
+                    String prefix = total > 1
+                            ? "(" + (i + 1) + "/" + total + ") " + file.getFileName() + ": "
+                            : "";
+                    try {
+                        installed.add(repository.installApk(file,
+                                (p, msg) -> publish(new ProgressUpdate((idx + p) / total, prefix + msg))));
+                    } catch (Exception e) {
+                        errors.add(file.getFileName() + ": " + e.getMessage());
+                        appendLog("[AAOW-ERROR] Không cài đặt được " + file.getFileName() + ": " + e.getMessage());
+                    }
+                }
+                return installed;
+            }
+
+            @Override
+            protected void process(List<ProgressUpdate> chunks) {
+                if (installBanner != null && !chunks.isEmpty()) {
+                    ProgressUpdate last = chunks.get(chunks.size() - 1);
+                    installBanner.updateProgress(last.progress(), last.message());
+                }
+            }
+
+            @Override
+            protected void done() {
+                if (installBanner != null) {
+                    installBanner.finishAndHide();
+                }
+                try {
+                    List<AppRepository.InstalledApp> list = get();
+                    if (!list.isEmpty()) {
+                        selectedApp = list.get(list.size() - 1);
+                        updateInspector(selectedApp);
+                    }
+                    refreshCards();
+                    if (!errors.isEmpty() && frame != null) {
+                        JOptionPane.showMessageDialog(frame,
+                                "Không thể cài đặt một số file APK:\n" + String.join("\n", errors),
+                                "Lỗi cài đặt APK", JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    appendLog("[AAOW-ERROR] Lỗi cài đặt APK: " + ex.getMessage());
+                }
+            }
+        }.execute();
     }
 
     private void installDragAndDrop(JFrame targetFrame) {
@@ -691,12 +817,16 @@ public final class AppHubWindow {
                     dtde.acceptDrop(DnDConstants.ACTION_COPY);
                     List<File> droppedFiles = (List<File>) dtde.getTransferable()
                             .getTransferData(DataFlavor.javaFileListFlavor);
+                    List<Path> apks = new ArrayList<>();
                     for (File f : droppedFiles) {
                         if (f.getName().toLowerCase().endsWith(".apk")) {
-                            installApkFromFile(f.toPath());
+                            apks.add(f.toPath());
                         } else {
                             appendLog("[AAOW-Hub] Bỏ qua file không phải .apk: " + f.getName());
                         }
+                    }
+                    if (!apks.isEmpty()) {
+                        installApksAsync(apks);
                     }
                     dtde.dropComplete(true);
                 } catch (Exception ex) {
@@ -707,7 +837,8 @@ public final class AppHubWindow {
     }
 
     private void appendLog(String msg) {
-        if (logArea == null) return;
+        if (logArea == null)
+            return;
         SwingUtilities.invokeLater(() -> {
             String line = LocalTime.now().format(TIME_FMT) + "  " + msg + "\n";
             logArea.append(line);
@@ -757,7 +888,7 @@ public final class AppHubWindow {
         return lbl;
     }
 
-    private static final class RoundedPanel extends JPanel {
+    private static class RoundedPanel extends JPanel {
         private final int radius;
         private final Color fill;
         private final Color stroke;
@@ -781,6 +912,147 @@ public final class AppHubWindow {
             }
             g2.dispose();
             super.paintComponent(g);
+        }
+    }
+
+    /**
+     * Thanh tiến trình cài đặt & biên dịch DEX có vòng xoay 60fps và hiệu ứng
+     * shimmer.
+     */
+    private static final class InstallLoadingBanner extends RoundedPanel {
+        private final Timer animTimer;
+        private String title = "Đang cài đặt APK...";
+        private String detail = "";
+        private float targetProgress = 0.05f;
+        private float displayedProgress = 0.03f;
+        private float phase = 0f;
+
+        InstallLoadingBanner() {
+            super(14, new Color(0x161D33), ACCENT_BLUE);
+            setPreferredSize(new Dimension(0, 74));
+            setMinimumSize(new Dimension(0, 74));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, 74));
+            this.animTimer = new Timer(16, e -> {
+                phase += 0.10f;
+                displayedProgress += (targetProgress - displayedProgress) * 0.22f;
+                if (Math.abs(targetProgress - displayedProgress) < 0.002f) {
+                    displayedProgress = targetProgress;
+                }
+                repaint();
+            });
+        }
+
+        void start(String titleText, String detailText) {
+            this.title = titleText != null ? titleText : "Đang cài đặt APK...";
+            this.detail = detailText != null ? detailText : "";
+            this.targetProgress = 0.05f;
+            this.displayedProgress = 0.03f;
+            this.phase = 0f;
+            setVisible(true);
+            if (!animTimer.isRunning()) {
+                animTimer.start();
+            }
+            revalidate();
+            repaint();
+        }
+
+        void updateProgress(float p, String detailText) {
+            this.targetProgress = Math.max(0.03f, Math.min(1.0f, p));
+            if (detailText != null && !detailText.isBlank()) {
+                this.detail = detailText;
+            }
+            repaint();
+        }
+
+        void finishAndHide() {
+            this.targetProgress = 1.0f;
+            this.displayedProgress = 1.0f;
+            animTimer.stop();
+            setVisible(false);
+            revalidate();
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            int w = getWidth();
+            int h = getHeight();
+            if (w <= 0 || h <= 0) {
+                return;
+            }
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_LCD_HRGB);
+
+            // Vòng xoay kép bên trái
+            int cx = 28;
+            int cy = h / 2;
+            int r1 = 13;
+            g2.setColor(new Color(255, 255, 255, 24));
+            g2.setStroke(new BasicStroke(2.4f));
+            g2.drawOval(cx - r1, cy - r1, r1 * 2, r1 * 2);
+
+            g2.setColor(new Color(0x7C8CFF));
+            g2.setStroke(new BasicStroke(2.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.draw(new Arc2D.Float(cx - r1, cy - r1, r1 * 2, r1 * 2, (phase * 57.3f) % 360f, 125f, Arc2D.OPEN));
+
+            int r2 = 8;
+            g2.setColor(ACCENT_GREEN);
+            g2.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.draw(new Arc2D.Float(cx - r2, cy - r2, r2 * 2, r2 * 2, (-phase * 42f + 180f) % 360f, 95f, Arc2D.OPEN));
+
+            int textX = 54;
+            int rightPad = 16;
+            int pct = Math.round(displayedProgress * 100);
+            String pctStr = pct + "%";
+            g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            g2.setColor(new Color(0x8CE9B0));
+            FontMetrics pfm = g2.getFontMetrics();
+            int pctW = pfm.stringWidth(pctStr);
+            g2.drawString(pctStr, w - rightPad - pctW, 25);
+
+            g2.setFont(new Font("Segoe UI", Font.BOLD, 13));
+            g2.setColor(TEXT_PRIMARY);
+            FontMetrics tfm = g2.getFontMetrics();
+            int maxTitleW = Math.max(80, w - textX - rightPad - pctW - 12);
+            String t = title;
+            while (t.length() > 1 && tfm.stringWidth(t) > maxTitleW) {
+                t = t.substring(0, t.length() - 2) + "…";
+            }
+            g2.drawString(t, textX, 25);
+
+            g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+            g2.setColor(TEXT_MUTED);
+            FontMetrics dfm = g2.getFontMetrics();
+            int maxDetW = Math.max(80, w - textX - rightPad);
+            String d = detail;
+            while (d.length() > 1 && dfm.stringWidth(d) > maxDetW) {
+                d = d.substring(0, d.length() - 2) + "…";
+            }
+            g2.drawString(d, textX, 44);
+
+            // Thanh tiến trình + shimmer
+            int barX = textX;
+            int barY = 54;
+            int barW = Math.max(60, w - textX - rightPad);
+            g2.setColor(new Color(0x232B47));
+            g2.fill(new RoundRectangle2D.Float(barX, barY, barW, 7, 7, 7));
+
+            int fillW = Math.max(10, Math.round(barW * Math.max(0.03f, Math.min(1f, displayedProgress))));
+            Shape fillShape = new RoundRectangle2D.Float(barX, barY, fillW, 7, 7, 7);
+            g2.setPaint(new GradientPaint(barX, barY, ACCENT_BLUE, barX + barW, barY, ACCENT_GREEN));
+            g2.fill(fillShape);
+
+            Shape oldClip = g2.getClip();
+            g2.setClip(fillShape);
+            float sx = barX + ((phase * 36f) % (barW + 70)) - 35f;
+            g2.setPaint(new GradientPaint(sx, barY, new Color(255, 255, 255, 0),
+                    sx + 20f, barY, new Color(255, 255, 255, 130), true));
+            g2.fillRect(Math.round(sx), barY, 40, 7);
+            g2.setClip(oldClip);
+
+            g2.dispose();
         }
     }
 }

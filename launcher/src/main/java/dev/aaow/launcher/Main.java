@@ -1,6 +1,7 @@
 package dev.aaow.launcher;
 
 import android.app.Application;
+import android.content.res.Resources;
 import android.os.Environment;
 import android.util.Log;
 import dev.aaow.apk.AndroidManifest;
@@ -9,11 +10,13 @@ import dev.aaow.rt.AndroidRuntimeContext;
 import dev.aaow.rt.HostWindow;
 
 import javax.swing.UIManager;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Điểm vào chính của AAOW (Android Apps On Windows).
@@ -170,6 +173,7 @@ public final class Main {
         ApkFile apk = new ApkFile(apkPath);
         AndroidManifest mf = apk.getManifest();
         List<String> abis = apk.nativeAbis();
+        String targetActivity = activityOverride != null ? activityOverride : mf.launcherActivity;
 
         System.out.println("============================================================");
         System.out.println(" AAOW — Android Apps On Windows (Compatibility Layer)");
@@ -181,24 +185,24 @@ public final class Main {
         System.out.println(" SDK         : minSdk=" + mf.minSdk + ", targetSdk=" + mf.targetSdk);
         System.out.println(" Resources   : " + apk.getResources().size() + " mục");
         System.out.println(" Native ABIs : " + (abis.isEmpty() ? "Thuần Java/Kotlin (không cần .so)" : abis));
-        System.out.println(" Activity    : " + (activityOverride != null ? activityOverride : mf.launcherActivity));
+        System.out.println(" Activity    : " + targetActivity);
         System.out.println("============================================================");
 
-        ClassLoader apkClassLoader = DexLoader.loadApkDex(apk, dataRoot.resolve("dex-cache"), Main.class.getClassLoader());
-        Thread.currentThread().setContextClassLoader(apkClassLoader);
-
-        AndroidRuntimeContext runtimeContext = new AndroidRuntimeContext(apk, apkClassLoader, dataRoot);
-        Application app = AppRepository.createAndInitializeApplication(
-                mf, apkClassLoader, runtimeContext,
-                msg -> Log.w("AAOW", msg));
-
-        String targetActivity = activityOverride != null ? activityOverride : mf.launcherActivity;
         if (targetActivity == null) {
+            apk.close();
             throw new IllegalStateException("APK không khai báo Launcher Activity trong AndroidManifest.xml");
         }
 
-        HostWindow host = new HostWindow(runtimeContext, app);
         if (screenshotOut != null) {
+            ClassLoader apkClassLoader = DexLoader.loadApkDex(apk, dataRoot.resolve("dex-cache"), Main.class.getClassLoader());
+            Thread.currentThread().setContextClassLoader(apkClassLoader);
+
+            AndroidRuntimeContext runtimeContext = new AndroidRuntimeContext(apk, apkClassLoader, dataRoot);
+            Application app = AppRepository.createAndInitializeApplication(
+                    mf, apkClassLoader, runtimeContext,
+                    msg -> Log.w("AAOW", msg));
+
+            HostWindow host = new HostWindow(runtimeContext, app);
             try {
                 host.renderHeadlessScreenshot(targetActivity, screenshotOut, 420, 820);
                 Log.i("AAOW", "Đã xuất ảnh chụp giao diện APK ra: " + screenshotOut.getAbsolutePath());
@@ -212,9 +216,62 @@ public final class Main {
                 }
                 System.exit(1);
             }
-        } else {
-            host.showWindow(targetActivity);
+            return;
         }
+
+        String displayLabel = (mf.label != null && !mf.label.isBlank()) ? mf.label : mf.packageName;
+        BufferedImage previewIcon = AppRepository.renderAppIcon(
+                new Resources(apk), mf.iconRes, displayLabel != null ? displayLabel : "AAOW",
+                mf.packageName != null ? mf.packageName : "");
+
+        HostWindow host = new HostWindow(displayLabel, mf.packageName, mf.versionName, previewIcon);
+        host.setExitProcessOnClose(true);
+        AtomicReference<ApkFile> apkRef = new AtomicReference<>(apk);
+        host.setOnWindowClosedCallback(() -> {
+            ApkFile opened = apkRef.getAndSet(null);
+            if (opened != null) {
+                try {
+                    opened.close();
+                } catch (Exception ignored) {
+                }
+            }
+        });
+        host.showLoadingWindow();
+
+        Thread loaderThread = new Thread(() -> {
+            try {
+                host.updateLoadingProgress(0.10f, "Đang mở gói APK & tài nguyên...", mf.packageName);
+                ClassLoader apkClassLoader = DexLoader.loadApkDex(
+                        apk, dataRoot.resolve("dex-cache"), Main.class.getClassLoader(),
+                        (p, msg) -> host.updateLoadingProgress(0.14f + p * 0.64f, msg, mf.packageName));
+                if (host.isWindowClosed()) {
+                    return;
+                }
+                Thread.currentThread().setContextClassLoader(apkClassLoader);
+
+                host.updateLoadingProgress(0.82f, "Đang khởi tạo môi trường Android...", mf.packageName);
+                AndroidRuntimeContext runtimeContext = new AndroidRuntimeContext(apk, apkClassLoader, dataRoot);
+                if (host.isWindowClosed()) {
+                    return;
+                }
+
+                host.updateLoadingProgress(0.88f, "Đang khởi tạo Application & dịch vụ...",
+                        mf.applicationClass != null && !mf.applicationClass.isEmpty() ? mf.applicationClass : mf.packageName);
+                Application app = AppRepository.createAndInitializeApplication(
+                        mf, apkClassLoader, runtimeContext,
+                        msg -> Log.w("AAOW", msg));
+                if (host.isWindowClosed()) {
+                    return;
+                }
+
+                host.attachRuntimeAndLaunch(runtimeContext, app, targetActivity);
+            } catch (Throwable t) {
+                t.printStackTrace();
+                host.showBootFailure("Không thể khởi chạy " + displayLabel, t);
+            }
+        }, "aaow-direct-launch");
+        loaderThread.setDaemon(true);
+        loaderThread.start();
     }
 
     private static void printApkInfo(Path apkPath, boolean dumpXml) throws Exception {

@@ -49,16 +49,23 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.Composite;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.FontMetrics;
+import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.RadialGradientPaint;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.InputEvent;
@@ -67,6 +74,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
+import java.awt.geom.Arc2D;
+import java.awt.geom.Point2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -127,8 +136,20 @@ public final class HostWindow {
             float zoomScale) {
     }
 
-    private final AndroidRuntimeContext runtimeContext;
-    private final Application application;
+    public enum BootState {
+        LOADING_APK,
+        WAITING_FOR_UI,
+        BOOTED,
+        FAILED
+    }
+
+    private static final String DIAGNOSTIC_VIEW_TAG = "aaow:diagnostic-fallback";
+    private static final long BOOT_FADE_OUT_MS = 240L;
+    private static final long WAITING_HINT_MS = 10_000L;
+    private static final int LAUNCH_ERROR_GRACE_MS = 1800;
+
+    private volatile AndroidRuntimeContext runtimeContext;
+    private volatile Application application;
     private final Deque<Activity> activityStack = new ArrayDeque<>();
     private final Map<Activity, PendingResultCaller> pendingResults = new IdentityHashMap<>();
 
@@ -148,6 +169,32 @@ public final class HostWindow {
     private boolean inspectorVisible = false;
     private boolean exitProcessOnClose = true;
     private Runnable onWindowClosedCallback;
+
+    private volatile String windowAppLabel = "AAOW";
+    private volatile String windowPackageName = "";
+    private volatile String windowVersionLabel = "";
+    private volatile Image loadingAppIcon;
+
+    private volatile BootState bootState = BootState.LOADING_APK;
+    private volatile boolean interactiveLoadingEnabled = false;
+    private volatile boolean appEverBooted = false;
+    private volatile boolean windowClosed = false;
+    private volatile float targetLoadingProgress = 0.08f;
+    private float displayedLoadingProgress = 0.05f;
+    private float loadingOverlayAlpha = 0f;
+    private float animPhase = 0f;
+    private long loadingStartMs = System.currentTimeMillis();
+    private long waitingUiStartMs = 0L;
+    private long fadeOutStartMs = 0L;
+    private volatile String loadingStageText = "Đang chuẩn bị khởi chạy...";
+    private volatile String loadingDetailText = "";
+    private volatile Throwable bootFailureError;
+    private volatile String bootFailureMessage;
+    private volatile String lastAttemptedActivity;
+    private Timer loadingAnimTimer;
+    private Timer bootGraceTimer;
+    private Rectangle loadingDiagBtnRect;
+    private Rectangle loadingCloseBtnRect;
 
     private boolean landscape = false;
     private float viewportZoom = 0f; // 0f = Tự do (Responsive 1:1 theo kích thước cửa sổ)
@@ -189,17 +236,65 @@ public final class HostWindow {
     private boolean themeNoTitle = false;
     private Drawable cachedAppIconDrawable;
 
+    /**
+     * Tạo cửa sổ hiển thị ngay lập tức ở trạng thái {@link BootState#LOADING_APK}
+     * trong khi đang giải nén/biên dịch DEX và khởi tạo Android Runtime trên luồng nền.
+     */
+    public HostWindow(String appLabel, String packageName, String versionLabel, Image appIcon) {
+        this.windowAppLabel = (appLabel != null && !appLabel.isBlank()) ? appLabel
+                : (packageName != null && !packageName.isBlank() ? packageName : "AAOW");
+        this.windowPackageName = packageName != null ? packageName : "";
+        this.windowVersionLabel = versionLabel != null ? versionLabel : "";
+        this.loadingAppIcon = appIcon;
+        this.bootState = BootState.LOADING_APK;
+        this.loadingStartMs = System.currentTimeMillis();
+        this.targetLoadingProgress = 0.08f;
+        this.displayedLoadingProgress = 0.05f;
+        this.loadingStageText = "Đang đọc gói APK & tài nguyên...";
+        this.loadingDetailText = this.windowPackageName;
+    }
+
     public HostWindow(AndroidRuntimeContext runtimeContext, Application application) {
         this.runtimeContext = runtimeContext;
         this.application = application;
+        this.bootState = BootState.WAITING_FOR_UI;
+        this.loadingStartMs = System.currentTimeMillis();
+        this.loadingStageText = "Đang khởi động giao diện ứng dụng...";
+        initRuntimeBindings();
+    }
+
+    private void initRuntimeBindings() {
+        if (runtimeContext == null) {
+            return;
+        }
         this.runtimeContext.setActivityStarter(this::startActivity);
         this.runtimeContext.setActivityForResultStarter(this::startActivityForResult);
 
-        resolveThemeColors(runtimeContext.getManifest().themeRes);
-        if (runtimeContext.getManifest().iconRes != 0) {
-            this.cachedAppIconDrawable = runtimeContext.getResources()
-                    .getDrawable(runtimeContext.getManifest().iconRes);
+        AndroidManifest mf = runtimeContext.getManifest();
+        if (mf != null) {
+            if (mf.label != null && !mf.label.isBlank()) {
+                this.windowAppLabel = mf.label;
+            } else if (mf.packageName != null && !mf.packageName.isBlank()) {
+                this.windowAppLabel = mf.packageName;
+            }
+            if (mf.packageName != null) {
+                this.windowPackageName = mf.packageName;
+            }
+            if (mf.versionName != null) {
+                this.windowVersionLabel = mf.versionName;
+            }
+            resolveThemeColors(mf.themeRes);
+            if (mf.iconRes != 0) {
+                this.cachedAppIconDrawable = runtimeContext.getResources().getDrawable(mf.iconRes);
+                if (this.loadingAppIcon == null) {
+                    Bitmap bmp = runtimeContext.getResources().loadBitmap(mf.iconRes);
+                    if (bmp != null && !bmp.isRecycled()) {
+                        this.loadingAppIcon = bmp.getAwtImage();
+                    }
+                }
+            }
         }
+
         Toast.setHostToastBridge(this::showToast);
         Dialog.setHostDialogLifecycleBridge((dialog, shown) -> {
             if (dialog == null)
@@ -209,6 +304,9 @@ public final class HostWindow {
                 activeDialogs.add(dialog);
                 if (dialog.getWindow() != null && dialog.getWindow().getDecorView() != null) {
                     dialog.getWindow().getDecorView().setInvalidateCallback(this::repaintViewport);
+                }
+                if (hasRealAppContent(activityStack.peek())) {
+                    markAppBooted();
                 }
             } else {
                 activeDialogs.remove(dialog);
@@ -226,6 +324,26 @@ public final class HostWindow {
             this.activePopup = pw;
             repaintViewport();
         });
+    }
+
+    public BootState getBootState() {
+        return bootState;
+    }
+
+    public boolean isShowingDiagnosticFallback() {
+        return showingDiagnosticFallback;
+    }
+
+    public boolean isWindowClosed() {
+        return windowClosed;
+    }
+
+    public float getLoadingProgress() {
+        return targetLoadingProgress;
+    }
+
+    public String getLoadingStageText() {
+        return loadingStageText;
     }
 
     public Dialog getActiveDialog() {
@@ -290,15 +408,27 @@ public final class HostWindow {
     }
 
     public void forceStop() {
-        if (frame != null) {
-            SwingUtilities.invokeLater(() -> {
-                cleanupAllActivities();
+        windowClosed = true;
+        Runnable stopTask = () -> {
+            cleanupAllActivities();
+            if (frame != null) {
                 frame.dispose();
-            });
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            stopTask.run();
+        } else {
+            SwingUtilities.invokeLater(stopTask);
         }
     }
 
     private void cleanupAllActivities() {
+        windowClosed = true;
+        stopLoadingAnimTimer();
+        if (bootGraceTimer != null) {
+            bootGraceTimer.stop();
+            bootGraceTimer = null;
+        }
         if (perfStatsTimer != null) {
             perfStatsTimer.stop();
             perfStatsTimer = null;
@@ -320,13 +450,17 @@ public final class HostWindow {
             } catch (Exception ignored) {
             }
         }
-        try {
-            runtimeContext.stopAllServices();
-        } catch (Exception ignored) {
+        if (runtimeContext != null) {
+            try {
+                runtimeContext.stopAllServices();
+            } catch (Exception ignored) {
+            }
         }
-        try {
-            application.onTerminate();
-        } catch (Exception ignored) {
+        if (application != null) {
+            try {
+                application.onTerminate();
+            } catch (Exception ignored) {
+            }
         }
         if (onWindowClosedCallback != null) {
             Runnable cb = onWindowClosedCallback;
@@ -350,7 +484,9 @@ public final class HostWindow {
     public FrameStats getFrameStats() {
         Runtime rt = Runtime.getRuntime();
         long usedMb = Math.max(0L, (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L));
-        double cacheHit = runtimeContext.getResources().getCacheStats().hitRatioPercent();
+        double cacheHit = runtimeContext != null
+                ? runtimeContext.getResources().getCacheStats().hitRatioPercent()
+                : 0.0;
         return new FrameStats(
                 currentFps,
                 lastFrameMs,
@@ -446,6 +582,10 @@ public final class HostWindow {
 
     private void syncConfigurationAndRelayout(boolean targetLandscape, boolean forceLayout) {
         this.landscape = targetLandscape;
+        if (runtimeContext == null) {
+            repaintViewport();
+            return;
+        }
         Activity top = activityStack.peek();
         int topOff = viewport != null ? viewport.contentTopOffset(top) : (STATUS_BAR_H + ACTION_BAR_H);
         int ch = Math.max(0, logicalHeight - topOff - NAV_BAR_H);
@@ -458,9 +598,11 @@ public final class HostWindow {
         }
         if (orientationChanged) {
             Configuration cfg = new Configuration(res.getConfiguration());
-            try {
-                application.onConfigurationChanged(cfg);
-            } catch (Throwable ignored) {
+            if (application != null) {
+                try {
+                    application.onConfigurationChanged(cfg);
+                } catch (Throwable ignored) {
+                }
             }
             if (top != null) {
                 try {
@@ -574,72 +716,406 @@ public final class HostWindow {
         return btn;
     }
 
-    public void showWindow(String initialActivityClass) {
-        SwingUtilities.invokeLater(() -> {
-            String appLabel = runtimeContext.getManifest().label != null
-                    ? runtimeContext.getManifest().label
-                    : runtimeContext.getPackageName();
-            frame = new JFrame(appLabel + " — AAOW");
-            frame.setDefaultCloseOperation(exitProcessOnClose ? JFrame.EXIT_ON_CLOSE : JFrame.DISPOSE_ON_CLOSE);
-            frame.setLayout(new BorderLayout());
-            frame.setMinimumSize(new Dimension(340, 420));
-            frame.addWindowListener(new java.awt.event.WindowAdapter() {
-                @Override
-                public void windowClosed(java.awt.event.WindowEvent e) {
-                    cleanupAllActivities();
+    private void ensureFrameInitialized() {
+        if (frame != null) {
+            return;
+        }
+        String appLabel = (windowAppLabel != null && !windowAppLabel.isBlank())
+                ? windowAppLabel
+                : (runtimeContext != null && runtimeContext.getManifest().label != null
+                        ? runtimeContext.getManifest().label
+                        : (runtimeContext != null ? runtimeContext.getPackageName() : "AAOW"));
+        frame = new JFrame(appLabel + " — AAOW");
+        frame.setDefaultCloseOperation(exitProcessOnClose ? JFrame.EXIT_ON_CLOSE : JFrame.DISPOSE_ON_CLOSE);
+        frame.setLayout(new BorderLayout());
+        frame.setMinimumSize(new Dimension(340, 420));
+        frame.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                windowClosed = true;
+                stopLoadingAnimTimer();
+                if (bootGraceTimer != null) {
+                    bootGraceTimer.stop();
+                    bootGraceTimer = null;
                 }
-            });
-
-            Bitmap iconBmp = runtimeContext.getManifest().iconRes != 0
-                    ? runtimeContext.getResources().loadBitmap(runtimeContext.getManifest().iconRes)
-                    : null;
-            if (iconBmp != null && !iconBmp.isRecycled()) {
-                frame.setIconImage(iconBmp.getAwtImage());
             }
 
-            frame.add(buildControlBar(), BorderLayout.NORTH);
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                cleanupAllActivities();
+            }
+        });
 
-            viewport = new DeviceViewport();
-            viewport.setPreferredSize(new Dimension(logicalWidth, logicalHeight));
-            viewport.addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    if (viewportZoom <= 0f && viewport.getWidth() > 0 && viewport.getHeight() > 0) {
-                        int nw = viewport.getWidth();
-                        int nh = viewport.getHeight();
-                        if (nw != logicalWidth || nh != logicalHeight) {
-                            logicalWidth = nw;
-                            logicalHeight = nh;
-                            syncConfigurationAndRelayout(nw > nh, true);
-                            updateControlBarLabels();
-                        }
+        if (loadingAppIcon != null) {
+            frame.setIconImage(loadingAppIcon);
+        } else if (runtimeContext != null && runtimeContext.getManifest().iconRes != 0) {
+            Bitmap iconBmp = runtimeContext.getResources().loadBitmap(runtimeContext.getManifest().iconRes);
+            if (iconBmp != null && !iconBmp.isRecycled()) {
+                this.loadingAppIcon = iconBmp.getAwtImage();
+                frame.setIconImage(this.loadingAppIcon);
+            }
+        }
+
+        frame.add(buildControlBar(), BorderLayout.NORTH);
+
+        viewport = new DeviceViewport();
+        viewport.setPreferredSize(new Dimension(logicalWidth, logicalHeight));
+        viewport.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                if (viewportZoom <= 0f && viewport.getWidth() > 0 && viewport.getHeight() > 0) {
+                    int nw = viewport.getWidth();
+                    int nh = viewport.getHeight();
+                    if (nw != logicalWidth || nh != logicalHeight) {
+                        logicalWidth = nw;
+                        logicalHeight = nh;
+                        syncConfigurationAndRelayout(nw > nh, true);
+                        updateControlBarLabels();
                     }
                 }
-            });
-            frame.add(viewport, BorderLayout.CENTER);
+            }
+        });
+        frame.add(viewport, BorderLayout.CENTER);
 
-            inspectorPanel = buildInspectorPanel();
-            inspectorPanel.setVisible(false);
-            frame.add(inspectorPanel, BorderLayout.EAST);
+        inspectorPanel = buildInspectorPanel();
+        inspectorPanel.setVisible(false);
+        frame.add(inspectorPanel, BorderLayout.EAST);
+
+        perfStatsTimer = new Timer(500, e -> {
+            if (perfLabel != null && frame != null && frame.isDisplayable()) {
+                FrameStats st = getFrameStats();
+                perfLabel.setText(String.format("%d fps • %.1f ms • %d MB",
+                        st.fps(), st.lastFrameMs(), st.heapUsedMb()));
+            }
+        });
+        perfStatsTimer.start();
+
+        frame.pack();
+        frame.setLocationRelativeTo(null);
+        frame.setVisible(true);
+        viewport.requestFocusInWindow();
+    }
+
+    /**
+     * Mở ngay cửa sổ thiết bị với hiệu ứng nạp APK 60fps trong lúc luồng nền đang dịch DEX
+     * và khởi tạo Android Runtime.
+     */
+    public void showLoadingWindow() {
+        this.interactiveLoadingEnabled = true;
+        this.bootState = BootState.LOADING_APK;
+        this.loadingStartMs = System.currentTimeMillis();
+        this.loadingOverlayAlpha = 1.0f;
+        Runnable r = () -> {
+            if (windowClosed) return;
+            ensureFrameInitialized();
+            startLoadingAnimTimer();
+            repaintViewport();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    /**
+     * Cập nhật tiến độ nạp/biên dịch APK hiển thị trên màn hình chờ (an toàn đa luồng).
+     */
+    public void updateLoadingProgress(float progress, String stageText, String detailText) {
+        if (windowClosed || appEverBooted || bootState == BootState.FAILED) {
+            return;
+        }
+        float clamped = Math.max(0.02f, Math.min(0.98f, progress));
+        this.targetLoadingProgress = Math.max(this.targetLoadingProgress, clamped);
+        if (stageText != null && !stageText.isBlank()) {
+            this.loadingStageText = stageText;
+        }
+        if (detailText != null) {
+            this.loadingDetailText = detailText;
+        }
+        Runnable r = this::repaintViewport;
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    /**
+     * Gắn AndroidRuntimeContext & Application sau khi dịch DEX xong và khởi chạy Activity đầu tiên.
+     */
+    public void attachRuntimeAndLaunch(AndroidRuntimeContext ctx, Application app, String initialActivityClass) {
+        Runnable r = () -> {
+            if (windowClosed) {
+                return;
+            }
+            this.runtimeContext = ctx;
+            this.application = app;
+            initRuntimeBindings();
+            ensureFrameInitialized();
+            if (frame != null && ctx != null) {
+                String appLabel = (ctx.getManifest().label != null && !ctx.getManifest().label.isBlank())
+                        ? ctx.getManifest().label
+                        : ctx.getPackageName();
+                this.windowAppLabel = appLabel;
+                frame.setTitle(appLabel + " — AAOW");
+                if (this.loadingAppIcon != null) {
+                    frame.setIconImage(this.loadingAppIcon);
+                }
+            }
+            this.targetLoadingProgress = Math.max(this.targetLoadingProgress, 0.92f);
+            this.loadingStageText = "Đang khởi động màn hình chính...";
+            if (initialActivityClass != null) {
+                this.loadingDetailText = simpleName(initialActivityClass);
+            }
+
+            Intent mainIntent = new Intent(Intent.ACTION_MAIN);
+            mainIntent.addCategory(Intent.CATEGORY_LAUNCHER);
+            mainIntent.setClassName(ctx.getPackageName(), initialActivityClass);
+            startActivity(mainIntent);
+            if (!appEverBooted && interactiveLoadingEnabled) {
+                loadingOverlayAlpha = 1.0f;
+                startLoadingAnimTimer();
+            }
+            if (viewport != null) {
+                viewport.requestFocusInWindow();
+            }
+            repaintViewport();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    /**
+     * Báo lỗi khởi chạy trước khi ứng dụng kịp hiển thị giao diện chính.
+     */
+    public void showBootFailure(String message, Throwable error) {
+        if (windowClosed || appEverBooted) {
+            return;
+        }
+        Runnable r = () -> {
+            if (windowClosed || appEverBooted) {
+                return;
+            }
+            if (bootGraceTimer != null) {
+                bootGraceTimer.stop();
+                bootGraceTimer = null;
+            }
+            this.bootFailureError = error;
+            this.bootFailureMessage = (message != null && !message.isBlank())
+                    ? message
+                    : summarizeLaunchError(error);
+            this.bootState = BootState.FAILED;
+            if (interactiveLoadingEnabled) {
+                this.loadingOverlayAlpha = 1.0f;
+                startLoadingAnimTimer();
+            }
+            repaintViewport();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    /**
+     * Chỉ mở màn hình Báo cáo Tương thích AAOW khi người dùng chủ động yêu cầu
+     * (từ nút "Xem Báo cáo Tương thích" khi boot lỗi hoặc chờ quá lâu).
+     */
+    public void openDiagnosticsManually() {
+        Runnable r = () -> {
+            if (runtimeContext == null) {
+                return;
+            }
+            Activity top = activityStack.peek();
+            if (top == null) {
+                Activity placeholder = new Activity();
+                String title = windowAppLabel != null ? windowAppLabel : runtimeContext.getPackageName();
+                placeholder.attach(runtimeContext, application, new Intent(Intent.ACTION_MAIN), title,
+                        () -> finishActivity(placeholder), this::repaintViewport);
+                activityStack.push(placeholder);
+                top = placeholder;
+            }
+            if (top.getWindow() != null && top.getWindow().getDecorView() instanceof FrameLayout decor) {
+                decor.removeAllViews();
+                String attempted = lastAttemptedActivity != null
+                        ? lastAttemptedActivity
+                        : runtimeContext.getManifest().launcherActivity;
+                decor.addView(buildDiagnosticFallbackView(top, attempted, bootFailureError),
+                        new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            showingDiagnosticFallback = true;
+            bootState = BootState.BOOTED;
+            loadingOverlayAlpha = 0f;
+            stopLoadingAnimTimer();
+            if (bootGraceTimer != null) {
+                bootGraceTimer.stop();
+                bootGraceTimer = null;
+            }
+            forceNextLayout = true;
+            repaintViewport();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
+
+    /** Chụp khung hình màn hình loading hiện tại phục vụ kiểm thử giao diện. */
+    public BufferedImage renderLoadingSnapshot(int width, int height) throws Exception {
+        int w = Math.max(240, width);
+        int h = Math.max(240, height);
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Runnable paint = () -> {
+            this.interactiveLoadingEnabled = true;
+            if (this.loadingOverlayAlpha <= 0f && this.bootState != BootState.BOOTED) {
+                this.loadingOverlayAlpha = 1.0f;
+            }
+            if (viewport == null) {
+                viewport = new DeviceViewport();
+            }
+            viewport.setSize(w, h);
+            Graphics2D g2 = img.createGraphics();
+            viewport.paintComponent(g2);
+            g2.dispose();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            paint.run();
+        } else {
+            SwingUtilities.invokeAndWait(paint);
+        }
+        return img;
+    }
+
+    private void startLoadingAnimTimer() {
+        if (loadingAnimTimer != null) {
+            if (!loadingAnimTimer.isRunning()) {
+                loadingAnimTimer.start();
+            }
+            return;
+        }
+        loadingAnimTimer = new Timer(16, e -> {
+            if (windowClosed) {
+                stopLoadingAnimTimer();
+                return;
+            }
+            animPhase += 0.085f;
+            if (bootState == BootState.BOOTED) {
+                if (fadeOutStartMs == 0L) {
+                    fadeOutStartMs = System.currentTimeMillis();
+                }
+                long elapsed = System.currentTimeMillis() - fadeOutStartMs;
+                float nextAlpha = Math.max(0f, 1.0f - (elapsed / (float) BOOT_FADE_OUT_MS));
+                loadingOverlayAlpha = nextAlpha;
+                if (nextAlpha <= 0.005f) {
+                    loadingOverlayAlpha = 0f;
+                    stopLoadingAnimTimer();
+                }
+            } else {
+                float goal = targetLoadingProgress;
+                if (bootState == BootState.WAITING_FOR_UI && goal < 0.97f) {
+                    long waitBase = waitingUiStartMs > 0L ? waitingUiStartMs : loadingStartMs;
+                    long waitElapsed = Math.max(0L, System.currentTimeMillis() - waitBase);
+                    float asymptotic = 0.90f + 0.07f * (1.0f - (float) Math.exp(-waitElapsed / 2500.0));
+                    goal = Math.min(0.97f, Math.max(goal, asymptotic));
+                }
+                displayedLoadingProgress += (goal - displayedLoadingProgress) * 0.18f;
+                if (Math.abs(goal - displayedLoadingProgress) < 0.002f) {
+                    displayedLoadingProgress = goal;
+                }
+            }
+            if (viewport != null) {
+                viewport.repaint();
+            }
+        });
+        loadingAnimTimer.start();
+    }
+
+    private void stopLoadingAnimTimer() {
+        if (loadingAnimTimer != null) {
+            loadingAnimTimer.stop();
+            loadingAnimTimer = null;
+        }
+    }
+
+    private boolean hasRealAppContent(Activity act) {
+        if (act == null || act.isFinishing() || act.isDestroyed()) {
+            return false;
+        }
+        if (!activeDialogs.isEmpty()) {
+            return true;
+        }
+        if (act.getWindow() != null && act.getWindow().getDecorView() instanceof ViewGroup vg && vg.getChildCount() > 0) {
+            return !DIAGNOSTIC_VIEW_TAG.equals(vg.getChildAt(0).getTag());
+        }
+        return false;
+    }
+
+    private void markAppBooted() {
+        if (appEverBooted && bootState == BootState.BOOTED) {
+            return;
+        }
+        appEverBooted = true;
+        showingDiagnosticFallback = false;
+        bootState = BootState.BOOTED;
+        targetLoadingProgress = 1.0f;
+        displayedLoadingProgress = 1.0f;
+        if (bootGraceTimer != null) {
+            bootGraceTimer.stop();
+            bootGraceTimer = null;
+        }
+        if (interactiveLoadingEnabled && loadingOverlayAlpha > 0f) {
+            if (fadeOutStartMs == 0L) {
+                fadeOutStartMs = System.currentTimeMillis();
+            }
+            startLoadingAnimTimer();
+        } else {
+            loadingOverlayAlpha = 0f;
+            stopLoadingAnimTimer();
+        }
+    }
+
+    private static String summarizeLaunchError(Throwable error) {
+        if (error == null) {
+            return "Không thể khởi chạy Activity mở đầu.";
+        }
+        Throwable cause = error.getCause() != null ? error.getCause() : error;
+        String msg = cause.getMessage();
+        String head = cause.getClass().getSimpleName()
+                + (msg != null && !msg.isBlank() ? ": " + msg : "");
+        if (cause.getStackTrace().length > 0) {
+            head += "\nTại: " + cause.getStackTrace()[0];
+        }
+        return head;
+    }
+
+    public void showWindow(String initialActivityClass) {
+        this.interactiveLoadingEnabled = true;
+        if (!appEverBooted) {
+            this.loadingStartMs = System.currentTimeMillis();
+            this.loadingOverlayAlpha = 1.0f;
+        }
+        SwingUtilities.invokeLater(() -> {
+            if (windowClosed) return;
+            ensureFrameInitialized();
 
             Intent mainIntent = new Intent(Intent.ACTION_MAIN);
             mainIntent.addCategory(Intent.CATEGORY_LAUNCHER);
             mainIntent.setClassName(runtimeContext.getPackageName(), initialActivityClass);
             startActivity(mainIntent);
-
-            perfStatsTimer = new Timer(500, e -> {
-                if (perfLabel != null && frame != null && frame.isDisplayable()) {
-                    FrameStats st = getFrameStats();
-                    perfLabel.setText(String.format("%d fps • %.1f ms • %d MB",
-                            st.fps(), st.lastFrameMs(), st.heapUsedMb()));
-                }
-            });
-            perfStatsTimer.start();
-
-            frame.pack();
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-            viewport.requestFocusInWindow();
+            if (!appEverBooted) {
+                loadingOverlayAlpha = 1.0f;
+                startLoadingAnimTimer();
+            }
+            if (viewport != null) {
+                viewport.requestFocusInWindow();
+            }
         });
     }
 
@@ -713,9 +1189,12 @@ public final class HostWindow {
                         SwingUtilities.invokeAndWait(() -> {
                         });
                     }
-                    break;
+                    if (hasRealAppContent(activityStack.peek())) {
+                        break;
+                    }
+                    continue;
                 }
-                if (getActiveDialog() instanceof android.app.ProgressDialog || onSplash) {
+                if (getActiveDialog() instanceof android.app.ProgressDialog || onSplash || !hasRealAppContent(curTop)) {
                     Thread.sleep(120);
                     if (!SwingUtilities.isEventDispatchThread()) {
                         SwingUtilities.invokeAndWait(() -> {
@@ -728,7 +1207,8 @@ public final class HostWindow {
                     SwingUtilities.invokeAndWait(() -> {
                     });
                 }
-                if (!(getActiveDialog() instanceof android.app.ProgressDialog)) {
+                if (!(getActiveDialog() instanceof android.app.ProgressDialog)
+                        && hasRealAppContent(activityStack.peek())) {
                     break;
                 }
             }
@@ -1143,6 +1623,7 @@ public final class HostWindow {
         }
         Log.i("AAOW-ActivityManager", "Starting Activity: " + clsName);
 
+        lastAttemptedActivity = clsName;
         if (launchError == null) {
             try {
                 activeAct.performCreate(null);
@@ -1158,16 +1639,40 @@ public final class HostWindow {
             Log.e("AAOW-ActivityManager", "Lỗi nạp lớp Activity " + clsName + ": " + launchError, launchError);
         }
 
-        if (!activeAct.isFinishing() && !activeAct.isDestroyed()) {
-            FrameLayout decor = (FrameLayout) activeAct.getWindow().getDecorView();
-            boolean needFallback = (decor.getChildCount() == 0);
-            if (needFallback) {
-                decor.addView(buildDiagnosticFallbackView(activeAct, clsName, launchError),
-                        new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT));
+        // Tuyệt đối không tự động bung màn hình thiếu tài nguyên / Báo cáo Tương thích
+        // trước khi ứng dụng thực sự boot vào giao diện chính.
+        Activity top = activityStack.peek();
+        if (hasRealAppContent(top)) {
+            markAppBooted();
+        } else if (!appEverBooted) {
+            showingDiagnosticFallback = false;
+            if (bootState != BootState.FAILED) {
+                bootState = BootState.WAITING_FOR_UI;
+                if (waitingUiStartMs == 0L) {
+                    waitingUiStartMs = System.currentTimeMillis();
+                }
+                targetLoadingProgress = Math.max(targetLoadingProgress, 0.94f);
+                loadingStageText = "Đang khởi động giao diện ứng dụng...";
+                loadingDetailText = simpleName(clsName);
             }
-            if (activeAct == activityStack.peek()) {
-                showingDiagnosticFallback = needFallback;
+            if (interactiveLoadingEnabled) {
+                loadingOverlayAlpha = 1.0f;
+                startLoadingAnimTimer();
+            }
+            if (launchError != null) {
+                bootFailureError = launchError;
+                bootFailureMessage = summarizeLaunchError(launchError);
+                if (interactiveLoadingEnabled && (bootGraceTimer == null || !bootGraceTimer.isRunning())) {
+                    bootGraceTimer = new Timer(LAUNCH_ERROR_GRACE_MS, ev -> {
+                        if (!appEverBooted && !windowClosed && !hasRealAppContent(activityStack.peek())) {
+                            bootState = BootState.FAILED;
+                            loadingOverlayAlpha = 1.0f;
+                            repaintViewport();
+                        }
+                    });
+                    bootGraceTimer.setRepeats(false);
+                    bootGraceTimer.start();
+                }
             }
         }
 
@@ -1338,6 +1843,7 @@ public final class HostWindow {
 
         scroll.addView(root, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scroll.setTag(DIAGNOSTIC_VIEW_TAG);
         return scroll;
     }
 
@@ -1440,14 +1946,27 @@ public final class HostWindow {
         if (!inspectorVisible || inspectorArea == null)
             return;
         StringBuilder sb = new StringBuilder();
-        AndroidManifest mf = runtimeContext.getManifest();
         sb.append("=== AAOW LIVE INSPECTOR ===\n");
+        if (runtimeContext == null) {
+            sb.append("Ứng dụng  : ").append(windowAppLabel).append("\n");
+            sb.append("Package   : ").append(windowPackageName).append("\n");
+            sb.append("Trạng thái: ").append(bootState).append(" (")
+                    .append(Math.round(displayedLoadingProgress * 100)).append("%)\n");
+            sb.append("Giai đoạn : ").append(loadingStageText).append("\n");
+            if (bootFailureMessage != null) {
+                sb.append("Lỗi       : ").append(bootFailureMessage).append("\n");
+            }
+            inspectorArea.setText(sb.toString());
+            return;
+        }
+        AndroidManifest mf = runtimeContext.getManifest();
         sb.append("Package   : ").append(mf.packageName).append("\n");
         sb.append("Version   : ").append(mf.versionName).append(" (").append(mf.versionCode).append(")\n");
         sb.append("SDK       : min=").append(mf.minSdk).append(", target=").append(mf.targetSdk).append("\n");
         sb.append("Resources : ").append(runtimeContext.getResources().getTable().size()).append(" entries\n");
         Activity top = activityStack.peek();
         sb.append("Activity  : ").append(top != null ? top.getClass().getName() : "<none>").append("\n");
+        sb.append("BootState : ").append(bootState).append("\n");
         sb.append("Stack     : ").append(activityStack.size()).append(" activity\n");
         sb.append("Stubs     : ").append(NativeBridge.getStubbedClasses().size())
                 .append(" class, ").append(NativeBridge.getStubMethodCalls().size()).append(" method đã gọi\n\n");
@@ -1510,6 +2029,9 @@ public final class HostWindow {
     }
 
     public void repaintViewport() {
+        if (bootState != BootState.BOOTED && hasRealAppContent(activityStack.peek())) {
+            markAppBooted();
+        }
         if (viewport == null)
             return;
         if (inspectorVisible) {
@@ -1714,6 +2236,28 @@ public final class HostWindow {
         }
 
         private void handleMouse(int action, int mx, int my) {
+            if (interactiveLoadingEnabled && bootState != BootState.BOOTED) {
+                if (action == MotionEvent.ACTION_UP) {
+                    if (loadingDiagBtnRect != null && loadingDiagBtnRect.contains(mx, my)) {
+                        openDiagnosticsManually();
+                        return;
+                    }
+                    if (loadingCloseBtnRect != null && loadingCloseBtnRect.contains(mx, my)) {
+                        if (frame != null) {
+                            cleanupAllActivities();
+                            frame.dispose();
+                            if (exitProcessOnClose) {
+                                System.exit(0);
+                            }
+                        } else {
+                            forceStop();
+                        }
+                        return;
+                    }
+                }
+                return;
+            }
+
             Activity act = activityStack.peek();
             if (act == null)
                 return;
@@ -1846,12 +2390,15 @@ public final class HostWindow {
             }
 
             Activity act = activityStack.peek();
+            if (bootState != BootState.BOOTED && hasRealAppContent(act)) {
+                markAppBooted();
+            }
 
             // Nền mặc định sáng sạch của Android
             g2.setColor(COL_VIEWPORT_BG);
             g2.fillRect(0, 0, w, h);
 
-            if (act != null) {
+            if (act != null && runtimeContext != null) {
                 int topY = STATUS_BAR_H;
                 boolean showAb = isActionBarVisible(act);
                 int contentTop = topY + (showAb ? ACTION_BAR_H : 0);
@@ -1913,6 +2460,9 @@ public final class HostWindow {
             }
 
             drawNavigationBar(g2, w, h);
+            if (interactiveLoadingEnabled && (bootState != BootState.BOOTED || loadingOverlayAlpha > 0.01f)) {
+                drawApkLoadingOverlay(g2, w, h);
+            }
             g2.dispose();
 
             long nowNs = System.nanoTime();
@@ -2509,6 +3059,318 @@ public final class HostWindow {
                 g2.setColor(COL_NAV_ACTIVE);
             }
             g2.drawRoundRect(rx - 8, cy - 8, 16, 16, 4, 4);
+        }
+
+        private void drawApkLoadingOverlay(Graphics2D g2, int w, int h) {
+            loadingDiagBtnRect = null;
+            loadingCloseBtnRect = null;
+
+            float alpha = Math.max(0f, Math.min(1f, loadingOverlayAlpha));
+            if (alpha <= 0.005f) {
+                return;
+            }
+            Composite prevComp = g2.getComposite();
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+            try {
+                g2.setPaint(new GradientPaint(0, 0, new java.awt.Color(0x0F111A), 0, h, new java.awt.Color(0x161B2E)));
+                g2.fillRect(0, 0, w, h);
+
+                boolean failed = (bootState == BootState.FAILED);
+                int cx = w / 2;
+                int cy = Math.max(130, Math.round(h * 0.34f));
+
+                // Vầng sáng radial phía sau icon
+                float pulse = 0.5f + 0.5f * (float) Math.sin(animPhase * 0.7f);
+                float haloR = 92f + 12f * pulse;
+                java.awt.Color haloCenter = failed
+                        ? new java.awt.Color(239, 83, 80, 56)
+                        : new java.awt.Color(88, 101, 242, Math.round(44 + 26 * pulse));
+                g2.setPaint(new RadialGradientPaint(
+                        new Point2D.Float(cx, cy), haloR,
+                        new float[] { 0f, 1f },
+                        new java.awt.Color[] { haloCenter, new java.awt.Color(0, 0, 0, 0) }));
+                g2.fillOval(Math.round(cx - haloR), Math.round(cy - haloR), Math.round(haloR * 2), Math.round(haloR * 2));
+
+                // Vòng xoay kép (Dual Orbital Spinner)
+                int ringR = 54;
+                g2.setColor(new java.awt.Color(255, 255, 255, 24));
+                g2.setStroke(new BasicStroke(3.0f));
+                g2.drawOval(cx - ringR, cy - ringR, ringR * 2, ringR * 2);
+
+                if (failed) {
+                    g2.setColor(new java.awt.Color(0xEF5350));
+                    g2.setStroke(new BasicStroke(3.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.drawOval(cx - ringR, cy - ringR, ringR * 2, ringR * 2);
+                } else {
+                    float deg1 = (animPhase * 57.2958f) % 360f;
+                    g2.setColor(new java.awt.Color(0x7C8CFF));
+                    g2.setStroke(new BasicStroke(3.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.draw(new Arc2D.Float(cx - ringR, cy - ringR, ringR * 2, ringR * 2, deg1, 118f, Arc2D.OPEN));
+
+                    int innerR = 45;
+                    float deg2 = (-animPhase * 42.0f + 180f) % 360f;
+                    g2.setColor(new java.awt.Color(0x3DDC84));
+                    g2.setStroke(new BasicStroke(2.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.draw(new Arc2D.Float(cx - innerR, cy - innerR, innerR * 2, innerR * 2, deg2, 84f, Arc2D.OPEN));
+                }
+
+                // Khung icon 72x72 bo tròn
+                int iconSize = 72;
+                int ix = cx - iconSize / 2;
+                int iy = cy - iconSize / 2;
+                g2.setColor(new java.awt.Color(0, 0, 0, 90));
+                g2.fill(new RoundRectangle2D.Float(ix + 2, iy + 5, iconSize, iconSize, 20, 20));
+                g2.setColor(new java.awt.Color(0x1E2336));
+                g2.fill(new RoundRectangle2D.Float(ix, iy, iconSize, iconSize, 20, 20));
+                g2.setColor(failed ? new java.awt.Color(0xEF5350) : new java.awt.Color(0x333B5C));
+                g2.setStroke(new BasicStroke(1.4f));
+                g2.draw(new RoundRectangle2D.Float(ix, iy, iconSize, iconSize, 20, 20));
+
+                Image iconImg = loadingAppIcon;
+                if (iconImg != null) {
+                    Shape prevClip = g2.getClip();
+                    g2.setClip(new RoundRectangle2D.Float(ix + 4, iy + 4, iconSize - 8, iconSize - 8, 16, 16));
+                    g2.drawImage(iconImg, ix + 4, iy + 4, iconSize - 8, iconSize - 8, null);
+                    g2.setClip(prevClip);
+                } else {
+                    g2.setPaint(new GradientPaint(ix, iy, new java.awt.Color(0x5865F2),
+                            ix + iconSize, iy + iconSize, new java.awt.Color(0x2ECC71)));
+                    g2.fill(new RoundRectangle2D.Float(ix + 6, iy + 6, iconSize - 12, iconSize - 12, 14, 14));
+                    String initial = (windowAppLabel != null && !windowAppLabel.isEmpty())
+                            ? windowAppLabel.substring(0, 1).toUpperCase()
+                            : "A";
+                    g2.setColor(java.awt.Color.WHITE);
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 28));
+                    FontMetrics ifm = g2.getFontMetrics();
+                    g2.drawString(initial, cx - ifm.stringWidth(initial) / 2,
+                            cy + (ifm.getAscent() - ifm.getDescent()) / 2);
+                }
+
+                if (failed) {
+                    int bx = ix + iconSize - 16;
+                    int by = iy - 4;
+                    g2.setColor(new java.awt.Color(0xEF5350));
+                    g2.fillOval(bx, by, 22, 22);
+                    g2.setColor(java.awt.Color.WHITE);
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
+                    g2.drawString("!", bx + 8, by + 16);
+                }
+
+                // Tên ứng dụng + pill package
+                int textY = cy + ringR + 36;
+                String title = (windowAppLabel != null && !windowAppLabel.isBlank()) ? windowAppLabel : "Android App";
+                g2.setFont(new Font("Segoe UI", Font.BOLD, 20));
+                g2.setColor(new java.awt.Color(0xF2F4FA));
+                FontMetrics tfm = g2.getFontMetrics();
+                int maxTitleW = Math.max(120, w - 48);
+                while (title.length() > 1 && tfm.stringWidth(title) > maxTitleW) {
+                    title = title.substring(0, title.length() - 2) + "…";
+                }
+                g2.drawString(title, cx - tfm.stringWidth(title) / 2, textY);
+
+                String pkgSub = (windowPackageName != null && !windowPackageName.isBlank())
+                        ? windowPackageName + (windowVersionLabel != null && !windowVersionLabel.isBlank()
+                                ? "  •  v" + windowVersionLabel
+                                : "")
+                        : "AAOW Direct Compatibility Layer";
+                g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                FontMetrics pfm = g2.getFontMetrics();
+                while (pkgSub.length() > 1 && pfm.stringWidth(pkgSub) > w - 64) {
+                    pkgSub = pkgSub.substring(0, pkgSub.length() - 2) + "…";
+                }
+                int pillW = Math.min(w - 40, pfm.stringWidth(pkgSub) + 22);
+                int pillX = cx - pillW / 2;
+                int pillY = textY + 12;
+                g2.setColor(new java.awt.Color(0x1C2136));
+                g2.fill(new RoundRectangle2D.Float(pillX, pillY, pillW, 22, 11, 11));
+                g2.setColor(new java.awt.Color(0x2E3552));
+                g2.setStroke(new BasicStroke(1f));
+                g2.draw(new RoundRectangle2D.Float(pillX, pillY, pillW, 22, 11, 11));
+                g2.setColor(new java.awt.Color(0x9AA2C2));
+                g2.drawString(pkgSub, cx - pfm.stringWidth(pkgSub) / 2, pillY + 15);
+
+                long elapsedMs = Math.max(0L, System.currentTimeMillis() - loadingStartMs);
+
+                if (failed) {
+                    int cardW = Math.min(w - 48, 344);
+                    int cardX = cx - cardW / 2;
+                    int cardY = pillY + 40;
+                    g2.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                    FontMetrics efm = g2.getFontMetrics();
+                    String errMsg = bootFailureMessage != null ? bootFailureMessage
+                            : "Không thể khởi chạy Activity mở đầu.";
+                    List<String> lines = wrapDialogLines(errMsg, cardW - 28, efm);
+                    if (lines.size() > 5) {
+                        lines = new ArrayList<>(lines.subList(0, 5));
+                        lines.set(4, lines.get(4) + "…");
+                    }
+                    int cardH = Math.max(66, 44 + lines.size() * 18);
+                    g2.setColor(new java.awt.Color(0x241720));
+                    g2.fill(new RoundRectangle2D.Float(cardX, cardY, cardW, cardH, 14, 14));
+                    g2.setColor(new java.awt.Color(0x7F2D36));
+                    g2.draw(new RoundRectangle2D.Float(cardX, cardY, cardW, cardH, 14, 14));
+
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                    g2.setColor(new java.awt.Color(0xFF8A80));
+                    g2.drawString("Khởi chạy bị gián đoạn trước khi vào ứng dụng", cardX + 14, cardY + 22);
+
+                    g2.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                    g2.setColor(new java.awt.Color(0xE8D8DE));
+                    int ly = cardY + 42;
+                    for (String line : lines) {
+                        g2.drawString(line, cardX + 14, ly);
+                        ly += 18;
+                    }
+
+                    drawLoadingActionButtons(g2, w, cardY + cardH + 22, true);
+                } else {
+                    // Thanh tiến trình mượt + Shimmer
+                    int barW = Math.min(w - 84, 276);
+                    int barX = cx - barW / 2;
+                    int barY = pillY + 46;
+                    g2.setColor(new java.awt.Color(0x1E243B));
+                    g2.fill(new RoundRectangle2D.Float(barX, barY, barW, 8, 8, 8));
+
+                    float p = Math.max(0.04f, Math.min(1.0f, displayedLoadingProgress));
+                    int fillW = Math.max(12, Math.round(barW * p));
+                    Shape fillShape = new RoundRectangle2D.Float(barX, barY, fillW, 8, 8, 8);
+                    g2.setPaint(new GradientPaint(barX, barY, new java.awt.Color(0x5865F2),
+                            barX + barW, barY, new java.awt.Color(0x3DDC84)));
+                    g2.fill(fillShape);
+
+                    Shape prevClip = g2.getClip();
+                    g2.setClip(fillShape);
+                    float shimmerX = barX + ((animPhase * 34f) % (barW + 80)) - 40f;
+                    g2.setPaint(new GradientPaint(
+                            shimmerX, barY, new java.awt.Color(255, 255, 255, 0),
+                            shimmerX + 24f, barY, new java.awt.Color(255, 255, 255, 130),
+                            true));
+                    g2.fillRect(Math.round(shimmerX), barY, 48, 8);
+                    g2.setClip(prevClip);
+
+                    // % và thời gian trôi qua
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+                    g2.setColor(new java.awt.Color(0x8CE9B0));
+                    g2.drawString(Math.round(p * 100) + "%", barX, barY + 26);
+
+                    String timeStr = String.format("%.1fs", elapsedMs / 1000.0);
+                    g2.setFont(new Font("Consolas", Font.PLAIN, 11));
+                    g2.setColor(new java.awt.Color(0x7D86A8));
+                    FontMetrics timeFm = g2.getFontMetrics();
+                    g2.drawString(timeStr, barX + barW - timeFm.stringWidth(timeStr), barY + 26);
+
+                    // 4 chấm chỉ báo giai đoạn: APK -> DEX -> Runtime -> UI
+                    int activeStep = p < 0.15f ? 0 : (p < 0.78f ? 1 : (p < 0.90f ? 2 : 3));
+                    String[] steps = { "APK", "DEX", "Runtime", "UI" };
+                    int stepSpan = Math.min(barW, 240);
+                    int stepStartX = cx - stepSpan / 2;
+                    int stepY = barY + 50;
+                    for (int i = 0; i < steps.length; i++) {
+                        int sx = stepStartX + (i * stepSpan) / (steps.length - 1);
+                        if (i < steps.length - 1) {
+                            int nx = stepStartX + ((i + 1) * stepSpan) / (steps.length - 1);
+                            g2.setColor(i < activeStep ? new java.awt.Color(0x3DDC84) : new java.awt.Color(0x2A314D));
+                            g2.setStroke(new BasicStroke(2f));
+                            g2.drawLine(sx + 6, stepY, nx - 6, stepY);
+                        }
+                        if (i < activeStep) {
+                            g2.setColor(new java.awt.Color(0x3DDC84));
+                            g2.fillOval(sx - 5, stepY - 5, 10, 10);
+                        } else if (i == activeStep) {
+                            g2.setColor(new java.awt.Color(0x7C8CFF));
+                            g2.fillOval(sx - 6, stepY - 6, 12, 12);
+                            g2.setColor(java.awt.Color.WHITE);
+                            g2.fillOval(sx - 2, stepY - 2, 4, 4);
+                        } else {
+                            g2.setColor(new java.awt.Color(0x2E3552));
+                            g2.fillOval(sx - 4, stepY - 4, 8, 8);
+                        }
+                        g2.setFont(new Font("Segoe UI", i == activeStep ? Font.BOLD : Font.PLAIN, 10));
+                        g2.setColor(i <= activeStep ? new java.awt.Color(0xDCE0F5) : new java.awt.Color(0x6D7699));
+                        FontMetrics sfm = g2.getFontMetrics();
+                        g2.drawString(steps[i], sx - sfm.stringWidth(steps[i]) / 2, stepY + 18);
+                    }
+
+                    // Dòng trạng thái động
+                    int dotCount = ((int) (animPhase * 1.3f)) % 4;
+                    String baseStage = loadingStageText != null ? loadingStageText : "Đang khởi chạy";
+                    while (baseStage.endsWith(".")) {
+                        baseStage = baseStage.substring(0, baseStage.length() - 1);
+                    }
+                    String stageLine = baseStage + ".".repeat(dotCount);
+                    g2.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+                    g2.setColor(new java.awt.Color(0xE2E6FA));
+                    FontMetrics stFm = g2.getFontMetrics();
+                    while (stageLine.length() > 1 && stFm.stringWidth(stageLine) > w - 40) {
+                        stageLine = stageLine.substring(0, stageLine.length() - 2) + "…";
+                    }
+                    g2.drawString(stageLine, cx - stFm.stringWidth(stageLine) / 2, stepY + 46);
+
+                    if (loadingDetailText != null && !loadingDetailText.isBlank()) {
+                        String det = loadingDetailText;
+                        g2.setFont(new Font("Consolas", Font.PLAIN, 11));
+                        g2.setColor(new java.awt.Color(0x7D86A8));
+                        FontMetrics dfm = g2.getFontMetrics();
+                        while (det.length() > 1 && dfm.stringWidth(det) > w - 48) {
+                            det = det.substring(0, det.length() - 2) + "…";
+                        }
+                        g2.drawString(det, cx - dfm.stringWidth(det) / 2, stepY + 66);
+                    }
+
+                    long waitMs = waitingUiStartMs > 0L ? (System.currentTimeMillis() - waitingUiStartMs) : elapsedMs;
+                    if (bootState == BootState.WAITING_FOR_UI && waitMs >= WAITING_HINT_MS) {
+                        g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+                        g2.setColor(new java.awt.Color(0xFFD580));
+                        String hint = "Ứng dụng đang khởi động lâu hơn dự kiến...";
+                        FontMetrics hfm = g2.getFontMetrics();
+                        g2.drawString(hint, cx - hfm.stringWidth(hint) / 2, Math.min(h - 72, stepY + 96));
+                        drawLoadingActionButtons(g2, w, Math.min(h - 56, stepY + 108), false);
+                    }
+                }
+            } finally {
+                g2.setComposite(prevComp);
+            }
+        }
+
+        private void drawLoadingActionButtons(Graphics2D g2, int w, int btnY, boolean isFailure) {
+            int cx = w / 2;
+            int btnH = 34;
+            boolean hasDiag = runtimeContext != null;
+            if (hasDiag) {
+                String diagLabel = isFailure ? "Xem Báo cáo Tương thích" : "Xem chẩn đoán";
+                String closeLabel = "Đóng";
+                int diagW = isFailure ? 186 : 132;
+                int closeW = 86;
+                int gap = 10;
+                int totalW = diagW + gap + closeW;
+                int startX = cx - totalW / 2;
+                loadingDiagBtnRect = new Rectangle(startX, btnY, diagW, btnH);
+                loadingCloseBtnRect = new Rectangle(startX + diagW + gap, btnY, closeW, btnH);
+                drawOverlayButton(g2, loadingDiagBtnRect, diagLabel,
+                        new java.awt.Color(0x2B355A), new java.awt.Color(0x90CAF9), new java.awt.Color(0x4C5C96));
+                drawOverlayButton(g2, loadingCloseBtnRect, closeLabel,
+                        new java.awt.Color(0x2B222A), new java.awt.Color(0xFFAB91), new java.awt.Color(0x6D3942));
+            } else {
+                int closeW = 136;
+                loadingCloseBtnRect = new Rectangle(cx - closeW / 2, btnY, closeW, btnH);
+                drawOverlayButton(g2, loadingCloseBtnRect, "Đóng cửa sổ",
+                        new java.awt.Color(0x2B222A), new java.awt.Color(0xFFAB91), new java.awt.Color(0x6D3942));
+            }
+        }
+
+        private static void drawOverlayButton(Graphics2D g2, Rectangle rect, String label,
+                java.awt.Color bg, java.awt.Color fg, java.awt.Color border) {
+            g2.setColor(bg);
+            g2.fill(new RoundRectangle2D.Float(rect.x, rect.y, rect.width, rect.height, 10, 10));
+            g2.setColor(border);
+            g2.setStroke(new BasicStroke(1f));
+            g2.draw(new RoundRectangle2D.Float(rect.x, rect.y, rect.width, rect.height, 10, 10));
+            g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
+            g2.setColor(fg);
+            FontMetrics fm = g2.getFontMetrics();
+            g2.drawString(label,
+                    rect.x + (rect.width - fm.stringWidth(label)) / 2,
+                    rect.y + (rect.height + fm.getAscent() - fm.getDescent()) / 2);
         }
     }
 }
