@@ -157,3 +157,48 @@ Giai đoạn 1 (Sprint 1–8) đã dựng xong nền tảng kỹ thuật và b�
   2. Tự động hỗ trợ các trường reflection JNI phổ biến (`mNativePtr`) và mở rộng JNI HLE cho các thư viện `.so` thương mại thường gặp.
   3. Đóng gói lại bộ cài Windows (`AAOW-Setup`) sau khi nghiệm thu khả năng chạy APK thật.
 - **Tiêu chí nghiệm thu:** `com.apkpure.aegon.apk` (và/hoặc APK thương mại mục tiêu) vượt qua `SplashActivity` vào được giao diện chính trên cửa sổ Windows (Đã nghiệm thu 21/11/2026 — 60/60 tests PASS, 0 `SUPER_MISMATCH`, đóng gói lại `AAOW-Setup-1.0.0.exe`).
+
+---
+
+# Giai đoạn 3: Ổn định Sản phẩm Desktop, Split APK & Ứng dụng Thế hệ Mới (Sprint 14–16)
+
+Sau khi hoàn thành Giai đoạn 1–2 và phát hành mốc **`v1.0.0`** (kèm hiệu ứng load APK, boot-gating không hiện màn hình thiếu tài nguyên trước khi vào app và bộ tài liệu HDSD EN/VI), Giai đoạn 3 tập trung nâng cấp độ ổn định khi sử dụng hàng ngày trên desktop Windows và mở rộng hỗ trợ sang các gói ứng dụng Android thế hệ mới.
+
+## Sprint 14: Cô lập Tiến trình Đa cửa sổ, Hoàn thiện UI/UX App Hub & Đa ngôn ngữ (VI / EN)
+- **Mục tiêu:** Giải quyết triệt để xung đột trạng thái toàn cục khi mở nhiều APK đồng thời từ App Hub, đánh bóng giao diện desktop tối và hỗ trợ chuyển đổi ngôn ngữ UI Tiếng Việt / Tiếng Anh.
+- **Hạng mục chính:**
+  1. **Cô lập tiến trình cho từng ứng dụng (`Per-App Child JVM Process`):**
+     - Nâng cấp `AppRepository` / `AppHubWindow` khởi chạy mỗi APK trên một tiến trình con độc lập qua `ProcessBuilder` (gọi `AAOW.exe` / `Main` cùng thư mục `--data-dir`), chấm dứt xung đột các cầu nối `static` (`Toast`, `Dialog`, `PopupWindow`, `ActivityThread`, `LinuxProcFsBridge`, `NativeBridge`, `NativeLibraryManager`), cô lập giới hạn heap RAM và dọn sạch 100% luồng nền khi đóng cửa sổ app.
+     - Giữ cơ chế đồng bộ trạng thái đang chạy / dừng / đưa cửa sổ lên trước giữa App Hub và các tiến trình con.
+  2. **Hoàn thiện UI/UX App Hub & Sửa lỗi hiển thị nhỏ:**
+     - Sửa lỗi glyph `✓` trên nút `"Liên kết .apk"` (dùng icon vẽ vector hoặc nhãn không phụ thuộc ký tự thiếu trong font) và tùy biến thanh cuộn `JScrollPane` nền tối đồng bộ giao diện `#0F111A`.
+     - Thêm tiện ích dọn `dex-cache/` và hiển thị dung lượng dữ liệu riêng của từng app ngay trong App Hub.
+     - Chuẩn hóa mã hóa **UTF-8 with BOM** và thông điệp kết thúc cho `scripts/package-windows.ps1` để không bị lỗi font tiếng Việt trên Windows PowerShell 5.1.
+  3. **Hỗ trợ chuyển đổi ngôn ngữ UI (`VI / EN`):**
+     - Cung cấp tùy chọn ngôn ngữ Tiếng Việt / English cho `AppHubWindow`, `HostWindow`, CLI `--help` và bộ cài `scripts/AaowSetup.cs`.
+- **Tiêu chí nghiệm thu:** Mở đồng thời từ 2 APK trở lên từ App Hub có `Dialog`/`Toast`/RAM hoàn toàn độc lập; App Hub hiển thị mượt với scrollbar tối & chuyển đổi được `VI / EN`; giữ 100% JUnit 5 PASS (0 `SUPER_MISMATCH`).
+
+---
+
+## Sprint 15: Hỗ trợ Split APK (`.xapk` / `.apks`), Material 3 & Tối ưu Ứng dụng Thương mại
+- **Mục tiêu:** Mở khóa cài đặt và chạy trực tiếp các ứng dụng đóng gói dạng Split APK phổ biến từ APKPure/Play Store dump (`.xapk`, `.apks`), cải thiện hiển thị Material 3 và giảm nhiễu log hệ thống.
+- **Hạng mục chính:**
+  1. **Hỗ trợ Split APK & Bundle (`.xapk` / `.apks`):**
+     - Mở rộng `:apk` và `AppRepository` nhận diện, giải nén và gộp logic `base.apk` + các split tài nguyên/ABI (`split_config.*.apk`, `config.arm64_v8a.apk`, `config.xxhdpi.apk`...), cập nhật `ApkCompatibilityScanner`, liên kết tệp trên Windows và kéo-thả trên App Hub.
+  2. **Chặn an toàn `Runtime.exec` lệnh Linux & Hoàn thiện Material 3:**
+     - Bổ sung chuyển hướng ASM/wrapper cho `Runtime.exec` / `ProcessBuilder` khi APK gọi lệnh Linux như `cat /proc/...` hoặc `getprop` trên Windows (tránh log `IOException` ở luồng nền).
+     - Hoàn thiện tô nền/tint `MaterialToolbar`, `MaterialShapeDrawable` và hỗ trợ tốt hơn các bố cục `EdgeToEdge` / `WindowInsets`.
+- **Tiêu chí nghiệm thu:** Cài đặt và chạy thành công tối thiểu 2 gói `.xapk` / `.apks` thực tế qua App Hub; hiển thị `MaterialToolbar` đúng màu chủ đạo của theme.
+
+---
+
+## Sprint 16: Mở rộng Tương thích Thế hệ Mới (Jetpack Compose & Nâng cấp Native JNI/HLE)
+- **Mục tiêu:** Từng bước mở đường cho ứng dụng viết bằng Jetpack Compose và mở rộng tầng thực thi thư viện native `.so` cho các ứng dụng thương mại / tiện ích mới.
+- **Hạng mục chính:**
+  1. **Hạ tầng nền tảng cho Jetpack Compose:**
+     - Khảo sát thực nghiệm các API hệ thống mà `androidx.compose.ui` yêu cầu (`RenderNode`, `HardwareRenderer`/`Canvas` API mới, `Choreographer`, `InputManager`/`KeyEvent`/`MotionEvent`, `ViewConfiguration`, `DisplayList`), dựng cầu nối tối thiểu để render giao diện Compose cơ bản lên `HostWindow`.
+  2. **Mở rộng Native JNI HLE / Thực thi `.so`:**
+     - Mở rộng danh sách HLE cho các thư viện `.so` thông dụng mới phát hiện qua tập kiểm thử và đánh giá tích hợp lớp thực thi mã máy (Unicorn Engine / FEX / shim C++ chọn lọc).
+  3. **Đóng gói phát hành `v2.0.0`:**
+     - Cập nhật bộ cài `AAOW-Setup-2.0.0.exe`, `AAOW-Portable-2.0.0.zip`, tài liệu HDSD EN/VI và nghiệm thu tổng thể Giai đoạn 3.
+- **Tiêu chí nghiệm thu:** Chạy được ứng dụng mẫu hoặc app F-Droid dùng Jetpack Compose cơ bản trên Windows; phát hành mốc `v2.0.0` ổn định.

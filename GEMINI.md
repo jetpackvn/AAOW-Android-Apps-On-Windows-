@@ -26,7 +26,7 @@ Vì dự án lớn không thể làm hết trong một cửa sổ ngữ cảnh (
 
 ---
 
-## 3. Tổng quan Lộ trình Dự án (Giai đoạn 1: Sprint 1–8 & Giai đoạn 2: Sprint 9–13)
+## 3. Tổng quan Lộ trình Dự án (Giai đoạn 1: Sprint 1–8, Giai đoạn 2: Sprint 9–13 & Giai đoạn 3: Sprint 14–16)
 
 Chi tiết từng Sprint xem tại [docs/ROADMAP.md](file:///d:/Project/AAOW%20%28Android%20Apps%20On%20Windows%29/docs/ROADMAP.md).
 
@@ -45,6 +45,9 @@ Chi tiết từng Sprint xem tại [docs/ROADMAP.md](file:///d:/Project/AAOW%20%
 | **Sprint 11** | **Phase C: Non-GMS Online & Media Apps** | Chạy 3 APK có mạng không dùng GMS (`Currency`, `Forecastie` OkHttp3+WilliamChart+Leaflet, `OMWeather/Cirrus` Volley+OSMDroid): `ConnectivityManager` callbacks, `LinkProperties`, `WifiManager`, `TrafficStats`, `NetworkSecurityPolicy`, `httpcore`, `ImageDecoder`/`Glide`/`MediaStore`, `WindowsBrowserBridge`. | ✅ **Đã hoàn thành & Nghiệm thu** |
 | **Sprint 12** | **Phase D1: Hạ tầng GMS Khởi động Sớm, X.509 Cert & AIDL `microG-lite`** | Khởi tạo sớm `FirebaseInitProvider`/`FirebaseApp`, `Process.myProcessName()` & `/proc/<pid>/cmdline` (`LinuxProcFsBridge`), trích xuất chứng chỉ X.509 DER thật v1/v2/v3 (`ApkSignatureExtractor` + `SigningInfo`), hoàn thiện AIDL Binder `microG-lite` (`IAdvertisingIdService`, `IMeasurementService`, `IAnalyticsService`, `IGmsServiceBroker`) & căn chỉnh 4-byte `Parcel` cho `SafeParcel`. | ✅ **Đã hoàn thành & Nghiệm thu** |
 | **Sprint 13** | **Phase D2: Thực chiến Commercial Apps & Native JNI HLE** | Gỡ lỗi dây chuyền `NoSuchMethodError`/`NoSuchFieldError`, reflection `mNativePtr`, mở rộng JNI HLE để đưa APK thương mại (như `com.apkpure.aegon.apk`) vượt Splash vào màn hình chính. | ✅ **Đã hoàn thành & Nghiệm thu** |
+| **Sprint 14** | **Cô lập Tiến trình Đa cửa sổ, UI/UX App Hub & Đa ngôn ngữ VI/EN** | Chạy mỗi APK từ App Hub trên tiến trình con JVM độc lập (`ProcessBuilder`), sửa glyph `✓` & scrollbar tối trên `AppHubWindow`, nút dọn `dex-cache/`, UTF-8 BOM cho `package-windows.ps1`, chuyển đổi UI `VI / EN`. | 🔜 **Kế tiếp (Chưa bắt đầu)** |
+| **Sprint 15** | **Hỗ trợ Split APK (`.xapk`/`.apks`), Material 3 & Tối ưu Commercial** | Giải nén/nạp gói tách (`base.apk` + `split_config.*.apk`), chặn an toàn `Runtime.exec("/proc/...")`/`getprop`, hoàn thiện màu nền `MaterialToolbar`/`MaterialShapeDrawable` & `EdgeToEdge`. | ⬜ **Chưa bắt đầu** |
+| **Sprint 16** | **Mở rộng Thế hệ Mới: Jetpack Compose & Nâng cấp Native `.so`** | Khảo sát & dựng cầu nối runtime cơ bản cho `androidx.compose.ui`, mở rộng JNI HLE / thực thi `.so` cho nhóm ứng dụng mới và phát hành mốc `v2.0.0`. | ⬜ **Chưa bắt đầu** |
 
 ---
 

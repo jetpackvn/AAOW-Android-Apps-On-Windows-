@@ -644,6 +644,45 @@ Khi mở phiên hội thoại mới cho **Sprint 13**, triển khai theo thứ t
 ### 4. Tổng kết Hoàn tất Giai đoạn 2 (Sprint 9–13)
 Hoàn thành trọn vẹn lộ trình Sprint 9–13: từ việc giải quyết triệt để `VerifyError` DEX/R8/Kotlin (Sprint 9), tương tác đầu-cuối 5 ứng dụng Offline (Sprint 10), ứng dụng Non-GMS có mạng & WebView/Map/Chart (Sprint 11), hạ tầng GMS sớm + chứng chỉ X.509 thật + AIDL `microG-lite` (Sprint 12), cho tới đưa APK thương mại lớn `com.apkpure.aegon.apk` vượt qua màn hình Splash để kết xuất giao diện cửa hàng thực tế kèm bộ cài Windows độc lập cập nhật tại Sprint 13.
 
+---
+
+## Mốc Phát hành `v1.0.0` (Hậu Sprint 13 — UX Load APK, Boot Gating, HDSD Song ngữ & GitHub Release)
+**Thời gian hoàn thành:** 21/11/2026  
+**Trạng thái:** ✅ **Đã nghiệm thu, đóng gói & phát hành công khai trên GitHub**
+
+### 1. Các hạng mục đã hoàn thiện
+1. **Hiệu ứng Load APK 60fps & Nạp bất đồng bộ (Không đơ UI):**
+   - [HostWindow.java](../framework/src/main/java/dev/aaow/rt/HostWindow.java): Thêm `BootState` (`LOADING_APK`, `WAITING_FOR_UI`, `BOOTED`, `FAILED`), constructor mở cửa sổ tức thì `HostWindow(String, String, String, Image)`, `showLoadingWindow()`, `updateLoadingProgress(...)`, `attachRuntimeAndLaunch(...)`, `showBootFailure(...)` và lớp phủ đồ họa `drawApkLoadingOverlay(...)` (vòng xoay kép, thanh tiến trình gradient có hiệu ứng shimmer, stepper 4 giai đoạn `APK → DEX → Runtime → UI`, fade-out 240ms).
+   - [DexLoader.java](../launcher/src/main/java/dev/aaow/launcher/DexLoader.java): Thêm overload `loadApkDex(..., progressCallback)` và `ensureDexJar(..., progressCallback)` kèm `makeMonotonic(...)` bảo đảm tiến độ tăng đơn điệu trên `parallelStream()`.
+   - [AppRepository.java](../launcher/src/main/java/dev/aaow/launcher/AppRepository.java) & [Main.java](../launcher/src/main/java/dev/aaow/launcher/Main.java): Chuyển khởi chạy GUI (`launchApp` và `runApk` khi không truyền `--screenshot`) sang luồng nền daemon, giữ nguyên luồng đồng bộ cho CLI `--screenshot`.
+   - [AppHubWindow.java](../launcher/src/main/java/dev/aaow/launcher/AppHubWindow.java): Thêm thanh tiến trình cài đặt `InstallLoadingBanner` (60fps + shimmer) cho kéo-thả / `+ Cài đặt APK...` / `Nạp bộ APK` trên `SwingWorker`, trạng thái thẻ `◌ ĐANG TẢI...` (`Xem cửa sổ tải` / `Hủy`), và sửa `renderScreenshot(...)` chạy an toàn trên EDT kèm tự động tạo thư mục cha.
+2. **Chặn Màn hình Thiếu Tài nguyên Trước Khi Thực sự Boot Vào App:**
+   - Gỡ bỏ cơ chế tự động chèn `buildDiagnosticFallbackView(...)` trong `HostWindow.startActivityForResult(...)`. Khi `Activity` khởi đầu chưa có nội dung (`hasRealAppContent(top) == false`, như `SplashActivity` chờ bất đồng bộ), giữ `BootState.WAITING_FOR_UI` trên màn hình tải thay vì hiện "Báo cáo Tương thích AAOW".
+   - Chỉ khi `FAILED` hoặc chờ quá 10 giây, người dùng mới thấy tùy chọn chủ động bấm `Xem Báo cáo Tương thích` / `Xem chẩn đoán` (`openDiagnosticsManually()`).
+3. **Tài liệu Hướng dẫn Sử dụng Song ngữ (EN / VI):**
+   - Tạo mới [README.md](../README.md), [USER_GUIDE_EN.md](USER_GUIDE_EN.md) và [USER_GUIDE_VI.md](USER_GUIDE_VI.md).
+   - Cập nhật [.gitignore](../.gitignore) bỏ qua `.vscode/`.
+4. **Kiểm thử, Đóng gói & Phát hành GitHub `v1.0.0`:**
+   - Viết mới [ApkLoadingAndBootUiTest.java](../launcher/src/test/java/dev/aaow/launcher/ApkLoadingAndBootUiTest.java) (4 bài test).
+   - `.\gradlew.bat test --rerun-tasks --console=plain`: **64/64 tests PASS** trên 14 bộ kiểm thử (`0 failures`, `0 errors`, `0 skipped`, giữ **0 `SUPER_MISMATCH`** trên `FrameworkHierarchyTest`).
+   - Đẩy mã nguồn & tag `v1.0.0` lên `https://github.com/jetpackvn/AAOW-Android-Apps-On-Windows-` (commit `ded2758`), đóng gói lại bằng `scripts/package-windows.ps1` và phát hành công khai tại **GitHub Release `v1.0.0`** (`https://github.com/jetpackvn/AAOW-Android-Apps-On-Windows-/releases/tag/v1.0.0`):
+     - `AAOW-Setup-1.0.0.exe`: `105.333.760` bytes (`SHA-256: 19ca012dca563fb46da2b996574d309aa6b3712d74101eb406488356201df149`)
+     - `AAOW-Portable-1.0.0.zip`: `105.185.036` bytes (`SHA-256: ea3b4713d6b467d883f9b624720a0c9f88615f61030d11c6fef503dec91a9bea`)
+
+---
+
+## 🎯 Chuẩn bị cho Sprint 14 (Giai đoạn 3 — Mở ở chat mới)
+Khi bắt đầu phiên hội thoại mới cho **Sprint 14 (Cô lập Tiến trình Đa cửa sổ, Hoàn thiện UI/UX App Hub & Đa ngôn ngữ VI / EN)**, triển khai theo thứ tự sau:
+1. **Bước 14.1 — Cô lập tiến trình cho mỗi ứng dụng mở từ `AppRepository` / `AppHubWindow`:**
+   - Thay vì khởi chạy mọi APK trong cùng 1 JVM (gây đụng độ `Toast`/`Dialog`/`PopupWindow` static bridge, `ActivityThread`, `LinuxProcFsBridge`, `NativeBridge`), cho `AppRepository.launchApp(...)` khởi động tiến trình con độc lập (`ProcessBuilder` gọi launcher hiện tại với `--data-dir` và package/APK tương ứng), theo dõi trạng thái sống/dừng của tiến trình con để cập nhật thẻ trên `AppHubWindow` (và hỗ trợ nút Dừng / `destroyForcibly` sạch sẽ).
+2. **Bước 14.2 — Đánh bóng giao diện App Hub & PowerShell script:**
+   - Thay ký tự `✓` bị lỗi font ô vuông trên nút `Liên kết .apk` của `AppHubWindow` bằng icon vẽ vector hoặc text chuẩn; tùy biến `BasicScrollBarUI` tối đồng bộ nền `#0F111A`; bổ sung nút dọn `dex-cache/` và thống kê dung lượng dữ liệu app.
+   - Lưu `scripts/package-windows.ps1` với UTF-8 BOM và sửa log cuối thành phiên bản động thay cho chữ `SPRINT 8`.
+3. **Bước 14.3 — Hỗ trợ chuyển ngôn ngữ UI (`VI / EN`):**
+   - Tạo lớp tài nguyên chuỗi song ngữ dùng chung cho `AppHubWindow`, `HostWindow` (toolbar/menu/màn hình loading/báo cáo), CLI `--help` và `scripts/AaowSetup.cs`.
+4. **Bước 14.4 — Kiểm thử & Nghiệm thu Sprint 14:**
+   - Viết `Sprint14FrameworkTest` kiểm chứng cô lập tiến trình con + chuyển đổi ngôn ngữ + không hồi quy bộ 64 test cũ, cập nhật `SPRINT_LOG.md`, `ROADMAP.md`, `GEMINI.md` và commit Git sạch sẽ.
+
 
 
 

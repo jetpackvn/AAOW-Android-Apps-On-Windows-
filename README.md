@@ -10,7 +10,7 @@
 
 - 🇬🇧 **[English User Guide](docs/USER_GUIDE_EN.md)** — Installation, AAOW App Hub, window controls, CLI reference, compatibility & troubleshooting.
 - 🇻🇳 **[Hướng dẫn Sử dụng Tiếng Việt](docs/USER_GUIDE_VI.md)** — Cài đặt, sử dụng AAOW App Hub, phím tắt cửa sổ, lệnh CLI, khả năng tương thích & xử lý lỗi.
-- 🗺️ **[Project Roadmap (VI)](docs/ROADMAP.md)** — Full 13-sprint roadmap (Phase 1 Foundation & Packaging, Phase 2 Real-World APKs).
+- 🗺️ **[Project Roadmap (VI)](docs/ROADMAP.md)** — Complete Phase 1–2 roadmap (Sprints 1–13) and upcoming Phase 3 plan (Sprints 14–16).
 - 📋 **[Sprint Acceptance Log (VI)](docs/SPRINT_LOG.md)** — Detailed verification metrics, benchmark results, and honest limitations for every sprint.
 - 🏛️ **[Architecture Spike](docs/ARCHITECTURE_SPIKE.md)** & **[Native ABI Spike](docs/NATIVE_ABI_SPIKE.md)**.
 
